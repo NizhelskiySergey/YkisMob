@@ -1,0 +1,77 @@
+# --- Build & Gradle ---
+.gradle/
+.kotlin
+build/
+/*/build/
+**/build/
+!src/**/build/
+bin/
+gen/
+out/
+xcuserdata
+local.properties
+
+# --- IDE (IntelliJ / Android Studio) ---
+.idea/
+*.iml
+*.iws
+*.ipr
+.fleet/
+.externalNativeBuild/
+.cxx/
+captures/
+*.hprof
+
+# --- iOS & macOS ---
+.DS_Store
+**/iosApp/DerivedData/
+**/iosApp/xcuserdata/
+**/iosApp/.swiftpm/
+**/iosApp/Packages/
+**/iosApp/build/
+**/iosApp/Carthage/Build/
+**/iosApp/fastlane/report.xml
+**/iosApp/fastlane/Preview.html
+**/iosApp/fastlane/screenshots
+**/iosApp/fastlane/test_output
+.externalNativeBuild
+.cxx
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+!*.xcworkspace/contents.xcworkspacedata
+**/xcshareddata/WorkspaceSettings.xcsettings
+node_modules/
+# CocoaPods (если используется)
+**/iosApp/Pods/
+!**/iosApp/Podfile
+!**/iosApp/Podfile.lock
+
+
+# --- iOS General ---
+**/DerivedData/
+**/xcuserdata/
+*.xcworkspace
+
+
+# Игнорируем сгенерированный .podspec в shared-модуле (если используете интеграцию через Gradle)
+**/shared/*.podspec
+
+
+# --- Swift Package Manager (SPM) ---
+.build/
+# Package.resolved обычно оставляют, чтобы зафиксировать версии зависимостей
+!**/iosApp/Package.resolved
+
+# --- Android Specific ---
+*.keystore
+!debug.keystore
+google-services.json
+
+
+# --- Secrets ---
+*.gpg
+secrets.kt # Если вы генерируете файлы с ключами
+/YkisMobileRest/sql/config.php
+
