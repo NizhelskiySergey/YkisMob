@@ -9,6 +9,7 @@ plugins {
   alias(libs.plugins.androidMultiplatformLibrary) apply false
   alias(libs.plugins.composeHotReload) apply false
   alias(libs.plugins.googleServices) apply false
+//  alias(libs.plugins.ksp) apply false
 //  alias(libs.plugins.perf) apply false
 
 
