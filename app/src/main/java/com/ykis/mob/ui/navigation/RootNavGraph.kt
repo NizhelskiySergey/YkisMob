@@ -1,15 +1,19 @@
 package com.ykis.mob.ui.navigation
 
 import android.util.Log
+import android.net.Uri
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -17,7 +21,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -28,8 +31,13 @@ import com.ykis.mob.domain.UserRole
 import com.ykis.mob.ui.rememberAppState
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.SignUpViewModel
+import com.ykis.mob.ui.screens.chat.CameraScreen
+import com.ykis.mob.ui.screens.chat.ChatScreen
 import com.ykis.mob.ui.screens.chat.ChatViewModel
+import com.ykis.mob.ui.screens.chat.ImageDetailScreen
+import com.ykis.mob.ui.screens.chat.SendImageScreen
 import com.ykis.mob.ui.screens.service.payment.choice.WebView
+import org.koin.compose.viewmodel.koinViewModel
 
 object Graph {
     const val AUTHENTICATION = "auth_graph"
@@ -39,9 +47,9 @@ object Graph {
 fun RootNavGraph(
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
-    chatViewModel : ChatViewModel = hiltViewModel(),
-    apartmentViewModel : ApartmentViewModel = hiltViewModel(),
-    signUpViewModel: SignUpViewModel = hiltViewModel(),
+    chatViewModel : ChatViewModel = koinViewModel(),
+    apartmentViewModel : ApartmentViewModel = koinViewModel(),
+    signUpViewModel: SignUpViewModel = koinViewModel(),
     contentType: ContentType,
     displayFeatures: List<DisplayFeature>,
     navigationType: NavigationType,
@@ -70,8 +78,9 @@ fun RootNavGraph(
 //    val firstScreen = remember(baseUIState.userRole) {
 //        apartmentViewModel.
 //    }
-    Scaffold (
-        snackbarHost = {
+    Scaffold(
+  containerColor = MaterialTheme.colorScheme.surfaceContainer,
+  snackbarHost = {
             SnackbarHost(
                 modifier = padding,
                 hostState = appState.snackbarHostState,
@@ -85,7 +94,8 @@ fun RootNavGraph(
     ){ paddingValues ->
         NavHost(
             modifier = modifier
-//                .padding(paddingValues = paddingValues)
+              .fillMaxSize()
+                .padding(paddingValues = paddingValues)
             ,
             navController = navController,
             startDestination = apartmentViewModel.onAppStart(),
@@ -106,25 +116,6 @@ fun RootNavGraph(
                 ExitTransition.None
             }
         ) {
-//            composable(
-//                route = LaunchScreen.route,
-//                enterTransition = {
-//                    fadeIn()
-//                },
-//                exitTransition = {
-//                    fadeOut()
-//                },
-//                popEnterTransition = {
-//                    fadeIn()
-//                },
-//                popExitTransition = {
-//                    fadeOut()
-//                }) {
-//                LaunchScreen(
-//                    restartApp = { route -> navController.navigate(route) },
-//                    viewModel = apartmentViewModel
-//                )
-//            }
 
             authNavGraph(
                 navController,
@@ -179,77 +170,87 @@ fun RootNavGraph(
                 )
             }
             composable(ChatScreen.route){
-                com.ykis.mob.ui.screens.chat.ChatScreen(
-                    userEntity = selectedUser,
-                    navigateBack = {
-                        navController.navigateUp()
-                    },
-                    chatViewModel = chatViewModel,
-                    baseUIState = baseUIState,
-                    navigateToSendImageScreen = {
-                        navController.navigate(SendImageScreen.route)
-                    },
-                    chatUid = chatUid,
-                    navigateToCameraScreen = {
-                        navController.navigate(CameraScreen.route)
-                    },
-                    navigateToImageDetailScreen = {
-                        chatViewModel.setSelectedMessage(it)
-                        navController.navigate(ImageDetailScreen.route)
-                    }
-                )
+              ChatScreen(
+                  userEntity = selectedUser,
+                  navigateBack = {
+                      navController.navigateUp()
+                  },
+                  chatViewModel = chatViewModel,
+                  baseUIState = baseUIState,
+                  navigateToSendImageScreen = {
+                      navController.navigate(SendImageScreen.route)
+                  },
+                  chatUid = chatUid,
+                  navigateToCameraScreen = {
+                      navController.navigate(CameraScreen.route)
+                  },
+                  navigateToImageDetailScreen = {
+                      chatViewModel.setSelectedMessage(it)
+                      navController.navigate(ImageDetailScreen.route)
+                  }
+              )
             }
 
-            composable(SendImageScreen.route){
-                val messageText by chatViewModel.messageText.collectAsStateWithLifecycle()
-                val isLoadingAfterSending by chatViewModel.isLoadingAfterSending.collectAsStateWithLifecycle()
+          composable(SendImageScreen.route) {
+            val messageText by chatViewModel.messageText.collectAsStateWithLifecycle()
+            val isLoadingAfterSending by chatViewModel.isLoadingAfterSending.collectAsStateWithLifecycle()
+            val context = androidx.compose.ui.platform.LocalContext.current
 
-                com.ykis.mob.ui.screens.chat.SendImageScreen(
-                    imageUri = selectedImageUri,
-                    messageText = messageText,
-                    onMessageTextChanged = {
-                        chatViewModel.onMessageTextChanged(it)
-                    },
-                    navigateBack = {
-                        navController.navigateUp()
-                    },
-                    onSent = {
-                        chatViewModel.uploadPhotoAndSendMessage(
-                              chatUid = chatUid,
-                              senderUid = baseUIState.uid.toString(),
-                              senderDisplayedName = if (baseUIState.displayName.isNullOrEmpty()) baseUIState.email.toString() else baseUIState.displayName.toString(),
-                              senderLogoUrl = baseUIState.photoUrl,
-                              role = baseUIState.userRole,
-                              senderAddress = if(baseUIState.userRole == UserRole.StandardUser) baseUIState.address else "",
-                              onComplete = {
-                                  navController.navigate(ChatScreen.route){
-                                      popUpTo(ChatScreen.route){
-                                          inclusive = true
-                                      }
-                                  }
-                              },
-                            osbbId = baseUIState.osmdId,
-                            // TODO: remove empty list 
-                            recipientTokens = emptyList()
-                          )
-                    },
-                    isLoadingAfterSending = isLoadingAfterSending
-                )
+            LaunchedEffect(Unit) {
+              if (selectedImageUri != Uri.EMPTY) {
+                chatViewModel.analyzePhotoWithGemini(selectedImageUri, context)
+              }
             }
-            composable(CameraScreen.route){
-                com.ykis.mob.ui.screens.chat.CameraScreen(
-                    navController = navController,
-                    setImageUri = {
-                        chatViewModel.setSelectedImageUri(it)
+
+            SendImageScreen(
+              imageUri = selectedImageUri,
+              messageText = messageText,
+              onMessageTextChanged = {
+                chatViewModel.onMessageTextChanged(it)
+              },
+              navigateBack = {
+                navController.navigateUp()
+              },
+              onSent = {
+                chatViewModel.uploadPhotoAndSendMessage(
+                  context = context,
+                  chatUid = chatUid,
+                  senderUid = baseUIState.uid.toString(),
+                  senderDisplayedName = if (baseUIState.displayName.isNullOrEmpty())
+                    baseUIState.email.toString() else baseUIState.displayName.toString(),
+                  senderLogoUrl = baseUIState.photoUrl,
+                  role = baseUIState.userRole,
+                  senderAddress = if (baseUIState.userRole == UserRole.StandardUser)
+                    baseUIState.address ?: "" else "",
+                  osbbId = if (baseUIState.userRole == UserRole.OsbbUser)
+                    baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId,
+                  recipientTokens = emptyList(),
+                  onComplete = {
+                    navController.navigate(ChatScreen.route) {
+                      popUpTo(ChatScreen.route) { inclusive = true }
                     }
+                  }
                 )
+              },
+              isLoadingAfterSending = isLoadingAfterSending,
+              chatViewModel = chatViewModel
+            )
+          }
+
+          composable(CameraScreen.route){
+              CameraScreen(
+                  navController = navController,
+                  setImageUri = {
+                      chatViewModel.setSelectedImageUri(it)
+                  }
+              )
             }
             composable(ImageDetailScreen.route){
                 val selectedMessage by chatViewModel.selectedMessage.collectAsStateWithLifecycle()
-                com.ykis.mob.ui.screens.chat.ImageDetailScreen(
-                    navigateUp = {navController.navigateUp()},
-                    messageEntity = selectedMessage
-                )
+              ImageDetailScreen(
+                  navigateUp = {navController.navigateUp()},
+                  messageEntity = selectedMessage
+              )
             }
         }
     }

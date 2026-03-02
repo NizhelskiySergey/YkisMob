@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Group
@@ -26,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LeadingIconTab
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
@@ -58,134 +60,133 @@ import com.ykis.mob.ui.screens.family.FamilyContent
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InfoApartmentScreen(
-    modifier: Modifier = Modifier,
-    contentType: ContentType,
-    displayFeatures: List<DisplayFeature>,
-    baseUIState: BaseUIState,
-    apartmentViewModel: ApartmentViewModel,
-    appState: YkisPamAppState,
-    deleteApartment: () -> Unit,
-    onDrawerClicked: () -> Unit,
-    navigationType: NavigationType,
+  modifier: Modifier = Modifier,
+  contentType: ContentType,
+  displayFeatures: List<DisplayFeature>,
+  baseUIState: BaseUIState,
+  apartmentViewModel: ApartmentViewModel,
+  appState: YkisPamAppState,
+  deleteApartment: () -> Unit,
+  onDrawerClicked: () -> Unit,
+  navigationType: NavigationType,
 ) {
-    var selectedTab by rememberSaveable {
-        mutableIntStateOf(0)
-    }
+  var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+  var showWarningDialog by remember { mutableStateOf(false) }
 
-    var showWarningDialog by remember { mutableStateOf(false) }
-    LaunchedEffect(key1 = true) {
-        Log.d("get_role_test" , "launched")
-        apartmentViewModel.getUserRole()
+  // Удаление квартиры - Dialog
+  if (showWarningDialog) {
+    AlertDialog(
+      onDismissRequest = { showWarningDialog = false },
+      containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(12.dp), // Чуть меньше для M3 стандарта
+      title = { Text(stringResource(R.string.title_delete_appartment)) },
+      dismissButton = { DialogCancelButton(R.string.cancel) { showWarningDialog = false } },
+      confirmButton = {
+        DialogConfirmButton(R.string.title_delete_appartment) {
+          deleteApartment()
+          showWarningDialog = false
+        }
+      }
+    )
+  }
+
+  // Логика загрузки данных (ваша исправленная)
+  LaunchedEffect(baseUIState.addressId, baseUIState.apartments) {
+    val targetId = when {
+      baseUIState.addressId != 0 -> baseUIState.addressId
+      baseUIState.apartments.isNotEmpty() -> baseUIState.apartments.firstOrNull()?.addressId
+      else -> null
     }
-    if (showWarningDialog) {
-        AlertDialog(
-            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(48.dp),
-            title = { Text(stringResource(R.string.title_delete_appartment)) },
-            dismissButton = { DialogCancelButton(R.string.cancel) { showWarningDialog = false } },
-            confirmButton = {
-                DialogConfirmButton(R.string.title_delete_appartment) {
-                    deleteApartment()
-                    showWarningDialog = false
-                }
+    targetId?.let { apartmentViewModel.getApartment(it) }
+  }
+
+  Column(
+    modifier = Modifier.fillMaxSize(),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    DefaultAppBar(
+      title = baseUIState.address,
+      canNavigateBack = false,
+      onDrawerClick = { onDrawerClicked() },
+      navigationType = navigationType,
+      actionButton = {
+        IconButton(onClick = { showWarningDialog = true }) {
+          Icon(
+            imageVector = Icons.Default.Delete,
+            contentDescription = stringResource(id = R.string.delete_appartment),
+            tint = MaterialTheme.colorScheme.error // Изменил на Error для опасного действия
+          )
+        }
+      }
+    )
+
+    if (contentType == ContentType.DUAL_PANE) {
+      InfoScreenDualPanelContent(
+        appState = appState,
+        baseUIState = baseUIState,
+        displayFeatures = displayFeatures,
+        apartmentViewModel = apartmentViewModel
+      )
+    } else {
+      // ТАБЫ: Добавил Elevation и Shape
+      PrimaryTabRow(
+        selectedTabIndex = selectedTab,
+        containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+        divider = {}, // Убираем стандартную линию для "чистоты"
+        indicator = {
+          TabRowDefaults.PrimaryIndicator(
+            modifier = Modifier.tabIndicatorOffset(selectedTab),
+            shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp), // Более выраженное скругление
+            width = 48.dp // Фиксированная ширина индикатора
+          )
+        }
+      ) {
+        INFO_APARTMENT_TAB_ITEM.forEachIndexed { index, tabItem ->
+          LeadingIconTab(
+            selected = selectedTab == index,
+            onClick = { selectedTab = index },
+            text = {
+              Text(
+                text = stringResource(tabItem.titleId),
+                style = MaterialTheme.typography.labelLarge
+              )
             },
-            onDismissRequest = { showWarningDialog = false }
-        )
-
-
-    }
-    LaunchedEffect(key1 = baseUIState.addressId) {
-        if (baseUIState.addressId == 0) {
-            Log.d("debug_test1", "baseUIState.addressId == 0")
-            apartmentViewModel.getApartment(baseUIState.apartments.first().addressId)
-        } else {
-            Log.d("debug_test1", "else")
-            apartmentViewModel.getApartment(baseUIState.addressId)
+            icon = {
+              Icon(
+                imageVector = if (index == selectedTab) tabItem.selectedIcon else tabItem.unselectedIcon,
+                contentDescription = null
+              )
+            },
+            selectedContentColor = MaterialTheme.colorScheme.primary,
+            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+          )
         }
-    }
+      }
 
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        DefaultAppBar(
-            title = baseUIState.address,
-            canNavigateBack = false,
-            onDrawerClick = { onDrawerClicked() },
-            navigationType = navigationType,
-            actionButton = {
-                IconButton(
-                    onClick = {
-                        showWarningDialog = true
-                    },
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = stringResource(id = R.string.delete_appartment),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        )
-        if (contentType == ContentType.DUAL_PANE) {
-            InfoScreenDualPanelContent(
-                appState = appState,
-                baseUIState = baseUIState,
-                displayFeatures = displayFeatures,
-                apartmentViewModel = apartmentViewModel
-            )
-        } else {
-            PrimaryTabRow(
-                selectedTabIndex = selectedTab,
-                containerColor = MaterialTheme.colorScheme.background
-            ) {
-                INFO_APARTMENT_TAB_ITEM.forEachIndexed { index, tabItem ->
-                    LeadingIconTab(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        text = {
-                            Text(text = stringResource(tabItem.titleId))
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = if (index == selectedTab) tabItem.selectedIcon else tabItem.unselectedIcon,
-                                contentDescription = stringResource(tabItem.titleId)
-                            )
-                        }
-                    )
-
-                }
-            }
-
-            Box(
-                modifier = modifier.fillMaxSize(),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                AnimatedContent(
-                    targetState = selectedTab,
-                    transitionSpec = {
-                        fadeIn(
-                            animationSpec = tween(600, easing = EaseIn)
-                        ).togetherWith(
-                            fadeOut(
-                                animationSpec = tween(600, easing = EaseOut)
-                            )
-                        )
-                    },
-                    label = "",
-                ) { targetState ->
-                    when (targetState) {
-                        0 -> BtiPanelContent(
-                            baseUIState = baseUIState, viewModel = apartmentViewModel
-                        )
-
-                        else -> FamilyContent(baseUIState = baseUIState)
-                    }
-                }
-            }
+      // КОНТЕНТ: Плавная смена вкладок
+      Box(
+        modifier = modifier
+          .fillMaxSize()
+          .padding(top = 8.dp),
+        contentAlignment = Alignment.TopCenter
+      ) {
+        AnimatedContent(
+          targetState = selectedTab,
+          transitionSpec = {
+            fadeIn(animationSpec = tween(400, easing = EaseIn))
+              .togetherWith(fadeOut(animationSpec = tween(400, easing = EaseOut)))
+          },
+          label = "TabAnimation",
+        ) { targetState ->
+          when (targetState) {
+            0 -> BtiPanelContent(baseUIState = baseUIState, viewModel = apartmentViewModel)
+            else -> FamilyContent(baseUIState = baseUIState)
+          }
         }
-
+      }
     }
+  }
 }
+
 
 @Composable
 fun InfoScreenDualPanelContent(

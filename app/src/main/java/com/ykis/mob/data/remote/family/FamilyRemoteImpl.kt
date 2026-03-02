@@ -4,11 +4,8 @@ import com.ykis.mob.data.remote.api.ApiService
 import com.ykis.mob.domain.family.FamilyEntity
 import com.ykis.mob.domain.family.request.FamilyParams
 import retrofit2.await
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class FamilyRemoteImpl @Inject constructor(
+class FamilyRemoteImpl (
     private val apiService: ApiService
 ) : FamilyRemote {
 

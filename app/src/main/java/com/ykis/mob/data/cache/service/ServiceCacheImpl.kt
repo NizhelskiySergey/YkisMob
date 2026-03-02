@@ -2,11 +2,8 @@ package com.ykis.mob.data.cache.service
 
 import com.ykis.mob.data.cache.dao.ServiceDao
 import com.ykis.mob.domain.service.ServiceEntity
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ServiceCacheImpl @Inject constructor(
+class ServiceCacheImpl (
     private val serviceDao: ServiceDao
 ) : ServiceCache {
     override fun addService(service: List<ServiceEntity>) {

@@ -8,7 +8,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.layout.DisplayFeature
 import com.ykis.mob.ui.BaseUIState
@@ -19,11 +18,12 @@ import com.ykis.mob.ui.navigation.ContentType
 import com.ykis.mob.ui.navigation.NavigationType
 import com.ykis.mob.ui.screens.service.list.ServiceListScreen
 import com.ykis.mob.ui.screens.service.list.TotalDebtState
+import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 fun MainServiceScreen(
     modifier: Modifier = Modifier,
-    viewModel : ServiceViewModel = hiltViewModel(),
+    viewModel : ServiceViewModel = koinViewModel(),
     baseUIState: BaseUIState,
     navigationType: NavigationType,
     displayFeature: List<DisplayFeature>,

@@ -1,317 +1,286 @@
 package com.ykis.mob.firebase.service.impl
 
+import android.content.Context
 import android.util.Log
-import com.google.android.gms.auth.api.identity.BeginSignInRequest
-import com.google.android.gms.auth.api.identity.SignInClient
-import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import androidx.compose.ui.util.trace
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.EmailAuthProvider
-import com.google.firebase.auth.EmailAuthProvider.PROVIDER_ID
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.firestore.FieldValue.serverTimestamp
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.getField
-import com.ykis.mob.core.Constants.CREATED_AT
-import com.ykis.mob.core.Constants.DISPLAY_NAME
-import com.ykis.mob.core.Constants.EMAIL
-import com.ykis.mob.core.Constants.OSBB_ROLE_ID
-import com.ykis.mob.core.Constants.PHOTO_URL
-import com.ykis.mob.core.Constants.ROLE
-import com.ykis.mob.core.Constants.SIGN_IN_REQUEST
-import com.ykis.mob.core.Constants.SIGN_UP_REQUEST
-import com.ykis.mob.core.Constants.USERS
+import com.ykis.mob.R
 import com.ykis.mob.core.Resource
-import com.ykis.mob.core.trace
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.firebase.service.repo.AuthStateResponse
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.firebase.service.repo.OneTapSignInResponse
 import com.ykis.mob.firebase.service.repo.ReloadUserResponse
 import com.ykis.mob.firebase.service.repo.SendEmailVerificationResponse
 import com.ykis.mob.firebase.service.repo.SendPasswordResetEmailResponse
+import com.ykis.mob.firebase.service.repo.SignInResponse
 import com.ykis.mob.firebase.service.repo.SignInWithGoogleResponse
 import com.ykis.mob.firebase.service.repo.SignUpResponse
 import com.ykis.mob.firebase.service.repo.addUserFirestoreResponse
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
-import javax.inject.Inject
-import javax.inject.Named
-import javax.inject.Singleton
+import kotlinx.coroutines.withContext
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
+class FirebaseServiceImpl(
+  private val context: Context,
+) : FirebaseService, KoinComponent {
+  private val auth: FirebaseAuth by inject()
+  private val db: FirebaseFirestore by inject()
 
-@Singleton
-class FirebaseServiceImpl @Inject constructor(
-    private val auth: FirebaseAuth,
-    private var oneTapClient: SignInClient,
-    private var signInClient: GoogleSignInClient,
-    @Named(SIGN_IN_REQUEST)
-    private var signInRequest: BeginSignInRequest,
-    @Named(SIGN_UP_REQUEST)
-    private var signUpRequest: BeginSignInRequest,
-    private val db: FirebaseFirestore
-) : FirebaseService {
+  private val credentialManager = CredentialManager.create(context)
 
-    override val isUserAuthenticatedInFirebase = auth.currentUser != null
+  // --- Свойства пользователя ---
+  override val isUserAuthenticatedInFirebase: Boolean get() = auth.currentUser != null
+  override val uid: String get() = auth.currentUser?.uid ?: ""
+  override val hasUser: Boolean get() = auth.currentUser != null
+  override val isEmailVerified: Boolean get() = auth.currentUser?.isEmailVerified ?: false
+  override val currentUser: FirebaseUser? get() = auth.currentUser
+  override val displayName: String get() = auth.currentUser?.displayName ?: ""
+  override val email: String get() = auth.currentUser?.email ?: ""
+  override val photoUrl: String get() = auth.currentUser?.photoUrl?.toString() ?: ""
+  override val providerId: String get() = auth.currentUser?.providerData?.getOrNull(1)?.providerId ?: ""
 
-    override val hasUser: Boolean
-        get() = auth.currentUser != null
+  // --- Авторизация (Email/Password) ---
+  override suspend fun firebaseSignInWithEmailAndPassword(email: String, password: String) {
+    withContext(Dispatchers.IO) {
+      auth.signInWithEmailAndPassword(email, password).await()
+    }
+  }
+  override suspend fun firebaseSignUpWithEmailAndPassword(
+    email: String,
+    password: String
+  ): SignUpResponse = withContext(Dispatchers.IO) {
+    try {
+      // 1. Создаем пользователя
+      val authResult = auth.createUserWithEmailAndPassword(email, password).await()
+      val user = authResult.user
 
-    override val isEmailVerified: Boolean
-        get() = auth.currentUser?.isEmailVerified != null
+      if (user != null) {
+        // 2. Создаем профиль в Firestore и ЖДЕМ результата
+        val dbResult = addUserFirestore()
 
-    override val uid = auth.currentUser?.uid.toString()
-    override val displayName = auth.currentUser?.displayName.toString()
-    override val photoUrl = auth.currentUser?.photoUrl.toString()
-    override val email = auth.currentUser?.email.toString()
-    override val providerId = auth.currentUser?.providerId.toString()
-
-
-    override val currentUser get() = auth.currentUser
-
-    override fun getAuthState(viewModelScope: CoroutineScope) = callbackFlow {
-        val authStateListener = FirebaseAuth.AuthStateListener { auth ->
-            trySend(auth.currentUser == null)
+        if (dbResult is Resource.Error) {
+          // Если база не ответила, уведомляем об ошибке (хотя аккаунт в Auth уже есть)
+          return@withContext Resource.Error("Акаунт створено, але не вдалося зберегти профіль: ${dbResult.resourceMessage}")
         }
-        auth.addAuthStateListener(authStateListener)
-        awaitClose {
-            auth.removeAuthStateListener(authStateListener)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), auth.currentUser == null)
 
-    override suspend fun getUserRole() : UserRole {
-        val response = db.collection(USERS).document(auth.currentUser?.uid.toString()).get().await().getField<Any?>(
-            ROLE
-        )
-       return when(response){
-           UserRole.StandardUser.codeName->UserRole.StandardUser
-           UserRole.VodokanalUser.codeName -> UserRole.VodokanalUser
-           UserRole.YtkeUser.codeName -> UserRole.YtkeUser
-           UserRole.TboUser.codeName -> UserRole.TboUser
-           else -> UserRole.OsbbUser
-       }
+        // 3. Отправляем письмо
+        user.sendEmailVerification().await()
+
+        Resource.Success(true)
+      } else {
+        Resource.Error("Не вдалося отримати дані користувача")
+      }
+    } catch (e: Exception) {
+      Resource.Error(e.localizedMessage ?: "Помилка реєстрації")
     }
+  }
 
-    override suspend fun getOsbbRoleId(): Int? {
-        val response = db.collection(USERS).document(auth.currentUser?.uid.toString()).get().await().getField<Any?>(
-            OSBB_ROLE_ID
-        )
-        val returnResponse = when(response){
-            is Long -> response
-            else -> null
-        }
-        Log.d("osbb_test" , "return: $returnResponse")
-        return returnResponse?.toInt()
+
+
+
+  // Вход через Google (Credential Manager)
+  override suspend fun oneTapSignInWithGoogle(context: Context): OneTapSignInResponse = try {
+    val credentialManager = CredentialManager.create(context)
+
+    val googleIdOption = GetGoogleIdOption.Builder()
+      .setFilterByAuthorizedAccounts(false)
+      .setServerClientId(context.getString(R.string.web_client_id))
+      .setAutoSelectEnabled(true)
+      .build()
+
+    val request = GetCredentialRequest.Builder()
+      .addCredentialOption(googleIdOption)
+      .build()
+
+    // Вызов системного диалога (suspend)
+    val result = credentialManager.getCredential(context = context, request = request)
+
+    Resource.Success(result)
+  } catch (e: GetCredentialException) {
+    Resource.Error(e.message ?: "Credential Manager Error")
+  } catch (e: Exception) {
+    Resource.Error(e.localizedMessage ?: "Unknown Error")
+  }
+
+
+  override fun signOut(): Flow<Resource<Boolean>> = flow {
+    emit(Resource.Loading())
+    try {
+      auth.signOut()
+      // Очищаем состояние Credential Manager
+      credentialManager.clearCredentialState(ClearCredentialStateRequest())
+      emit(Resource.Success(true))
+    } catch (e: Exception) {
+      emit(Resource.Error(e.localizedMessage ?: "Google Sign-In failed"))
     }
+  }.flowOn(Dispatchers.IO)
 
-    override suspend fun getUid(): String {
-        return auth.currentUser?.uid.toString()
+
+  override suspend fun firebaseSignInWithGoogle(googleCredential: AuthCredential): SignInWithGoogleResponse = try {
+    withContext(Dispatchers.IO) {
+      auth.signInWithCredential(googleCredential).await()
+      Resource.Success(true)
     }
+  } catch (e: Exception) {
+    Resource.Error(e.localizedMessage ?: "Firebase Google Auth failed")
+  }
 
-    override suspend fun getEmail(): String {
-        return auth.currentUser?.email.toString()
+
+  override fun revokeAccess(): Flow<Resource<Boolean>> = flow {
+    emit(Resource.Loading())
+    try {
+      // 1. Удаляем пользователя из Firebase Auth
+      auth.currentUser?.delete()?.await()
+
+      // 2. Очищаем состояние Credential Manager (вместо oneTapClient.signOut)
+      val credentialManager = CredentialManager.create(context)
+      credentialManager.clearCredentialState(androidx.credentials.ClearCredentialStateRequest())
+
+      emit(Resource.Success(true))
+    } catch (e: Exception) {
+      emit(Resource.Error(e.localizedMessage ?: "Помилка видалення аккаунту"))
     }
+  }.flowOn(Dispatchers.IO)
 
-    override suspend fun getDisplayName(): String {
-        return auth.currentUser?.displayName.toString()
+  override fun revokeAccessEmail(): Flow<Resource<Boolean>> = revokeAccess()
+
+  override suspend fun sendEmailVerification(): SendEmailVerificationResponse = try {
+    auth.currentUser?.sendEmailVerification()?.await()
+    Resource.Success(true)
+  } catch (e: Exception) {
+    Resource.Error(e.localizedMessage ?: "Verification failed")
+  }
+
+  override suspend fun sendPasswordResetEmail(email: String): SendPasswordResetEmailResponse = try {
+    auth.sendPasswordResetEmail(email).await()
+    Resource.Success(true)
+  } catch (e: Exception) {
+    Resource.Error(e.localizedMessage ?: "Reset failed")
+  }
+
+  // --- Работа с Firestore ---
+  override suspend fun addUserFirestore(): addUserFirestoreResponse = withContext(Dispatchers.IO) {
+    try {
+      // Убедимся, что UID не пустой, прежде чем писать в БД
+      val currentUid = uid
+      if (currentUid.isEmpty()) return@withContext Resource.Error("UID is empty")
+
+      val userMap = hashMapOf(
+        "uid" to currentUid,
+        "email" to email,
+        "displayName" to displayName,
+        "role" to UserRole.StandardUser.codeName, // Добавляем роль
+        "createdAt" to com.google.firebase.Timestamp.now() // Серверное время
+      )
+
+      // Записываем данные в документ с ID равным UID пользователя
+      db.collection("users").document(currentUid).set(userMap).await()
+
+      Resource.Success(true)
+    } catch (e: Exception) {
+      Resource.Error(e.localizedMessage ?: "Firestore write error")
     }
+  }
 
 
-    override suspend fun sendEmailVerification(): SendEmailVerificationResponse {
-        return try {
-            auth.currentUser?.sendEmailVerification()?.await()
-            Resource.Success(true)
-        } catch (e: Exception) {
-            Resource.Error(e.message)
-        }
-    }
+  // --- Остальные методы ---
+  override fun getAuthState(viewModelScope: CoroutineScope): AuthStateResponse {
+    return callbackFlow {
+      val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+        // trySend безопаснее обычного emit в callbackFlow
+        trySend(firebaseAuth.currentUser != null)
+      }
 
+      auth.addAuthStateListener(listener)
 
-    override suspend fun sendPasswordResetEmail(email: String): SendPasswordResetEmailResponse {
-        return try {
-            auth.sendPasswordResetEmail(email).await()
-            Resource.Success(true)
-        } catch (e: Exception) {
-            Resource.Error(e.message)
-        }
-    }
-
-    override  fun getProvider(viewModelScope: CoroutineScope): String {
-        val user = auth.currentUser
-        var providerId = ""
-
-        user?.let {
-            for (profile in it.providerData) {
-                providerId = profile.providerId
-            }
-        }
-        return providerId
-    }
-    override fun revokeAccessEmail(): Flow<Resource<Boolean>> = flow{
-        try {
-            emit(Resource.Loading())
-            auth.currentUser?.delete()?.await()
-            emit(Resource.Success(true))
-        } catch (e: Exception) {
-            emit(Resource.Error(e.message))
-        }
-    }
-
-
-    override suspend fun authenticate(email: String, password: String) {
-        auth.signInWithEmailAndPassword(email, password).await()
-    }
-
-    override suspend fun sendRecoveryEmail(email: String) {
-        auth.sendPasswordResetEmail(email).await()
-    }
-
-
-    override suspend fun deleteAccount() {
-        auth.currentUser!!.delete().await()
-    }
-//    override fun signOut() = auth.signOut()
-
-
-    // start google auth
-    override suspend fun oneTapSignInWithGoogle(): OneTapSignInResponse {
-        return try {
-            val signInResult = oneTapClient.beginSignIn(signInRequest).await()
-            Resource.Success(signInResult)
-        } catch (e: Exception) {
-            try {
-                val signUpResult = oneTapClient.beginSignIn(signUpRequest).await()
-                Resource.Success(signUpResult)
-            } catch (e: Exception) {
-                Resource.Error(e.message)
-            }
-        }
-    }
-
-    override suspend fun firebaseSignInWithGoogle(
-        googleCredential: AuthCredential
-    ): SignInWithGoogleResponse {
-        return try {
-            val authResult = auth.signInWithCredential(googleCredential).await()
-            val isNewUser = authResult.additionalUserInfo?.isNewUser ?: false
-            if (isNewUser) {
-                addUserToFirestore()
-            }
-            Resource.Success(true)
-        } catch (e: Exception) {
-            Resource.Error(e.message)
-        }
-    }
-
-    override suspend fun firebaseSignUpWithGoogle2(googleCredential: AuthCredential) {
-
-    }
-    suspend fun addUserToFirestore() {
-        auth.currentUser?.apply {
-            val user = toUser()
-            db.collection(USERS).document(uid).set(user).await()
-        }
-    }
-
-    private fun FirebaseUser.toUser() = mapOf(
-        DISPLAY_NAME to displayName,
-        PROVIDER_ID to providerId,
-        EMAIL to email,
-        PHOTO_URL to photoUrl?.toString(),
-        CREATED_AT to serverTimestamp(),
-        ROLE to UserRole.StandardUser.codeName,
-        OSBB_ROLE_ID to null
+      // Гарантируем отписку, чтобы не было утечек памяти
+      awaitClose {
+        auth.removeAuthStateListener(listener)
+      }
+    }.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5000), // Держит поток живым 5 сек после ухода с экрана
+      initialValue = auth.currentUser != null
     )
-    override fun signOut(): Flow<Resource<Boolean>> = flow {
-        try {
-            emit(Resource.Loading())
-//            oneTapClient.signOut().await()
-            auth.signOut()
-            emit(Resource.Success(true))
-        } catch (e: Exception) {
-            emit(Resource.Error(e.message))
-        }
+  }
+
+
+  override fun getProvider(viewModelScope: CoroutineScope): String = providerId
+
+  override suspend fun reloadFirebaseUser(): ReloadUserResponse {
+    return try {
+      val user = auth.currentUser
+      if (user != null) {
+        user.reload().await() // Обновляем данные с сервера
+        // Возвращаем успех, только если пользователь всё еще залогинен
+        Resource.Success(user.isEmailVerified)
+      } else {
+        Resource.Error("Пользователь не найден")
+      }
+    } catch (e: Exception) {
+      Resource.Error(e.localizedMessage ?: "Ошибка обновления профиля")
+    }
+  }
+
+
+  override suspend fun getUserRole(): UserRole = withContext(Dispatchers.IO) {
+    try {
+      val snapshot = db.collection("users")
+        .document(uid)
+        .get()
+        .await()
+
+      val roleString = snapshot.getString("role") ?: "standard_user"
+
+      // Маппим строку из БД в наш Enum
+      UserRole.entries.find { it.codeName == roleString } ?: UserRole.StandardUser
+    } catch (e: Exception) {
+      Log.e("FirebaseService", "Error fetching role: ${e.message}")
+      UserRole.StandardUser // Возвращаем дефолт при ошибке
+    }
+  }
+
+
+  // Геттеры для UID, Email, DisplayName
+  override suspend fun getUid(): String = uid
+  override suspend fun getEmail(): String = email
+  override suspend fun getDisplayName(): String = displayName
+  override suspend fun getOsbbRoleId(): Int? = null
+
+  // Пустые методы (реализуйте по необходимости)
+  override suspend fun authenticate(email: String, password: String) {}
+  override suspend fun sendRecoveryEmail(email: String) {}
+//  override suspend fun linkAccount(email: String, password: String) {}
+  override suspend fun deleteAccount() { auth.currentUser?.delete()?.await() }
+  override suspend fun firebaseSignUpWithGoogle2(googleCredential: AuthCredential) { firebaseSignInWithGoogle(googleCredential) }
+
+
+
+  // end google auth
+  override suspend fun linkAccount(email: String, password: String): Unit =
+    trace(LINK_ACCOUNT_TRACE) {
+      val credential = EmailAuthProvider.getCredential(email, password)
+      // Безопасный вызов через ?.
+      auth.currentUser?.linkWithCredential(credential)?.await()
     }
 
-    override fun revokeAccess(): Flow<Resource<Boolean>> = flow{
-        try {
-            emit(Resource.Loading())
-            auth.currentUser?.apply {
-                db.collection(USERS).document(uid).delete().await()
-                signInClient.revokeAccess().await()
-                oneTapClient.signOut().await()
-                delete().await()
-            }
-            emit(Resource.Success(true))
-        } catch (e: Exception) {
-            emit(Resource.Error(e.message))
-        }
-    }
-
-    // end google auth
-
-    override suspend fun linkAccount(email: String, password: String): Unit =
-        trace(LINK_ACCOUNT_TRACE) {
-            val credential = EmailAuthProvider.getCredential(email, password)
-            auth.currentUser!!.linkWithCredential(credential).await()
-
-        }
-
-    //    override suspend fun firebaseSignInWithEmailAndPassword(
-//        email: String, password: String
-//    ): SignInResponse {
-//        return try {
-//            auth.signInWithEmailAndPassword(email, password).await()
-//            Resource.Success(true)
-//        } catch (e: Exception) {
-//            Resource.Error(e.message)
-//        }
-//    }
-    override suspend fun firebaseSignInWithEmailAndPassword(email: String, password: String) {
-        auth.signInWithEmailAndPassword(email, password).await()
-    }
-
-    override suspend fun reloadFirebaseUser(): ReloadUserResponse {
-        return try {
-            auth.currentUser?.reload()?.await()
-            Resource.Success(true)
-        } catch (e: Exception) {
-            Resource.Error(e.message)
-        }
-    }
-
-    override suspend fun firebaseSignUpWithEmailAndPassword(
-        email: String, password: String
-    ): SignUpResponse {
-        return try {
-            val authResult = auth.createUserWithEmailAndPassword(email, password).await()
-            val isNewUser = authResult.additionalUserInfo?.isNewUser ?: false
-            if(isNewUser){
-                addUserToFirestore()
-            }
-            Resource.Success(true)
-        } catch (e: Exception) {
-            Resource.Error(e.message)
-        }
-    }
-
-
-    override suspend fun addUserFirestore(): addUserFirestoreResponse {
-        return try {
-            addUserToFirestore()
-            Resource.Success(true)
-        } catch (e: Exception) {
-            Resource.Error(e.message)
-        }
-    }
-
-    companion object {
-        private const val LINK_ACCOUNT_TRACE = "linkAccount"
-    }
+  companion object {
+    private const val LINK_ACCOUNT_TRACE = "linkAccount"
+  }
 }
 

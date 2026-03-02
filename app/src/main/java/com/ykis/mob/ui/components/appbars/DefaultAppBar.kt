@@ -28,7 +28,8 @@ fun DefaultAppBar(
     onDrawerClick: () -> Unit = {},
     canNavigateBack: Boolean = true,
     navigationType: NavigationType? = null,
-    actionButton: @Composable() (() -> Unit)? = null
+    actionButton: @Composable() (() -> Unit)? = null,
+
 ) {
     TopAppBar(
         modifier = Modifier,

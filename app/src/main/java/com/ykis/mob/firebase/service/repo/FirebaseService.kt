@@ -1,6 +1,7 @@
 package com.ykis.mob.firebase.service.repo
 
-import com.google.android.gms.auth.api.identity.BeginSignInResult
+import android.content.Context
+import androidx.credentials.GetCredentialResponse
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseUser
 import com.ykis.mob.core.Resource
@@ -11,7 +12,6 @@ import kotlinx.coroutines.flow.StateFlow
 
 typealias SignOutResponse = Resource<Boolean>
 typealias RevokeAccessResponse = Resource<Boolean>
-typealias OneTapSignInResponse = Resource<BeginSignInResult>
 typealias SignInWithGoogleResponse = Resource<Boolean>
 typealias SignUpResponse = Resource<Boolean>
 typealias SendEmailVerificationResponse = Resource<Boolean>
@@ -20,7 +20,7 @@ typealias addUserFirestoreResponse = Resource<Boolean>
 typealias ReloadUserResponse = Resource<Boolean>
 typealias SendPasswordResetEmailResponse = Resource<Boolean>
 typealias AuthStateResponse = StateFlow<Boolean>
-
+typealias OneTapSignInResponse = Resource<GetCredentialResponse>
 
 interface FirebaseService {
     val isUserAuthenticatedInFirebase: Boolean
@@ -43,7 +43,8 @@ interface FirebaseService {
 //    fun signOut()
 
 
-    suspend fun oneTapSignInWithGoogle(): OneTapSignInResponse
+  suspend fun oneTapSignInWithGoogle(context: Context): OneTapSignInResponse
+
     suspend fun firebaseSignInWithGoogle(googleCredential: AuthCredential): SignInWithGoogleResponse
     suspend fun firebaseSignUpWithEmailAndPassword(email: String, password: String): SignUpResponse
     suspend fun firebaseSignUpWithGoogle2(googleCredential: AuthCredential)

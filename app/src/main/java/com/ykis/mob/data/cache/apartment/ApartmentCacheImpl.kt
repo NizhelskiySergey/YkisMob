@@ -2,11 +2,8 @@ package com.ykis.mob.data.cache.apartment
 
 import com.ykis.mob.data.cache.dao.ApartmentDao
 import com.ykis.mob.domain.apartment.ApartmentEntity
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ApartmentCacheImpl @Inject constructor(
+class ApartmentCacheImpl (
     private val apartmentDao: ApartmentDao
 ): ApartmentCache {
 

@@ -16,19 +16,17 @@ limitations under the License.
 
 package com.ykis.mob.firebase.service.impl
 
-import com.google.firebase.ktx.BuildConfig
-import com.google.firebase.ktx.Firebase
-import com.google.firebase.remoteconfig.ktx.get
-import com.google.firebase.remoteconfig.ktx.remoteConfig
-import com.google.firebase.remoteconfig.ktx.remoteConfigSettings
+import com.google.firebase.Firebase
+import com.google.firebase.remoteconfig.get
+import com.google.firebase.remoteconfig.remoteConfig
+import com.google.firebase.remoteconfig.remoteConfigSettings
+import com.ykis.mob.BuildConfig
 import com.ykis.mob.core.trace
 import com.ykis.mob.firebase.service.repo.ConfigurationService
 import kotlinx.coroutines.tasks.await
-import javax.inject.Inject
 import com.ykis.mob.R.xml as AppConfig
 
-
-class ConfigurationServiceImpl @Inject constructor() : ConfigurationService {
+class ConfigurationServiceImpl () : ConfigurationService {
     private val remoteConfig
         get() = Firebase.remoteConfig
 

@@ -4,11 +4,8 @@ import com.ykis.mob.data.remote.api.ApiService
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.meter.heat.reading.AddHeatReadingParams
 import retrofit2.await
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class HeatReadingRemoteImpl @Inject constructor(
+class HeatReadingRemoteImpl (
     private val apiService: ApiService
 ) : HeatReadingRemote {
     override suspend fun getHeatReadings(teplomerId: Int, uid: String): GetHeatReadingResponse {

@@ -32,15 +32,12 @@ import com.ykis.mob.firebase.service.repo.SendEmailVerificationResponse
 import com.ykis.mob.firebase.service.repo.SignUpResponse
 import com.ykis.mob.ui.BaseViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.components.SignUpUiState
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
 import com.ykis.mob.R.string as AppText
 
 
-@HiltViewModel
-class SignUpViewModel @Inject constructor(
+class SignUpViewModel (
     private val firebaseService: FirebaseService,
     private val configurationService: ConfigurationService,
     logService: LogService

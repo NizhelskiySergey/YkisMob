@@ -1,17 +1,35 @@
 package com.ykis.mob.ui.screens.chat
 
 import MessageListItem
-import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,8 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ykis.mob.domain.UserRole
@@ -41,158 +61,268 @@ fun formatDate(timestamp: Long): String {
 sealed class ChatItem {
     data class DateHeader(val date: String) : ChatItem()
     data class MessageItem(val message: MessageEntity) : ChatItem()
-}
-
+}@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
-    modifier: Modifier = Modifier,
-    userEntity: UserEntity,
-    chatViewModel: ChatViewModel,
-    baseUIState: BaseUIState,
-    navigateBack: () -> Unit,
-    navigateToSendImageScreen : () -> Unit,
-    chatUid : String,
-    navigateToCameraScreen : () -> Unit,
-    navigateToImageDetailScreen : (MessageEntity) -> Unit
+  modifier: Modifier = Modifier,
+  userEntity: UserEntity,
+  chatViewModel: ChatViewModel,
+  baseUIState: BaseUIState,
+  navigateBack: () -> Unit,
+  navigateToSendImageScreen: () -> Unit,
+  chatUid: String,
+  navigateToCameraScreen: () -> Unit,
+  navigateToImageDetailScreen: (MessageEntity) -> Unit
 ) {
-    val messageText by chatViewModel.messageText.collectAsStateWithLifecycle()
-    val messageList by chatViewModel.firebaseTest.collectAsStateWithLifecycle()
-    val selectedService by chatViewModel.selectedService.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
-    var isFirstTime by remember { mutableStateOf(true) }
-    val isLoadingAfterSending by chatViewModel.isLoadingAfterSending.collectAsStateWithLifecycle()
-    var showDeleteMessageDialog by rememberSaveable {
-        mutableStateOf(false)
+  val messageText by chatViewModel.messageText.collectAsStateWithLifecycle()
+  val messageList by chatViewModel.firebaseTest.collectAsStateWithLifecycle()
+  val selectedService by chatViewModel.selectedService.collectAsStateWithLifecycle()
+  val isLoadingAfterSending by chatViewModel.isLoadingAfterSending.collectAsStateWithLifecycle()
+
+  // AI состояния
+  val aiAssistantResponse by chatViewModel.assistantResponse.collectAsStateWithLifecycle()
+  val aiQuickHint by chatViewModel.quickHint.collectAsStateWithLifecycle()
+
+  val listState = rememberLazyListState()
+  val coroutineScope = rememberCoroutineScope()
+
+  var showDeleteMessageDialog by rememberSaveable { mutableStateOf(false) }
+  var selectedMessageId by rememberSaveable { mutableStateOf("") }
+
+  // 1. Инициализация чата
+  LaunchedEffect(key1 = chatUid) {
+    chatViewModel.readFromDatabase(
+      role = baseUIState.userRole,
+      senderUid = chatUid,
+      osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId
+    )
+  }
+
+  // 2. Группировка сообщений
+  val chatItems = remember(messageList) {
+    messageList.groupBy { formatDate(it.timestamp) }
+      .flatMap { (date, messages) ->
+        listOf(ChatItem.DateHeader(date)) + messages.map { ChatItem.MessageItem(it) }
+      }
+  }
+
+  // 3. Автоскролл
+  LaunchedEffect(key1 = chatItems.size) {
+    if (chatItems.isNotEmpty()) {
+      listState.animateScrollToItem(chatItems.size - 1)
     }
-    var selectedMessageId by rememberSaveable {
-        mutableStateOf("")
-    }
-    LaunchedEffect(key1 = baseUIState.uid , baseUIState.osmdId) {
-        chatViewModel.readFromDatabase(
-            role = baseUIState.userRole,
-            chatUid,
-            if(baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId
-        )
-    }
-    LaunchedEffect(key1 = messageList) {
-        Log.d("messages_test", messageList.toString())
-    }
-    LaunchedEffect(key1 = messageList) {
-        Log.d("messages_test", messageList.toString())
-        if (isFirstTime && messageList.isNotEmpty()) {
-            coroutineScope.launch {
-                listState.scrollToItem(messageList.size - 1)
+  }
+
+  Surface(
+    modifier = Modifier.fillMaxSize(),
+    color = MaterialTheme.colorScheme.surfaceContainer
+  ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+      DefaultAppBar(
+        title = if (baseUIState.userRole == UserRole.StandardUser) "Чат ${selectedService.name}"
+        else userEntity.displayName ?: userEntity.email.toString(),
+        canNavigateBack = true,
+        onBackClick = navigateBack,
+      )
+
+      LazyColumn(
+        modifier = Modifier
+          .weight(1f)
+          .padding(horizontal = 4.dp),
+        state = listState,
+        contentPadding = PaddingValues(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+      ) {
+        chatItems.forEach { chatItem ->
+          when (chatItem) {
+            is ChatItem.DateHeader -> {
+              stickyHeader(key = chatItem.date) { DateChip(date = chatItem.date) }
             }
-            isFirstTime = false
-        }
-    }
-
-    // Group messages by date
-    val groupedMessages = remember(messageList) {
-        messageList.groupBy { formatDate(it.timestamp) }
-    }
-
-    // Flatten grouped messages into a list of ChatItem
-    val chatItems = remember(groupedMessages) {
-        groupedMessages.flatMap { (date, messages) ->
-            listOf(ChatItem.DateHeader(date)) + messages.map { ChatItem.MessageItem(it) }
-        }
-    }
-
-    Column(
-        modifier = modifier.fillMaxSize()
-    ) {
-        DefaultAppBar(
-            modifier = modifier,
-            title = if (baseUIState.userRole == UserRole.StandardUser) "Чат ${selectedService.name}"
-            else {
-                userEntity.displayName ?: userEntity.email.toString()
-            },
-            canNavigateBack = true,
-            onBackClick = { navigateBack() }
-        )
-        LazyColumn(
-            modifier = modifier
-                .weight(1f)
-                .padding(horizontal = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(vertical = 16.dp),
-            state = listState
-        ) {
-            items(chatItems) { chatItem ->
-                when (chatItem) {
-                    is ChatItem.DateHeader -> {
-                        Text(
-                            text = chatItem.date,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                    is ChatItem.MessageItem -> {
-                        MessageListItem(
-                            uid = baseUIState.uid.toString(),
-                            messageEntity = chatItem.message,
-                            onLongClick = {
-                               selectedMessageId = chatItem.message.id
-                                showDeleteMessageDialog = true
-                            },
-                            onClick = {
-                                navigateToImageDetailScreen(chatItem.message)
-                            }
-                        )
-                    }
-                }
-            }
-        }
-        ComposeMessageBox(
-            onSent = {
-                chatViewModel.writeToDatabase(
-                    chatUid = chatUid,
-                    baseUIState.uid.toString(),
-                    if (baseUIState.displayName.isNullOrEmpty()) baseUIState.email.toString() else baseUIState.displayName,
-                    senderLogoUrl = baseUIState.photoUrl,
-                    role = baseUIState.userRole,
-                    senderAddress = if(baseUIState.userRole == UserRole.StandardUser) baseUIState.address else "",
-                    onComplete = {
-                        coroutineScope.launch {
-                            listState.animateScrollToItem(messageList.size - 1)
-                        }
-                    },
-                    imageUrl = null,
-                    osbbId =  if(baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId,
-                    recipientTokens = userEntity.tokens
+            is ChatItem.MessageItem -> {
+              item(key = chatItem.message.id) {
+                MessageListItem(
+                  uid = baseUIState.uid.toString(),
+                  messageEntity = chatItem.message,
+                  onLongClick = {
+                    selectedMessageId = chatItem.message.id
+                    showDeleteMessageDialog = true
+                  },
+                  onClick = { navigateToImageDetailScreen(chatItem.message) }
                 )
-            },
-            onImageSent = {
+              }
+            }
+          }
+        }
+      }
+
+      // БЛОК ВВОДА С AI ПОДСКАЗКОЙ
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .navigationBarsPadding()
+      ) {
+        // 1. ПЛАВАЮЩАЯ КАРТОЧКА AI
+        val activeAiText = if (baseUIState.userRole == UserRole.OsbbUser) aiQuickHint else aiAssistantResponse
+
+        AnimatedVisibility(
+          visible = !activeAiText.isNullOrBlank(),
+          enter = expandVertically() + fadeIn(),
+          exit = shrinkVertically() + fadeOut()
+        ) {
+          Surface(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 12.dp, vertical = 6.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 4.dp,
+            shadowElevation = 2.dp
+          ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Icon(
+                  imageVector = Icons.Default.SmartToy,
+                  contentDescription = "AI Hint",
+                  tint = MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                  text = if (baseUIState.userRole == UserRole.OsbbUser) "Совет диспетчеру" else "Помощник ОСББ",
+                  style = MaterialTheme.typography.labelMedium,
+                  color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                  onClick = { chatViewModel.clearAiSuggestion() },
+                  modifier = Modifier.size(24.dp)
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Закрыть",
+                    modifier = Modifier.graphicsLayer(scaleX = 0.7f, scaleY = 0.7f)
+                  )
+                }
+              }
+
+              Text(
+                text = activeAiText ?: "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(vertical = 4.dp)
+              )
+
+              Text(
+                text = "Использовать ответ",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                  .align(Alignment.End)
+                  .clickable { chatViewModel.applyAiHint() }
+                  .padding(top = 4.dp)
+              )
+            }
+          }
+        }
+
+        // ПОЛЕ ВВОДА
+        Surface(
+          color = MaterialTheme.colorScheme.surface,
+          tonalElevation = 6.dp,
+          shadowElevation = 8.dp
+        ) {
+          Box(modifier = Modifier.navigationBarsPadding()) {
+            ComposeMessageBox(
+              onSent = {
+                chatViewModel.writeToDatabase(
+                  chatUid = chatUid,
+                  senderUid = baseUIState.uid.toString(),
+                  senderDisplayedName = baseUIState.displayName ?: baseUIState.email.toString(),
+                  senderLogoUrl = baseUIState.photoUrl,
+                  role = baseUIState.userRole,
+                  senderAddress = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address ?: "" else "",
+                  imageUrl = null,
+                  osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId,
+                  recipientTokens = userEntity.tokens,
+                  onComplete = {
+                    // Очищаем AI подсказки сразу
+                    chatViewModel.clearAiSuggestion()
+
+                    // Безопасный скролл к последнему элементу
+                    coroutineScope.launch {
+                      if (chatItems.isNotEmpty()) {
+                        val lastIndex = chatItems.size - 1
+                        if (lastIndex >= 0) {
+                          listState.animateScrollToItem(lastIndex)
+                        }
+                      }
+                    }
+                  }
+                )
+
+              },
+              onImageSent = {
                 chatViewModel.setSelectedImageUri(it)
                 navigateToSendImageScreen()
-            },
-            text = messageText,
-            onTextChanged = { chatViewModel.onMessageTextChanged(it) },
-            onCameraClick = {
-                navigateToCameraScreen()
-            },
-            isLoading = isLoadingAfterSending,
-            canSend = messageText.isNotBlank()
-        )
+              },
+              onAiClick = {
+                if (messageText.isNotBlank()) {
+                  chatViewModel.askAssistant(messageText)
+                }
+              },
+              onCameraClick = navigateToCameraScreen,
+              text = messageText,
+              onTextChanged = { chatViewModel.onMessageTextChanged(it) },
+              isLoading = isLoadingAfterSending,
+              canSend = messageText.isNotBlank()
+            )
+          }
+        }
+      }
     }
-    if(showDeleteMessageDialog){
-        DeleteMessageDialog(
-            onDismiss = { showDeleteMessageDialog = false },
-            onConfirm = {
-                chatViewModel.deleteMessageFromDatabase(
-                    senderUid = chatUid,
-                    messageId = selectedMessageId,
-                    role = baseUIState.userRole,
-                    osbbId =  if(baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId
-                )
-                showDeleteMessageDialog = false
-            }
+  }
+
+  if (showDeleteMessageDialog) {
+    DeleteMessageDialog(
+      onDismiss = { showDeleteMessageDialog = false },
+      onConfirm = {
+        chatViewModel.deleteMessageFromDatabase(
+          senderUid = chatUid,
+          messageId = selectedMessageId,
+          role = baseUIState.userRole,
+          osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId
         )
-    }
+        showDeleteMessageDialog = false
+      }
+    )
+  }
 }
+
+
+@Composable
+fun DateChip(date: String) {
+  Box(
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(vertical = 12.dp),
+    contentAlignment = Alignment.Center
+  ) {
+    Surface(
+      color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+      shape = RoundedCornerShape(16.dp)
+    ) {
+      Text(
+        text = date,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSecondaryContainer
+      )
+    }
+  }
+}
+

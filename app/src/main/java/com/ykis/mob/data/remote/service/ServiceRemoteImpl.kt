@@ -3,11 +3,8 @@ package com.ykis.mob.data.remote.service
 import com.ykis.mob.data.remote.api.ApiService
 import com.ykis.mob.domain.service.request.ServiceParams
 import retrofit2.await
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ServiceRemoteImpl @Inject constructor(
+class ServiceRemoteImpl(
     private val apiService: ApiService
 ) : ServiceRemote {
     override suspend fun getFlatDetailServices(params: ServiceParams): GetServiceResponse {

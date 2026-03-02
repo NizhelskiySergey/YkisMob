@@ -8,14 +8,11 @@ import com.ykis.mob.firebase.service.repo.LogService
 import com.ykis.mob.firebase.service.repo.RevokeAccessResponse
 import com.ykis.mob.firebase.service.repo.SignOutResponse
 import com.ykis.mob.ui.BaseViewModel
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
 
 
-@HiltViewModel
-class ProfileViewModel @Inject constructor(
+class ProfileViewModel (
     private val clearDatabase: ClearDatabase,
     private val firebaseService: FirebaseService,
     private val logService: LogService

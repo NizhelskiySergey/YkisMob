@@ -1,15 +1,9 @@
 package com.ykis.mob.ui.components
-
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.surfaceColorAtElevation
+import com.ykis.mob.R
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,55 +11,66 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.ykis.mob.R
 import com.ykis.mob.ui.theme.YkisPAMTheme
 
 @Composable
 fun BaseCard(
-    cardModifier: Modifier = Modifier
-        .fillMaxWidth()
-        .padding(vertical = 8.dp, horizontal = 12.dp),
-    columnModifier: Modifier = Modifier
-        .fillMaxWidth()
-        .padding(12.dp),
-    labelModifier: Modifier = Modifier,
-    label: String? = null,
-    actionButton: @Composable (() -> Unit)? = null,
-    content: @Composable () -> Unit
+  cardModifier: Modifier = Modifier
+    .fillMaxWidth()
+    .padding(vertical = 6.dp, horizontal = 12.dp),
+  columnModifier: Modifier = Modifier
+    .fillMaxWidth()
+    .padding(16.dp),
+  labelModifier: Modifier = Modifier,
+  label: String? = null,
+  actionButton: @Composable (() -> Unit)? = null,
+  content: @Composable () -> Unit
 ) {
-    Card(
-        modifier = cardModifier,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(48.dp),
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-        )
+  // Используем OutlinedCard для четких границ в светлой теме
+  // В файле BaseCard.kt
+  OutlinedCard(
+    modifier = cardModifier,
+    shape = RoundedCornerShape(20.dp),
+    colors = CardDefaults.outlinedCardColors(
+      // Карточка будет белой/светлой (surface), а фон под ней — серым (surfaceContainer)
+      containerColor = MaterialTheme.colorScheme.surface,
+      contentColor = MaterialTheme.colorScheme.onSurface
+    ),
+    border = BorderStroke(
+      width = 0.5.dp,
+      color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+    )
+  )
+  {
+    Column(
+      modifier = columnModifier,
+      verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(
-            modifier = columnModifier,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+      if (label != null) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically
         ) {
-            if (label != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        modifier = labelModifier
-                            .weight(1f)
-                            .padding(bottom = 4.dp),
-                        text = label,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Normal
-                        )
-                    )
-                    if (actionButton != null) {
-                        actionButton()
-                    }
-                }
-            }
-            content()
+          Text(
+            modifier = labelModifier
+              .weight(1f)
+              .padding(bottom = 2.dp),
+            text = label,
+            style = MaterialTheme.typography.titleSmall.copy(
+              fontWeight = FontWeight.Bold,
+              color = MaterialTheme.colorScheme.primary // Акцент на заголовке
+            )
+          )
+          actionButton?.invoke()
         }
+      }
+      content()
     }
+  }
 }
+
+
+
 
 @Preview(showBackground = true)
 @Composable

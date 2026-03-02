@@ -41,6 +41,7 @@ fun MeterDetailScreen(
                     else -> viewModel.closeContentDetail()
                 }
             },
+
         ) {
             if (contentDetail == ContentDetail.HEAT_METER || contentDetail == ContentDetail.WATER_METER) {
                 IconButton(

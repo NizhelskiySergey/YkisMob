@@ -24,16 +24,13 @@ import com.ykis.mob.ui.BaseViewModel
 import com.ykis.mob.ui.navigation.ContentDetail
 import com.ykis.mob.ui.screens.meter.heat.HeatMeterState
 import com.ykis.mob.ui.screens.meter.water.WaterMeterState
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import javax.inject.Inject
 
 
-@HiltViewModel
-class MeterViewModel @Inject constructor(
+class MeterViewModel (
     private val getWaterMeterList: GetWaterMeterList,
     private val getLastWaterReading: GetLastWaterReading,
     private val getWaterReadings: GetWaterReadings,

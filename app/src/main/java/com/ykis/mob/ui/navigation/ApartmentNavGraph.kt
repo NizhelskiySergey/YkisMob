@@ -23,10 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -51,6 +48,7 @@ import com.ykis.mob.ui.screens.service.MainServiceScreen
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.settings.SettingsScreenStateful
 import kotlinx.coroutines.launch
+import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 fun MainApartmentScreen(
@@ -59,8 +57,8 @@ fun MainApartmentScreen(
     displayFeatures: List<DisplayFeature>,
     navController: NavHostController = rememberNavController(),
     apartmentViewModel: ApartmentViewModel,
-    meterViewModel: MeterViewModel = hiltViewModel(),
-    serviceViewModel: ServiceViewModel = hiltViewModel(),
+    meterViewModel: MeterViewModel = koinViewModel(),
+    serviceViewModel: ServiceViewModel = koinViewModel(),
     chatViewModel: ChatViewModel,
     rootNavController: NavHostController,
     appState: YkisPamAppState,

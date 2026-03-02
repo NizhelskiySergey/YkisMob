@@ -4,9 +4,7 @@ import com.ykis.mob.data.remote.service.GetServiceResponse
 import com.ykis.mob.data.remote.service.ServiceRemote
 import com.ykis.mob.domain.service.ServiceRepository
 import com.ykis.mob.domain.service.request.ServiceParams
-import javax.inject.Inject
-
-class ServiceRepositoryImpl @Inject constructor(
+class ServiceRepositoryImpl (
     private val serviceRemote : ServiceRemote
 ):ServiceRepository{
     override suspend fun getFlatDetailService(params: ServiceParams):GetServiceResponse{

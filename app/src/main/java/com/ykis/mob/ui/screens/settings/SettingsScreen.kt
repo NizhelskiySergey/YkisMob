@@ -47,7 +47,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -62,12 +61,13 @@ import com.ykis.mob.ui.components.appbars.DefaultAppBar
 import com.ykis.mob.ui.navigation.NavigationType
 import com.ykis.mob.ui.theme.YkisPAMTheme
 import firebase.com.protolitewrapper.BuildConfig
+import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 fun SettingsScreenStateful(
     modifier: Modifier = Modifier,
     navigationType: NavigationType,
-    viewModel: NewSettingsViewModel = hiltViewModel(),
+    viewModel: NewSettingsViewModel = koinViewModel(),
     navigateToAuthGraph : () -> Unit,
     onDrawerClick: () -> Unit,
     ) {

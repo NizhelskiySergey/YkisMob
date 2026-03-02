@@ -6,9 +6,7 @@ import com.ykis.mob.data.remote.water.reading.GetWaterReadingsResponse
 import com.ykis.mob.data.remote.water.reading.WaterReadingRemote
 import com.ykis.mob.domain.meter.water.reading.AddWaterReadingParams
 import com.ykis.mob.domain.meter.water.reading.WaterReadingRepository
-import javax.inject.Inject
-
-class WaterReadingRepositoryImpl @Inject constructor(
+class WaterReadingRepositoryImpl (
     private val waterReadingRemote: WaterReadingRemote,
 ) : WaterReadingRepository {
     override suspend fun getWaterReadings(vodomerId: Int, uid: String): GetWaterReadingsResponse {

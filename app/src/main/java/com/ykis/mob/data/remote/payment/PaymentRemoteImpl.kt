@@ -3,11 +3,8 @@ package com.ykis.mob.data.remote.payment
 import com.ykis.mob.data.remote.api.ApiService
 import com.ykis.mob.domain.payment.request.InsertPaymentParams
 import retrofit2.await
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class PaymentRemoteImpl @Inject constructor(
+class PaymentRemoteImpl (
     private val apiService: ApiService
 ) : PaymentRemote {
 

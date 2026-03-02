@@ -16,12 +16,10 @@ limitations under the License.
 
 package com.ykis.mob.firebase.service.impl
 
-import com.google.firebase.crashlytics.ktx.crashlytics
-import com.google.firebase.ktx.Firebase
+import com.google.firebase.Firebase
+import com.google.firebase.crashlytics.crashlytics
 import com.ykis.mob.firebase.service.repo.LogService
-import javax.inject.Inject
-
-class LogServiceImpl @Inject constructor() : LogService {
+class LogServiceImpl () : LogService {
     override fun logNonFatalCrash(throwable: Throwable) =
         Firebase.crashlytics.recordException(throwable)
 }

@@ -9,7 +9,7 @@
         <string name="empty_screen_subtitle">Цей екран все ще розробляється.</string>
         <!--      Firebase  -->
         //IDs
-        <string name="web_client_id">126951826811-gp5ltjphmgg9gam22dku7rogbl6b8nk1.apps.googleusercontent.com</string>
+        <string name="web_client_id">1062920014188-t49akhe8bi4u07vde9n40bqsfdvcpfj3.apps.googleusercontent.com</string>
         <!--   Dialogs   -->
         <string name="sign_out_title">Вихід?</string>
         <string name="exit_app">Натисніть ще раз, щоб вийти з програми</string>

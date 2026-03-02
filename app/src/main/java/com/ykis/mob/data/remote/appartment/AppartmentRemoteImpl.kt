@@ -1,3 +1,4 @@
+
 package com.ykis.mob.data.remote.appartment
 
 import com.ykis.mob.data.remote.GetSimpleResponse
@@ -5,11 +6,8 @@ import com.ykis.mob.data.remote.api.ApiService
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
 import retrofit2.await
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ApartmentRemoteImpl @Inject constructor(
+class ApartmentRemoteImpl (
     private val apiService: ApiService
 ) : ApartmentRemote {
 

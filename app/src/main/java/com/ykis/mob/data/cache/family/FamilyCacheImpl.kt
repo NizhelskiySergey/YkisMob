@@ -2,11 +2,8 @@ package com.ykis.mob.data.cache.family
 
 import com.ykis.mob.data.cache.dao.FamilyDao
 import com.ykis.mob.domain.family.FamilyEntity
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class FamilyCacheImpl @Inject constructor(
+class FamilyCacheImpl (
     private val familyDao: FamilyDao
 ) : FamilyCache {
     override fun addFamilyByUser(family: List<FamilyEntity>) {

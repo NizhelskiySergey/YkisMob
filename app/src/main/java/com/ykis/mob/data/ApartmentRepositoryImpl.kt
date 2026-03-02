@@ -7,10 +7,8 @@ import com.ykis.mob.data.remote.appartment.GetApartmentsResponse
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
 import com.ykis.mob.domain.apartment.ApartmentRepository
-import javax.inject.Inject
 
-
-class ApartmentRepositoryImpl @Inject constructor(
+class ApartmentRepositoryImpl (
     private val apartmentRemote: ApartmentRemote
 ) : ApartmentRepository {
 

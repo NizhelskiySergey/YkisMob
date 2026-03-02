@@ -5,11 +5,9 @@ import com.ykis.mob.data.remote.api.ApiService
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.meter.water.reading.AddWaterReadingParams
 import retrofit2.await
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class WaterReadingRemoteImpl @Inject constructor(
+class
+WaterReadingRemoteImpl (
     private val apiService: ApiService
 ) : WaterReadingRemote {
     override suspend fun getWaterReadings(vodomerId: Int, uid: String):GetWaterReadingsResponse  {

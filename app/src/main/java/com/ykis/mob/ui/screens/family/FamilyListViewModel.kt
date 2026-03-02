@@ -6,16 +6,13 @@ import com.ykis.mob.domain.family.request.FamilyParams
 import com.ykis.mob.domain.family.request.GetFamilyList
 import com.ykis.mob.firebase.service.repo.LogService
 import com.ykis.mob.ui.BaseViewModel
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import javax.inject.Inject
 
-@HiltViewModel
-class FamilyListViewModel @Inject constructor(
+class FamilyListViewModel (
     private val getFamilyList: GetFamilyList,
     private val logService: LogService,
 ) : BaseViewModel(logService) {

@@ -33,7 +33,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.ykis.mob.R
@@ -41,11 +40,12 @@ import com.ykis.mob.ui.components.BaseCard
 import com.ykis.mob.ui.components.appbars.DefaultAppBar
 import com.ykis.mob.ui.navigation.NavigationType
 import com.ykis.mob.ui.theme.YkisPAMTheme
+import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    viewModel: ProfileViewModel = hiltViewModel(),
+    viewModel: ProfileViewModel = koinViewModel(),
     navigationType: NavigationType,
     onDrawerClicked: () -> Unit,
     navigateToSettings: () -> Unit
@@ -53,7 +53,7 @@ fun ProfileScreen(
 
     ProfileScreenStateless(
         photoUrl = viewModel.photoUrl,
-        displayName = viewModel.displayName.toString(),
+        displayName = viewModel.displayName,
         email = viewModel.email,
         uid = viewModel.uid,
         providerId = viewModel.providerId,

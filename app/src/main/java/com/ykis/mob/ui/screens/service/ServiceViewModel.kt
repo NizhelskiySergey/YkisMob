@@ -15,16 +15,13 @@ import com.ykis.mob.ui.navigation.ContentDetail
 import com.ykis.mob.ui.screens.service.detail.ServiceState
 import com.ykis.mob.ui.screens.service.list.TotalDebtState
 import com.ykis.mob.ui.screens.service.payment.list.PaymentState
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import javax.inject.Inject
 
-@HiltViewModel
-class ServiceViewModel @Inject constructor(
+class ServiceViewModel (
     private val getFlatService: GetFlatServices,
     private val getTotalDebtServices: GetTotalDebtServices,
     private val getPaymentListRepo : GetPaymentList,

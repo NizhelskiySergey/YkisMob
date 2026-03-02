@@ -2,11 +2,7 @@ package com.ykis.mob.data.cache.heat.meter
 
 import com.ykis.mob.data.cache.dao.HeatMeterDao
 import com.ykis.mob.domain.meter.heat.meter.HeatMeterEntity
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
-class HeatMeterCacheImpl @Inject constructor(
+class HeatMeterCacheImpl (
     private val heatMeterDao: HeatMeterDao
 ) : HeatMeterCache {
     override fun insertHeatMeter(waterMeters: List<HeatMeterEntity>) {

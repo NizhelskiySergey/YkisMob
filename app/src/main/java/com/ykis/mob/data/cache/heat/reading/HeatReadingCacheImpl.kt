@@ -2,11 +2,8 @@ package com.ykis.mob.data.cache.heat.reading
 
 import com.ykis.mob.data.cache.dao.HeatReadingDao
 import com.ykis.mob.domain.meter.heat.reading.HeatReadingEntity
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class HeatReadingCacheImpl @Inject constructor(
+class HeatReadingCacheImpl (
     private val heatReadingDao: HeatReadingDao
 ) : HeatReadingCache {
     override fun insertHeatReading(heatReading: List<HeatReadingEntity>) {

@@ -5,10 +5,8 @@ import com.ykis.mob.data.remote.payment.InsertPaymentResponse
 import com.ykis.mob.data.remote.payment.PaymentRemote
 import com.ykis.mob.domain.payment.PaymentRepository
 import com.ykis.mob.domain.payment.request.InsertPaymentParams
-import javax.inject.Inject
 
-
-class PaymentRepositoryImpl @Inject constructor(
+class PaymentRepositoryImpl (
     private val paymentRemote: PaymentRemote,
 ) : PaymentRepository {
     override suspend fun getPaymentList(addressId: Int, year: String, uid: String): GetPaymentResponse {

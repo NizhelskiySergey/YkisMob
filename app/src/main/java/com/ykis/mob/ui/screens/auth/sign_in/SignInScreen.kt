@@ -1,10 +1,7 @@
 package com.ykis.mob.ui.screens.auth.sign_in
 
-import android.app.Activity.RESULT_OK
 import android.content.Context
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,23 +37,22 @@ import androidx.compose.ui.unit.dp
 import androidx.credentials.Credential
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
-import com.google.android.gms.common.api.ApiException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
-import com.google.firebase.auth.GoogleAuthProvider.getCredential
 import com.ykis.mob.R
 import com.ykis.mob.core.composable.EmailField
 import com.ykis.mob.core.composable.LogoImage
 import com.ykis.mob.core.composable.PasswordField
 import com.ykis.mob.core.snackbar.SnackbarManager
-import com.ykis.mob.core.snackbar.SnackbarMessage.Companion.toSnackbarMessage
 import com.ykis.mob.ui.components.appbars.DefaultAppBar
 import com.ykis.mob.ui.navigation.Graph
 import com.ykis.mob.ui.theme.YkisPAMTheme
 import kotlinx.coroutines.launch
+import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 fun AuthenticationButton(buttonText: Int, onRequestResult: (Credential) -> Unit) {
@@ -90,32 +86,37 @@ fun AuthenticationButton(buttonText: Int, onRequestResult: (Credential) -> Unit)
 }
 
 private suspend fun launchCredManButtonUI(
-    context: Context,
-    onRequestResult: (Credential) -> Unit
+  context: Context,
+  onRequestResult: (Credential) -> Unit
 ) {
-    try {
-        val signInWithGoogleOption = GetSignInWithGoogleOption
-            .Builder(serverClientId = "1062920014188-8s41hcrkkik155m7mo2spj26jupp27e5.apps.googleusercontent.com")
-            .build()
+  try {
+    // Более стабильный вариант для работы с Firebase
+    val googleIdOption = GetGoogleIdOption.Builder()
+      .setFilterByAuthorizedAccounts(false) // Показывать все аккаунты
+      .setServerClientId("1062920014188-8s41hcrkkik155m7mo2spj26jupp27e5.apps.googleusercontent.com")
+      .setAutoSelectEnabled(false) // Лучше false для первого входа
+      .build()
 
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(signInWithGoogleOption)
-            .build()
+    val request = GetCredentialRequest.Builder()
+      .addCredentialOption(googleIdOption)
+      .build()
 
-        val result = CredentialManager.create(context).getCredential(
-            request = request,
-            context = context
-        )
+    val result = CredentialManager.create(context).getCredential(
+      request = request,
+      context = context
+    )
 
-        onRequestResult(result.credential)
-    } catch (e: NoCredentialException) {
-        Log.e("error_tag", e.message.orEmpty())
-        SnackbarManager.showMessage("Помилка реєстрації")
-    } catch (e: GetCredentialException) {
-        Log.d("error_tag", e.message.orEmpty())
+    onRequestResult(result.credential)
+  } catch (e: GetCredentialException) {
+    // Обработка отмены пользователем (чтобы не спамить в лог)
+    if (e is GetCredentialCancellationException) {
+      Log.d("Auth", "User cancelled")
+    } else {
+      Log.e("Auth", "Error: ${e.message}")
+      SnackbarManager.showMessage("Помилка авторизації")
     }
+  }
 }
-
 
 @Composable
 fun SignInScreenStateless(
@@ -234,7 +235,7 @@ fun SignInScreenStateless(
 @Composable
 fun SignInScreen(
     openScreen: (String) -> Unit,
-    viewModel: SignInViewModel = hiltViewModel(),
+    viewModel: SignInViewModel = koinViewModel(),
     navController: NavController
 ) {
     val singInUiState = viewModel.singInUiState

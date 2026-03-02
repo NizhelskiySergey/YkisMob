@@ -2,11 +2,8 @@ package com.ykis.mob.data.cache.payment
 
 import com.ykis.mob.data.cache.dao.PaymentDao
 import com.ykis.mob.domain.payment.PaymentEntity
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class PaymentCacheImpl @Inject constructor(
+class PaymentCacheImpl (
     private val paymentDao: PaymentDao
 ) : PaymentCache {
     override fun addPayments(payments: List<PaymentEntity>) {

@@ -32,19 +32,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.ykis.mob.R
 import com.ykis.mob.ui.components.appbars.AddAppBar
 import com.ykis.mob.ui.navigation.NavigationType
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.theme.YkisPAMTheme
+import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmptyScreen(
     modifier: Modifier = Modifier,
     popUpScreen: () -> Unit,
-    viewModel: ApartmentViewModel = hiltViewModel()
+    viewModel: ApartmentViewModel = koinViewModel()
 
 
 ) {

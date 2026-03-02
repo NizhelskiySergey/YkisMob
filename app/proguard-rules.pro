@@ -11,6 +11,25 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+# Узкие правила для Ktor (решают проблему HttpTimeout и ContentNegotiation)
+#-keep class io.ktor.client.plugins.HttpTimeout { *; }
+#-keep class io.ktor.client.plugins.HttpTimeout$** { *; }
+#-keep class io.ktor.client.plugins.contentnegotiation.** { *; }
+#-keep class io.ktor.serialization.kotlinx.json.** { *; }
+#
+## Правила для Vertex AI (Gemini)
+#-keep class com.google.firebase.vertexai.** { *; }
+#-keep class com.google.ai.client.generativeai.common.server.** { *; }
+#
+## Если используешь Serialization (Ktor это требует)
+#-keepattributes *Annotation*, InnerClasses, Signature, Exceptions
+#-keepclassmembers class * {
+#    @kotlinx.serialization.SerialName <fields>;
+#}
+-keep class io.ktor.** { *; }
+-keep interface io.ktor.** { *; }
+-dontwarn io.ktor.**
+
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.

@@ -41,7 +41,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ykis.mob.R
 import com.ykis.mob.core.CenteredProgressIndicator
@@ -54,6 +53,7 @@ import com.ykis.mob.ui.components.GroupFilterChip
 import com.ykis.mob.ui.navigation.ContentDetail
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.theme.YkisPAMTheme
+import org.koin.compose.viewmodel.koinViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -62,7 +62,7 @@ import java.util.Locale
 fun ServiceDetailContent(
     contentDetail: ContentDetail,
     baseUIState: BaseUIState,
-    viewModel: ServiceViewModel = hiltViewModel(),
+    viewModel: ServiceViewModel = koinViewModel(),
 ) {
     val date = Date()
     val year = SimpleDateFormat("yyyy", Locale("uk")).format(Date(date.time))

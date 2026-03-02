@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    tools:ignore="ExtraText">
+    xmlns:tools="http://schemas.android.com/tools">
+<!--    tools:ignore="ExtraText">-->
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -12,9 +12,24 @@
         android:required="false" />
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <!-- Разрешаем видимость сервисов Google Play -->
+  <!-- Объединенная секция запросов -->
+  <queries>
+    <package android:name="com.google.android.gms" />
+    <intent>
+      <action android:name="com.google.android.gms.auth.api.signin.SERVICE_CONFIG" />
+    </intent>
+    <intent>
+      <action android:name="com.google.android.gms.AI_SERVICES" />
+    </intent>
+    <intent>
+      <action android:name="com.google.android.gms.auth.service.START" />
+    </intent>
+  </queries>
 
-    <application
-        android:name=".HiltApp"
+  <application
+
+        android:name=".MainApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"

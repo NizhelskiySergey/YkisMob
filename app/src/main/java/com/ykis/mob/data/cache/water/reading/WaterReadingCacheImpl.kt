@@ -2,11 +2,8 @@ package com.ykis.mob.data.cache.water.reading
 
 import com.ykis.mob.data.cache.dao.WaterReadingDao
 import com.ykis.mob.domain.meter.water.reading.WaterReadingEntity
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class WaterReadingCacheImpl @Inject constructor(
+class WaterReadingCacheImpl (
     private val waterReadingDao: WaterReadingDao
 ) : WaterReadingCache {
     override fun insertWaterReading(waterReading: List<WaterReadingEntity>) {

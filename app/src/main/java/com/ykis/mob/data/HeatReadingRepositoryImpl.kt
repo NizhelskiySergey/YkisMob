@@ -6,9 +6,7 @@ import com.ykis.mob.data.remote.heat.reading.GetLastHeatReadingResponse
 import com.ykis.mob.data.remote.heat.reading.HeatReadingRemote
 import com.ykis.mob.domain.meter.heat.reading.AddHeatReadingParams
 import com.ykis.mob.domain.meter.heat.reading.HeatReadingRepository
-import javax.inject.Inject
-
-class HeatReadingRepositoryImpl @Inject constructor(
+class HeatReadingRepositoryImpl (
     private val heatReadingRemote: HeatReadingRemote,
 ) : HeatReadingRepository {
 

@@ -16,29 +16,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
 import com.google.accompanist.adaptive.calculateDisplayFeatures
 import com.ykis.mob.firebase.messaging.addFcmToken
 import com.ykis.mob.ui.YkisPamApp
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
 import com.ykis.mob.ui.theme.YkisPAMTheme
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import javax.inject.Inject
+import org.koin.compose.viewmodel.koinViewModel
 
-@AndroidEntryPoint
+
 class MainActivity : ComponentActivity() {
-    @Inject
-    lateinit var application: HiltApp
 
     private var pressBackExitJob: Job? = null
     private var backPressedOnce = false
@@ -49,11 +46,16 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         requestNotificationPermission()
         enableEdgeToEdge()
+
         setContent {
-            val settingsViewModel: NewSettingsViewModel = hiltViewModel()
-            settingsViewModel.getThemeValue()
+            val settingsViewModel: NewSettingsViewModel = koinViewModel()
+          val currentTheme by settingsViewModel.theme.collectAsState()
+//            val mainApp = LocalContext.current.applicationContext as MainApplication
+
+//          settingsViewModel.getThemeValue()
             YkisPAMTheme(
-                appTheme = application.theme.value,
+              appTheme = currentTheme ?: "system"
+//                appTheme = mainApp.theme.value,
             ) {
                 val windowSize = calculateWindowSizeClass(this)
                 val displayFeatures = calculateDisplayFeatures(this)

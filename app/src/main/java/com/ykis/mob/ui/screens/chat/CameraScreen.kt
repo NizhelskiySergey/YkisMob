@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import com.google.common.util.concurrent.ListenableFuture
 import com.ykis.mob.ui.navigation.SendImageScreen
@@ -49,7 +50,7 @@ fun CameraScreen(
     setImageUri: (Uri) -> Unit
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val outputDirectory = context.filesDir
     var previewView: PreviewView? by remember { mutableStateOf(null) }

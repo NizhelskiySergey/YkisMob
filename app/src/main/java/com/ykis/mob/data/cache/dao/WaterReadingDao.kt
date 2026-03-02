@@ -8,7 +8,8 @@ import androidx.room.Query
 import com.ykis.mob.domain.meter.water.reading.WaterReadingEntity
 
 @Dao
-interface WaterReadingDao {
+interface
+WaterReadingDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertWaterReading(waterMeter: List<WaterReadingEntity>)
 

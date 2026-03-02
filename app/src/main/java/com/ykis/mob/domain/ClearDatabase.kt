@@ -3,26 +3,27 @@ package com.ykis.mob.domain
 import android.util.Log
 import com.ykis.mob.core.Resource
 import com.ykis.mob.data.cache.database.AppDatabase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import javax.inject.Inject
+import kotlinx.coroutines.flow.flowOn
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
+import org.koin.java.KoinJavaComponent.inject
 
-class ClearDatabase @Inject constructor(
-    private val database : AppDatabase
-){
-    operator fun invoke () : Flow<Resource<String>> = flow{
-        try{
-            database.apartmentDao().deleteAllApartments()
-            database.familyDao().deleteAllFamily()
-            database.serviceDao().deleteAllService()
-            database.paymentDao().deleteAllPayment()
-            database.waterMeterDao().deleteAllWaterMeter()
-            database.heatMeterDao().deleteAllHeatMeter()
-            database.waterReadingDao().deleteAllWaterReadings()
-            database.heatReadingDao().deleteAllHeatReadings()
-            Log.d("database","The database was cleared")
-        }catch (e:Exception){
-            Log.d("database", "The database wasn't cleared ")
-        }
+class ClearDatabase : KoinComponent {
+  // База данных создастся только при вызове invoke(), а не при старте ViewModel
+  private val db: AppDatabase by inject()
+
+  operator fun invoke() = flow {
+    emit(Resource.Loading())
+    try {
+      db.clearAllTables() // База инициализируется ТОЛЬКО ЗДЕСЬ
+      emit(Resource.Success(true))
+    } catch (e: Exception) {
+      emit(Resource.Error(e.message))
     }
+  }.flowOn(Dispatchers.IO)
 }
+
+

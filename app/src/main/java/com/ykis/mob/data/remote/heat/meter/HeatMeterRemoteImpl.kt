@@ -2,11 +2,8 @@ package com.ykis.mob.data.remote.heat.meter
 
 import com.ykis.mob.data.remote.api.ApiService
 import retrofit2.await
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class HeatMeterRemoteImpl @Inject constructor(
+class HeatMeterRemoteImpl (
     private val apiService: ApiService
 ) : HeatMeterRemote {
 
