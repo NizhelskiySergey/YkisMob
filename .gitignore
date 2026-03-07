@@ -14,5 +14,5 @@
 .cxx
 local.properties
 /YkisMobileRest/sql/config.php
-.idea
+.idea/*
 
