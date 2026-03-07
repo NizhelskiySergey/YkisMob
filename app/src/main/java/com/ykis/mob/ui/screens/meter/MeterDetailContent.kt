@@ -51,9 +51,10 @@ fun MeterDetailContent(
                     },
                     deleteReading = {
                         viewModel.deleteLastWaterReading(
+                          baseUIState.uid.toString(),
                             waterMeterState.lastWaterReading.vodomerId,
-                            waterMeterState.lastWaterReading.pokId,
-                            baseUIState.uid.toString()
+                            waterMeterState.lastWaterReading.pokId
+
                         )
                     }
                 )

@@ -54,13 +54,13 @@ import java.util.Date
 import java.util.Locale
 
 fun formatDate(timestamp: Long): String {
-    val sdf = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault())
-    return sdf.format(Date(timestamp))
+  val sdf = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault())
+  return sdf.format(Date(timestamp))
 }
 
 sealed class ChatItem {
-    data class DateHeader(val date: String) : ChatItem()
-    data class MessageItem(val message: MessageEntity) : ChatItem()
+  data class DateHeader(val date: String) : ChatItem()
+  data class MessageItem(val message: MessageEntity) : ChatItem()
 }@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
@@ -325,4 +325,3 @@ fun DateChip(date: String) {
     }
   }
 }
-

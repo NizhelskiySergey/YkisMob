@@ -5,15 +5,15 @@ import com.ykis.mob.data.remote.appartment.GetApartmentResponse
 import com.ykis.mob.data.remote.appartment.GetApartmentsResponse
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.data.remote.family.GetFamilyResponse
-import com.ykis.mob.data.remote.heat.meter.GetHeatMeterResponse
-import com.ykis.mob.data.remote.heat.reading.GetHeatReadingResponse
-import com.ykis.mob.data.remote.heat.reading.GetLastHeatReadingResponse
+import com.ykis.mob.data.remote.heat.GetHeatMeterResponse
+import com.ykis.mob.data.remote.heat.GetHeatReadingResponse
+import com.ykis.mob.data.remote.heat.GetLastHeatReadingResponse
 import com.ykis.mob.data.remote.payment.GetPaymentResponse
 import com.ykis.mob.data.remote.payment.InsertPaymentResponse
 import com.ykis.mob.data.remote.service.GetServiceResponse
-import com.ykis.mob.data.remote.water.meter.GetWaterMeterResponse
-import com.ykis.mob.data.remote.water.reading.GetLastWaterReadingResponse
-import com.ykis.mob.data.remote.water.reading.GetWaterReadingsResponse
+import com.ykis.mob.data.remote.water.GetLastWaterReadingResponse
+import com.ykis.mob.data.remote.water.GetWaterMeterResponse
+import com.ykis.mob.data.remote.water.GetWaterReadingsResponse
 import retrofit2.Call
 import retrofit2.http.FieldMap
 import retrofit2.http.FormUrlEncoded
@@ -24,7 +24,7 @@ interface ApiService {
     companion object {
         private const val SERVER_URL = "https://is.yuzhny.com/YkisMobileRest"
 //        const val SERVER_URL = "http://10.0.2.2/YkisPAM/YkisMobileRest"
-//        const val SERVER_URL = "http://192.168.0.106/YkisPAM/YkisMobileRest"
+//        const val SERVER_URL = "http://192.168.0.107:8080/YkisPAM/YkisMobileRest"
 
 //        const val SERVER_URL = "http://192.168.0.177/YkisPAM/YkisMobileRest"
 

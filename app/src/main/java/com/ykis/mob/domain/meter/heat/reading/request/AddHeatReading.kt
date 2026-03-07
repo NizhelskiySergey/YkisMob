@@ -4,8 +4,8 @@ import com.ykis.mob.core.Resource
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.data.remote.core.BaseResponse
+import com.ykis.mob.domain.meter.heat.meter.HeatMeterRepository
 import com.ykis.mob.domain.meter.heat.reading.AddHeatReadingParams
-import com.ykis.mob.domain.meter.heat.reading.HeatReadingRepository
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -14,7 +14,7 @@ import retrofit2.HttpException
 import java.io.IOException
 
 class AddHeatReading (
-  private val repository: HeatReadingRepository,
+  private val repository: HeatMeterRepository,
   private val database: AppDatabase
 ) {
   // Указываем тип в flow<...>, чтобы избежать ошибок компиляции

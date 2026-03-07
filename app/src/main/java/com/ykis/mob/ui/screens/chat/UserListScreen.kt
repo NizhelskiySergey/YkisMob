@@ -28,66 +28,66 @@ import com.ykis.mob.ui.screens.service.list.assembleServiceList
 
 @Composable
 fun UserListScreen(
-    modifier: Modifier = Modifier,
-    userList: List<UserEntity>,
-    baseUIState: BaseUIState,
-    onUserClicked: (UserEntity) -> Unit,
-    onServiceClick : (TotalServiceDebt) -> Unit,
-    onDrawerClicked: () -> Unit,
-    navigationType: NavigationType,
-    chatViewModel: ChatViewModel
-    ) {
-    Column(
-        modifier = modifier.fillMaxSize()
-    ) {
-        DefaultAppBar(
-            title = stringResource(id = R.string.chat),
-            onDrawerClick = onDrawerClicked,
-            canNavigateBack = false,
-            navigationType = navigationType
+  modifier: Modifier = Modifier,
+  userList: List<UserEntity>,
+  baseUIState: BaseUIState,
+  onUserClicked: (UserEntity) -> Unit,
+  onServiceClick : (TotalServiceDebt) -> Unit,
+  onDrawerClicked: () -> Unit,
+  navigationType: NavigationType,
+  chatViewModel: ChatViewModel
+) {
+  Column(
+    modifier = modifier.fillMaxSize()
+  ) {
+    DefaultAppBar(
+      title = stringResource(id = R.string.chat),
+      onDrawerClick = onDrawerClicked,
+      canNavigateBack = false,
+      navigationType = navigationType
 
-        )
-        if (baseUIState.userRole != UserRole.StandardUser) {
-            UserList(
-                userList = userList,
-                baseUIState = baseUIState,
-                onUserClick = onUserClicked,
-                chatViewModel = chatViewModel
-            )
-        } else {
-            Box(
-                modifier = modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+    )
+    if (baseUIState.userRole != UserRole.StandardUser) {
+      UserList(
+        userList = userList,
+        baseUIState = baseUIState,
+        onUserClick = onUserClicked,
+        chatViewModel = chatViewModel
+      )
+    } else {
+      Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+      ) {
+        Column(
+          modifier = modifier.width(IntrinsicSize.Max)
+        ) {
+          assembleServiceList(
+            totalDebtState = TotalDebtState(),
+            baseUIState = baseUIState
+          ).forEach {
+            Button(
+              modifier = modifier.fillMaxWidth(),
+              onClick = {
+                onServiceClick(it)
+              }
             ) {
-                Column(
-                    modifier = modifier.width(IntrinsicSize.Max)
-                ) {
-                    assembleServiceList(
-                        totalDebtState = TotalDebtState(),
-                        baseUIState = baseUIState
-                    ).forEach {
-                        Button(
-                            modifier = modifier.fillMaxWidth(),
-                            onClick = {
-                                onServiceClick(it)
-                            }
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(imageVector = it.icon, contentDescription = null)
-                                Text(
-                                    modifier = modifier.weight(1f),
-                                    text = it.name,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                    }
-                }
+              Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Icon(imageVector = it.icon, contentDescription = null)
+                Text(
+                  modifier = modifier.weight(1f),
+                  text = it.name,
+                  textAlign = TextAlign.Center
+                )
+              }
             }
+          }
         }
-
+      }
     }
+
+  }
 }

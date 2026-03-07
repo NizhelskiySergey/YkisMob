@@ -1,24 +1,20 @@
 package com.ykis.mob.ui.screens.chat
 
-//import com.google.auth.oauth2.GoogleCredentials
-import android.R.attr.text
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
+import com.google.firebase.ai.type.content
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
-import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.functions.FirebaseFunctions
-import com.google.firebase.storage.FirebaseStorage
 import com.squareup.moshi.Json
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.firebase.service.impl.ChatRepository
 import com.ykis.mob.firebase.service.repo.LogService
 import com.ykis.mob.ui.BaseViewModel
 import com.ykis.mob.ui.navigation.ContentDetail
@@ -26,15 +22,10 @@ import com.ykis.mob.ui.screens.service.list.TotalServiceDebt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import android.graphics.Bitmap
-import com.google.firebase.ai.GenerativeModel
-import com.google.firebase.ai.ai
-import com.google.firebase.ai.type.GenerativeBackend
-import com.google.firebase.ai.type.content
+
 
 data class SendNotificationArguments(
   @Json(name = "recipient_token")
@@ -83,23 +74,16 @@ fun mapToUserEntity(uid: String, map: Map<String, Any>): UserEntity {
 }
 
 class ChatViewModel(
-  private val db: FirebaseFirestore,
-  private val realtimeDb: FirebaseDatabase,
-  private val storage: FirebaseStorage,
-  private val functions: FirebaseFunctions,
-  private val generativeModel: GenerativeModel,
+  private val chatRepo: ChatRepository,
   logService: LogService
-) : BaseViewModel(logService) {
+) : BaseViewModel(logService) { // УДАЛИЛИ KoinComponent
 
-  // Инициализация модели Gemini 1.5 Flash (быстрая и дешевая)
-//  private val generativeModel by lazy {
-//    Firebase.ai.generativeModel("gemini-2.0-flash-8b")
-//  }
-//  val generativeModel = Firebase.ai(backend = GenerativeBackend.googleAI())
-//    .generativeModel("gemini-3-flash-preview")
-  //  }
-  // Состояние для ответа ИИ (чтобы показать в UI, например, подсказку)
-  // Для жильца: ответ на конкретный вопрос
+
+    // Перенаправляем ссылки на репозиторий
+    private val chatsReference by lazy { chatRepo.realtime.getReference("chats") }
+//    private val userDatabase by lazy { chatRepo.firestore }
+//    private val storageReference by lazy { chatRepo.storage.reference }
+private val generativeModel by lazy { chatRepo.aiModel }
   private val _assistantResponse = MutableStateFlow<String?>(null)
   val assistantResponse = _assistantResponse.asStateFlow()
 
@@ -107,9 +91,8 @@ class ChatViewModel(
   private val _quickHint = MutableStateFlow<String?>(null)
   val quickHint = _quickHint.asStateFlow()
 
-  private val chatsReference = realtimeDb.getReference("chats")
-  private val storageReference = storage.reference
-  private val userDatabase = db
+
+
   private val listeners = mutableMapOf<DatabaseReference, ValueEventListener>()
 
 
@@ -142,24 +125,25 @@ class ChatViewModel(
 
   // Метод для получения помощи от ИИ
   fun askAssistant(userText: String) {
-    Log.d("Gemini_Debug", "Метод вызван с текстом: $userText") // ДОБАВЬ ЭТО
     if (userText.isBlank()) return
-    _isLoadingAfterSending.value = true
 
+    _isLoadingAfterSending.value = true
     viewModelScope.launch {
       try {
-        val prompt = "Ты помощник жильца ОСББ. Ответь на вопрос: $userText"
-        val response = generativeModel.generateContent(prompt)
-        Log.d("Gemini_Debug", "Ответ получен: ${response.text}") // И ЭТО
-        _assistantResponse.value = response.text
+        // Call through the repository (Complexity -1)
+        val responseText = chatRepo.askAiAssistant(userText)
+
+        _assistantResponse.value = responseText ?: "AI connection error"
+        Log.d("Gemini_Debug", "Answer received: $responseText")
       } catch (e: Exception) {
-        Log.e("Gemini_Debug", "Ошибка: ${e.message}")
-        _assistantResponse.value = "Ошибка связи с ИИ"
+        Log.e("Gemini_Debug", "Error: ${e.message}")
+        _assistantResponse.value = "AI connection error"
       } finally {
         _isLoadingAfterSending.value = false
       }
     }
   }
+
 
 
   private fun analyzeIncomingMessage(message: MessageEntity, role: UserRole) {
@@ -195,7 +179,15 @@ class ChatViewModel(
 
         val inputContent = content {
           image(bitmap)
-          text("Ты помощник жильца ОСББ. Кратко (1-2 предложения) опиши проблему на фото для заявки диспетчеру.")
+          text(
+            """
+                    Ты — автоматический распознаватель счетчиков. 
+                    На этой фотографии изображен счетчик воды. 
+                    Найди на нем  № (цифры)  и только черные на табло цифры показаний . 
+                    Выведи ТОЛЬКО Счетчик № [число]. и через пробел  Показания: [число].
+                """.trimIndent()
+          )
+
         }
 
         val response = generativeModel.generateContent(inputContent)
@@ -386,37 +378,28 @@ class ChatViewModel(
   }
 
 
-  fun getUsers() {
-    val userIdentifiers = _userIdentifiersWithRole.value
-    if (userIdentifiers.isEmpty()) {
-      _userList.value = emptyList()
-      return
+    fun getUsers() {
+      val userIdentifiers = _userIdentifiersWithRole.value
+      if (userIdentifiers.isEmpty()) {
+        _userList.value = emptyList()
+        return
+      }
+
+      viewModelScope.launch {
+        try {
+          // Используем репозиторий вместо прямой работы с db
+          val users = chatRepo.fetchUsersByIds(userIdentifiers)
+          _userList.value = users
+          Log.d("filtered_test", "Fetched ${users.size} users")
+        } catch (e: Exception) {
+          SnackbarManager.showMessage("Ошибка загрузки пользователей")
+        }
+      }
     }
 
-    // Ограничиваем список (Firestore позволяет до 30 ID в одном запросе whereIn)
-    val idsToFetch = userIdentifiers.distinct().take(30)
-
-    // Используем внедренный userDatabase
-    userDatabase.collection("users")
-      .whereIn(com.google.firebase.firestore.FieldPath.documentId(), idsToFetch)
-      .get()
-      .addOnSuccessListener { result ->
-        // Мапим результат (уже отфильтрованный сервером)
-        val filteredUsers = result.documents.mapNotNull { document ->
-          mapToUserEntity(document.id, document.data ?: emptyMap())
-        }
-
-        Log.d("filtered_test", "Fetched ${filteredUsers.size} users from Firestore")
-        _userList.value = filteredUsers
-      }
-      .addOnFailureListener { exception ->
-        Log.w("user_store_test", "Error getting documents.", exception)
-        SnackbarManager.showMessage("Ошибка загрузки пользователей")
-      }
-  }
 
 
-  fun setSelectedUser(user: UserEntity) {
+    fun setSelectedUser(user: UserEntity) {
     _selectedUser.value = user
   }
 
@@ -436,82 +419,56 @@ class ChatViewModel(
   }
 
 
-  fun addChatListener(chatUid: String, onLastMessageChange: (MessageEntity) -> Unit) {
-//    Log.d("osbb_test", "chatUid111 : $chatUid")
-
-    // 1. Используем внедренную через конструктор realtimeDb (0 мс задержки)
-    // 2. Ограничиваем выборку последним сообщением через limitToLast(1)
-    val reference = realtimeDb.getReference("chats").child(chatUid).limitToLast(1)
-
-    reference.addValueEventListener(object : ValueEventListener {
-      override fun onDataChange(dataSnapshot: DataSnapshot) {
-        // 3. Выполняем маппинг в фоновом потоке, чтобы не фризить UI
-        viewModelScope.launch(Dispatchers.Default) {
-          val latestMessage = dataSnapshot.children
-            .lastOrNull()
-            ?.getValue(MessageEntity::class.java)
-
-          // Возвращаемся в Main для обновления UI
-          withContext(Dispatchers.Main) {
-            latestMessage?.let {
-              Log.d("chat_listener", "Latest message in chat $chatUid: ${it.text}")
-            } ?: Log.d("chat_listener", "No messages found in chat $chatUid.")
-
-            onLastMessageChange(latestMessage ?: MessageEntity())
+    fun addChatListener(chatUid: String, onLastMessageChange: (MessageEntity) -> Unit) {
+      viewModelScope.launch {
+        // Репозиторий скрывает сложность Firebase (Complexity -1)
+        chatRepo.observeLastMessage(chatUid)
+          .flowOn(Dispatchers.Default) // Маппинг в фоне
+          .collect { latestMessage ->
+            val message = latestMessage ?: MessageEntity()
+            Log.d("chat_listener", "Latest message in $chatUid: ${message.text}")
+            onLastMessageChange(message)
           }
-        }
       }
+    }
 
-      override fun onCancelled(error: DatabaseError) {
-        Log.w("firebase_error", "Failed to read chat $chatUid", error.toException())
-      }
-    })
-  }
+    fun uploadPhotoAndSendMessage(
+      context: android.content.Context,
+      chatUid: String,
+      senderUid: String,
+      senderDisplayedName: String,
+      senderLogoUrl: String?,
+      senderAddress: String,
+      osbbId: Int,
+      role: UserRole,
+      onComplete: () -> Unit,
+      recipientTokens: List<String>
+    ) {
+      viewModelScope.launch { // Dispatchers.IO теперь внутри репозитория или через flowOn
+        _isLoadingAfterSending.value = true
+        try {
+          val uri = _selectedImageUri.value
+          if (uri == Uri.EMPTY) return@launch
 
+          // --- ШАГ 1: СЖАТИЕ (выполняем в фоне) ---
+          val imageData = withContext(Dispatchers.IO) { compressImage(context, uri) }
 
-  fun uploadPhotoAndSendMessage(
-    context: android.content.Context, // Добавляем контекст для доступа к ContentResolver
-    chatUid: String,
-    senderUid: String,
-    senderDisplayedName: String,
-    senderLogoUrl: String?,
-    senderAddress: String,
-    osbbId: Int,
-    role: UserRole,
-    onComplete: () -> Unit,
-    recipientTokens: List<String>
-  ) {
-    viewModelScope.launch(Dispatchers.IO) {
-      _isLoadingAfterSending.value = true
-      try {
-        val uri = selectedImageUri.value
-        if (uri == Uri.EMPTY) return@launch
-
-        // --- ШАГ 1: СЖАТИЕ ПЕРЕД ОТПРАВКОЙ ---
-        val imageData = compressImage(context, uri)
-
-        // --- ШАГ 2: ФОРМИРОВАНИЕ ПУТИ ---
-        val chatId = when {
-          role == UserRole.StandardUser && selectedService.value.codeName == UserRole.OsbbUser.codeName -> {
-            "${selectedService.value.codeName}_${osbbId}_$chatUid"
+          // --- ШАГ 2: ЛОГИКА ИДЕНТИФИКАТОРА ---
+          val chatId = when {
+            role == UserRole.StandardUser && selectedService.value.codeName == UserRole.OsbbUser.codeName -> {
+              "${selectedService.value.codeName}_${osbbId}_$chatUid"
+            }
+            role == UserRole.StandardUser -> "${selectedService.value.codeName}_$chatUid"
+            role == UserRole.OsbbUser -> "${role.codeName}_${osbbId}_$chatUid"
+            else -> "${role.codeName}_$chatUid"
           }
-          role == UserRole.StandardUser -> "${selectedService.value.codeName}_$chatUid"
-          role == UserRole.OsbbUser -> "${role.codeName}_${osbbId}_$chatUid"
-          else -> "${role.codeName}_$chatUid"
-        }
-        val cleanChatId = chatId.replace("/", "_")
-        val fileName = "${System.currentTimeMillis()}_image.jpg"
 
-        val photoRef = storage.reference
-          .child("chat_images")
-          .child(cleanChatId)
-          .child(fileName)
+          // --- ШАГ 3: ЗАГРУЗКА ЧЕРЕЗ РЕПОЗИТОРИЙ ---
+          val imageUrl = withContext(Dispatchers.IO) {
+            chatRepo.uploadChatImage(imageData, chatId)
+          }
 
-        // --- ШАГ 3: ЗАГРУЗКА БАЙТОВ (вместо файла) ---
-        photoRef.putBytes(imageData).await()
-        val imageUrl = photoRef.downloadUrl.await().toString()
-
-        withContext(Dispatchers.Main) {
+          // --- ШАГ 4: ЗАПИСЬ В БД (Main Thread) ---
           writeToDatabase(
             chatUid = chatUid,
             senderUid = senderUid,
@@ -526,39 +483,39 @@ class ChatViewModel(
               _selectedImageUri.value = Uri.EMPTY
               _messageText.value = ""
               clearAiSuggestion()
+              _isLoadingAfterSending.value = false
               onComplete()
             }
           )
-        }
-      } catch (e: Exception) {
-        withContext(Dispatchers.Main) {
+        } catch (e: Exception) {
           _isLoadingAfterSending.value = false
           Log.e("photo_upload", "Error: ${e.message}")
           SnackbarManager.showMessage("Ошибка: ${e.localizedMessage}")
         }
       }
     }
-  }
 
 
-  private suspend fun compressImage(context: android.content.Context, uri: Uri): ByteArray = withContext(Dispatchers.IO) {
-    val inputStream = context.contentResolver.openInputStream(uri)
-    val originalBitmap = BitmapFactory.decodeStream(inputStream)
 
-    // Вычисляем масштаб, чтобы большая сторона была не более 1200px
-    val maxSize = 1200f
-    val scale = (maxSize / maxOf(originalBitmap.width, originalBitmap.height)).coerceAtMost(1f)
+  private suspend fun compressImage(context: android.content.Context, uri: Uri): ByteArray =
+    withContext(Dispatchers.IO) {
+      val inputStream = context.contentResolver.openInputStream(uri)
+      val originalBitmap = BitmapFactory.decodeStream(inputStream)
 
-    val width = (originalBitmap.width * scale).toInt()
-    val height = (originalBitmap.height * scale).toInt()
+      // Вычисляем масштаб, чтобы большая сторона была не более 1200px
+      val maxSize = 1200f
+      val scale = (maxSize / maxOf(originalBitmap.width, originalBitmap.height)).coerceAtMost(1f)
 
-    val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, width, height, true)
-    val outputStream = java.io.ByteArrayOutputStream()
+      val width = (originalBitmap.width * scale).toInt()
+      val height = (originalBitmap.height * scale).toInt()
 
-    // Сжимаем в JPEG (80% качества — баланс веса и детализации)
-    scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-    outputStream.toByteArray()
-  }
+      val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, width, height, true)
+      val outputStream = java.io.ByteArrayOutputStream()
+
+      // Сжимаем в JPEG (80% качества — баланс веса и детализации)
+      scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+      outputStream.toByteArray()
+    }
 
 
   fun setSelectedImageUri(uri: Uri) {
@@ -599,29 +556,23 @@ class ChatViewModel(
   fun setSelectedMessage(message: MessageEntity) {
     _selectedMessage.value = message
   }
-
-  fun sendPushNotification(
-    sendNotificationArguments: SendNotificationArguments
-  ) {
-    viewModelScope.launch(Dispatchers.IO) { // Обязательно уходим в IO для сетевых вызовов
-      for (token in sendNotificationArguments.recipientTokens) {
-        try {
-          val urlString =
-            "https://sendnotification-ai2rm2uxna-uc.a.run.app?token=${token}&body=${sendNotificationArguments.body}&title=${sendNotificationArguments.title}"
-
-          // Используем внедренный инстанс functions (0 мс задержки на разрешение зависимости)
-          functions
-            .getHttpsCallableFromUrl(urlString.toHttpUrl().toUrl())
-            .call()
-            .await() // Используем корутины вместо блокирующего вызова
-
-          Log.d("fcm_tokens_test", "Notification sent to: $token")
-        } catch (e: Exception) {
-          Log.e("fcm_tokens_test", "Error sending to $token: ${e.message}")
+    fun sendPushNotification(sendNotificationArguments: SendNotificationArguments) {
+      viewModelScope.launch(Dispatchers.IO) {
+        sendNotificationArguments.recipientTokens.forEach { token ->
+          try {
+            // Вызываем через репозиторий (Complexity -1)
+            chatRepo.sendPushNotification(
+              token = token,
+              title = sendNotificationArguments.title,
+              body = sendNotificationArguments.body
+            )
+          } catch (e: Exception) {
+            // Ошибка уже залогирована в репозитории, здесь можно обработать UI если нужно
+          }
         }
       }
     }
-  }
+
 
   override fun onCleared() {
     super.onCleared()

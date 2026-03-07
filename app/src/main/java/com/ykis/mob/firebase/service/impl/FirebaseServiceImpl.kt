@@ -34,14 +34,16 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import org.koin.java.KoinJavaComponent.inject
 
 class FirebaseServiceImpl(
   private val context: Context,
-) : FirebaseService, KoinComponent {
-  private val auth: FirebaseAuth by inject()
-  private val db: FirebaseFirestore by inject()
+  private val auth: FirebaseAuth,      // Передаем напрямую
+  private val dbLazy: Lazy<FirebaseFirestore>     // Передаем напрямую
+) : FirebaseService {
+  private val credentialManager by lazy { CredentialManager.create(context) }
+  private val db by dbLazy
 
-  private val credentialManager = CredentialManager.create(context)
 
   // --- Свойства пользователя ---
   override val isUserAuthenticatedInFirebase: Boolean get() = auth.currentUser != null
@@ -265,7 +267,7 @@ class FirebaseServiceImpl(
   // Пустые методы (реализуйте по необходимости)
   override suspend fun authenticate(email: String, password: String) {}
   override suspend fun sendRecoveryEmail(email: String) {}
-//  override suspend fun linkAccount(email: String, password: String) {}
+  //  override suspend fun linkAccount(email: String, password: String) {}
   override suspend fun deleteAccount() { auth.currentUser?.delete()?.await() }
   override suspend fun firebaseSignUpWithGoogle2(googleCredential: AuthCredential) { firebaseSignInWithGoogle(googleCredential) }
 
@@ -283,4 +285,3 @@ class FirebaseServiceImpl(
     private const val LINK_ACCOUNT_TRACE = "linkAccount"
   }
 }
-

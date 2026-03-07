@@ -4,8 +4,8 @@ import com.ykis.mob.core.Resource
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.data.remote.core.BaseResponse
+import com.ykis.mob.domain.meter.water.meter.WaterMeterRepository
 import com.ykis.mob.domain.meter.water.reading.AddWaterReadingParams
-import com.ykis.mob.domain.meter.water.reading.WaterReadingRepository
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -13,8 +13,9 @@ import kotlinx.coroutines.flow.flowOn // ДОБАВИТЬ
 import retrofit2.HttpException
 import java.io.IOException
 
-class AddWaterReading (
-  private val repository: WaterReadingRepository,
+class
+AddWaterReading (
+  private val repository: WaterMeterRepository,
   private val database: AppDatabase
 ) {
   // Указываем тип явно в flow<...>, чтобы компилятор не ругался на BaseResponse?

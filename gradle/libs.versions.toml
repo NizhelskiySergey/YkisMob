@@ -1,6 +1,6 @@
 [versions]
 accompanist-adaptive = "0.37.3"
-agp = "9.0.1"
+agp = "9.1.0"
 androidx-activity-compose = "1.12.4"
 androidx-compose-bom = "2026.02.01"
 cameraxVersion = "1.5.3"
@@ -34,7 +34,7 @@ ksp = "2.3.4"
 ktor = "2.3.12"
 koin-bom = "4.2.0-RC1"
 koin-plugin = "0.3.0"
-kotzilla = "2.0.6"
+kotzilla = "2.0.8"
 play-services-auth = "21.5.1"
 crashlytics = "3.0.6"
 room-runtime = "2.8.4"
@@ -81,6 +81,7 @@ androidx-room-compiler = { group = "androidx.room", name ="room-compiler", versi
 androidx-room-ktx = { group = "androidx.room" ,name = "room-ktx", version.ref = "room-runtime" }
 androidx-room-runtime = { group = "androidx.room", name= "room-runtime", version.ref = "room-runtime" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil-compose" }
+coil-gif = { group = "io.coil-kt", name = "coil-gif", version.ref = "coil-compose" }
 converter-gson = { group = "com.squareup.retrofit2" , name = "converter-gson", version.ref = "retrofit" }
 converter-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "retrofit" }
 converter-scalars = { group = "com.squareup.retrofit2", name = "converter-scalars", version.ref = "retrofit" }
@@ -90,7 +91,8 @@ core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx
 #koin
 koin-bom = { module = "io.insert-koin:koin-bom", version.ref = "koin-bom" }
 koin-core = { module = "io.insert-koin:koin-core" }
-koin-annotations = { module = "io.insert-koin:koin-annotations"}
+koin-annotations = { module = "io.insert-koin:koin-annotations" }
+koin-core-coroutines= { module = "io.insert-koin:koin-core-coroutines"}
 koin-android = { module = "io.insert-koin:koin-android" }
 koin-compose = { module = "io.insert-koin:koin-compose" }
 koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel" }
@@ -155,6 +157,3 @@ koin-compiler = { id = "io.insert-koin.compiler.plugin", version.ref = "koin-plu
 crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "crashlytics" }
 kotzilla = { id = "io.kotzilla.kotzilla-plugin", version.ref = "kotzilla" }
 #ktor = { id = "io.ktor.plugin", version.ref = "ktor" }
-
-
-

@@ -17,7 +17,7 @@ class GetWaterMeterList (
   private val database: AppDatabase
 ) {
   // Убрали "?" после List<WaterMeterEntity>, чтобы типы совпадали
-  operator fun invoke(addressId: Int, uid: String): Flow<Resource<List<WaterMeterEntity>>> = flow {
+  operator fun invoke(uid: String,addressId: Int): Flow<Resource<List<WaterMeterEntity>>> = flow {
     try {
       emit(Resource.Loading())
 
@@ -25,7 +25,7 @@ class GetWaterMeterList (
       val localMeters = database.waterMeterDao().getWaterMeter(addressId)
       emit(Resource.Success(localMeters))
 
-      val response = repository.getWaterMeterList(addressId, uid)
+      val response = repository.getWaterMeterList(uid,addressId)
 
       // Обновляем локальные данные, если есть свежие из сети
       val waterMeterList = database.waterMeterDao().getWaterMeter(addressId)
