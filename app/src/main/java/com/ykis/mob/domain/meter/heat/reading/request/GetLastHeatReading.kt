@@ -3,8 +3,8 @@ import com.ykis.mob.R
 import com.ykis.mob.core.Resource
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
+import com.ykis.mob.domain.meter.heat.meter.HeatMeterRepository
 import com.ykis.mob.domain.meter.heat.reading.HeatReadingEntity
-import com.ykis.mob.domain.meter.heat.reading.HeatReadingRepository
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -13,11 +13,11 @@ import retrofit2.HttpException
 import java.io.IOException
 
 class GetLastHeatReading (
-  private val repository: HeatReadingRepository,
+  private val repository: HeatMeterRepository,
   private val database: AppDatabase
 ) {
   // Указываем тип явно в flow<...>, чтобы не было ошибки mismatch
-  operator fun invoke(teplomerId: Int, uid: String): Flow<Resource<HeatReadingEntity?>> = flow<Resource<HeatReadingEntity?>> {
+  operator fun invoke(uid: String,teplomerId: Int): Flow<Resource<HeatReadingEntity?>> = flow<Resource<HeatReadingEntity?>> {
     try {
       emit(Resource.Loading())
 
@@ -28,7 +28,7 @@ class GetLastHeatReading (
       }
 
       // 2. Запрос в сеть
-      val response = repository.getLastHeatReading(teplomerId, uid)
+      val response = repository.getLastHeatReading(uid,teplomerId)
 
       if (response.success == 1) {
         val reading = response.heatReading

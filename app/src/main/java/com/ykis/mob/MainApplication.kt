@@ -1,19 +1,3 @@
-/*
-Copyright 2022 Google LLC
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
- */
-
 package com.ykis.mob
 
 import android.app.Application
@@ -28,33 +12,43 @@ import com.ykis.mob.di.domainModule
 import com.ykis.mob.di.firebaseModule
 import com.ykis.mob.di.viewModelsModule
 import io.kotzilla.sdk.analytics.koin.analytics
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.GlobalContext.startKoin
+import org.koin.core.extension.coroutinesEngine
 import org.koin.core.logger.Level
 
-class MainApplication : Application() {
+class
+MainApplication : Application() {
   val theme = mutableStateOf("system")
+
+  // Создаем scope для фоновых задач инициализации
+  private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   override fun onCreate() {
     super.onCreate()
+// Firebase App должен быть инициализирован синхронно для Koin
     Firebase.initialize(this)
 
-    // 2. Настраиваем App Check (Play Integrity для продакшена)
-    FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
-      PlayIntegrityAppCheckProviderFactory.getInstance()
-    )
+    // А вот проверку целостности (App Check) можно увести в фон через ваш scope
+    applicationScope.launch {
+      FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+        PlayIntegrityAppCheckProviderFactory.getInstance()
+      )
+    }
 
-    // Just start Koin!
     startKoin {
       androidContext(this@MainApplication)
-      androidLogger(level = Level.ERROR)
-//      analytics()
-//      kotzillaLogger()
-//      monitoring()  // Recommended for all platforms
-      modules(appModule, dataModule, firebaseModule, domainModule, viewModelsModule)
+      androidLogger(level = Level.DEBUG)
+      analytics()
+      coroutinesEngine(Dispatchers.IO)
 
+      modules(appModule, dataModule, firebaseModule, domainModule, viewModelsModule)
     }
+
   }
 }
-

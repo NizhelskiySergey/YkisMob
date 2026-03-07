@@ -4,8 +4,8 @@ import com.ykis.mob.R
 import com.ykis.mob.core.Resource
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
+import com.ykis.mob.domain.meter.water.meter.WaterMeterRepository
 import com.ykis.mob.domain.meter.water.reading.WaterReadingEntity
-import com.ykis.mob.domain.meter.water.reading.WaterReadingRepository
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -14,11 +14,11 @@ import retrofit2.HttpException
 import java.io.IOException
 
 class GetWaterReadings (
-  private val repository: WaterReadingRepository,
+  private val repository: WaterMeterRepository,
   private val database: AppDatabase
 ) {
   // Убрали "?" после List<WaterReadingEntity>, чтобы типы внутри flow совпадали
-  operator fun invoke(vodomerId: Int, uid: String): Flow<Resource<List<WaterReadingEntity>>> = flow {
+  operator fun invoke(uid: String,vodomerId: Int): Flow<Resource<List<WaterReadingEntity>>> = flow {
     try {
       emit(Resource.Loading())
 
@@ -29,7 +29,7 @@ class GetWaterReadings (
       }
 
       // 2. Запрос в сеть
-      val response = repository.getWaterReadings(vodomerId, uid)
+      val response = repository.getWaterReadings(uid,vodomerId)
 
       if (response.success == 1) {
         val remoteReadings = response.waterReadings ?: emptyList()

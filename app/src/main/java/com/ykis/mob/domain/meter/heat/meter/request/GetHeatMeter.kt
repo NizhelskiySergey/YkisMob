@@ -17,7 +17,7 @@ class GetHeatMeterList (
   private val database: AppDatabase
 ) {
   // Убрали "?" после List<HeatMeterEntity>
-  operator fun invoke(addressId: Int, uid: String): Flow<Resource<List<HeatMeterEntity>>> = flow {
+  operator fun invoke(uid: String,addressId: Int): Flow<Resource<List<HeatMeterEntity>>> = flow {
     try {
       emit(Resource.Loading())
 
@@ -27,7 +27,7 @@ class GetHeatMeterList (
         emit(Resource.Success(localMeters))
       }
 
-      val response = repository.getHeatMeterList(addressId, uid)
+      val response = repository.getHeatMeterList(uid,addressId)
 
       if (response.success == 1) {
         val remoteMeters = response.heatMeters ?: emptyList()

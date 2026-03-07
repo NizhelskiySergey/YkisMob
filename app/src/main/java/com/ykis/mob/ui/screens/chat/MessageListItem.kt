@@ -142,14 +142,14 @@ fun MessageListItem(
 @Preview(showBackground = true)
 @Composable
 private fun PreviewMessageListItem() {
-    YkisPAMTheme {
-        MessageListItem(uid = "1", messageEntity = MessageEntity(
-            text = "Привіт чувак! aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            senderDisplayedName = "Кирило Блідний",
-            senderAddress = "Миру 28/1"
-        ),
-            onLongClick = {},
-            onClick = {}
-        )
-    }
+  YkisPAMTheme {
+    MessageListItem(uid = "1", messageEntity = MessageEntity(
+      text = "Привіт чувак! aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      senderDisplayedName = "Кирило Блідний",
+      senderAddress = "Миру 28/1"
+    ),
+      onLongClick = {},
+      onClick = {}
+    )
+  }
 }

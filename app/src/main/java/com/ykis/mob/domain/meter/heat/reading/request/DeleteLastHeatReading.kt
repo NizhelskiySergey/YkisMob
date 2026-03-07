@@ -4,7 +4,7 @@ import com.ykis.mob.core.Resource
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.data.remote.core.BaseResponse
-import com.ykis.mob.domain.meter.heat.reading.HeatReadingRepository
+import com.ykis.mob.domain.meter.heat.meter.HeatMeterRepository
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -12,16 +12,17 @@ import kotlinx.coroutines.flow.flowOn // ДОБАВИТЬ
 import retrofit2.HttpException
 import java.io.IOException
 
-class DeleteLastHeatReading (
-  private val repository: HeatReadingRepository,
+class
+DeleteLastHeatReading (
+  private val repository: HeatMeterRepository,
   private val database: AppDatabase
 ) {
   // Явно указываем тип в flow<...>, чтобы компилятор не ругался на BaseResponse?
-  operator fun invoke(readingId : Int, uid: String): Flow<Resource<BaseResponse?>> = flow<Resource<BaseResponse?>> {
+  operator fun invoke(uid: String,readingId : Int): Flow<Resource<BaseResponse?>> = flow<Resource<BaseResponse?>> {
     try {
       emit(Resource.Loading())
 
-      val response = repository.deleteLastHeatReading(readingId, uid)
+      val response = repository.deleteLastHeatReading(uid,readingId)
 
       if (response.success == 1) {
         // Удаление из локальной базы (теперь безопасно на IO)

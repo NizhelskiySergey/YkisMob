@@ -3,8 +3,8 @@ import com.ykis.mob.R
 import com.ykis.mob.core.Resource
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
+import com.ykis.mob.domain.meter.heat.meter.HeatMeterRepository
 import com.ykis.mob.domain.meter.heat.reading.HeatReadingEntity
-import com.ykis.mob.domain.meter.heat.reading.HeatReadingRepository
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -13,11 +13,11 @@ import retrofit2.HttpException
 import java.io.IOException
 
 class GetHeatReadings (
-  private val repository: HeatReadingRepository,
+  private val repository: HeatMeterRepository,
   private val database: AppDatabase
 ) {
   // Убрали "?" после List<HeatReadingEntity>, чтобы типы внутри flow совпадали
-  operator fun invoke(teplomerId: Int, uid: String): Flow<Resource<List<HeatReadingEntity>>> = flow {
+  operator fun invoke(uid: String,teplomerId: Int): Flow<Resource<List<HeatReadingEntity>>> = flow {
     try {
       emit(Resource.Loading())
 
@@ -28,7 +28,7 @@ class GetHeatReadings (
       }
 
       // 2. Запрос в сеть
-      val response = repository.getHeatReadings(teplomerId, uid)
+      val response = repository.getHeatReadings(uid,teplomerId)
 
       if (response.success == 1) {
         val remoteReadings = response.heatReadings ?: emptyList()

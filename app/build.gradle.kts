@@ -1,3 +1,4 @@
+import org.gradle.kotlin.dsl.implementation
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -15,13 +16,7 @@ plugins {
 android {
   namespace = "com.ykis.mob"
   compileSdk = 36
-//
-//  configurations {
-//    all {
-//      exclude(group = "org.apache.httpcomponents", module = "httpclient")
-//      exclude(group = "commons-logging", module = "commons-logging")
-//    }
-//  }
+
   defaultConfig {
     applicationId = "com.ykis.mob"
     minSdk = 23
@@ -61,7 +56,6 @@ android {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
   }
-//
 
 
   buildFeatures {
@@ -108,7 +102,6 @@ dependencies {
 
   implementation(libs.androidx.room.external.antlr)
 
-//    implementation(libs.firebase.functions.ktx)
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)
   implementation(libs.androidx.compose.material3)
@@ -173,6 +166,8 @@ dependencies {
 //koin
   implementation(project.dependencies.platform(libs.koin.bom))
   implementation(libs.koin.core)
+  implementation(libs.koin.annotations)
+  implementation(libs.koin.core.coroutines)
   implementation(libs.koin.android)
   implementation(libs.koin.compose)
   implementation(libs.koin.compose.viewmodel)
@@ -200,6 +195,7 @@ dependencies {
 
   //coil
   implementation(libs.coil.compose)
+  implementation(libs.coil.gif)
   implementation(libs.androidx.splashscreen)
 //
   testImplementation(libs.junit)
