@@ -22,6 +22,7 @@ data class BaseUIState(
     val isDetailOnlyOpen: Boolean = false,
     val isLoading: Boolean = false,
     val mainLoading: Boolean = true,
+    val isGlobalLoading: Boolean = false,
     val apartmentLoading : Boolean = true,
     val error: String? = null,
     val showDetail : Boolean = false,

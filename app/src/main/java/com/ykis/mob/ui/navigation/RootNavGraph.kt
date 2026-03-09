@@ -28,6 +28,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.window.layout.DisplayFeature
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.ui.GlobalLoadingBarrier
 import com.ykis.mob.ui.rememberAppState
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.SignUpViewModel
@@ -69,7 +70,10 @@ fun RootNavGraph(
     }
     val selectedUser by chatViewModel.selectedUser.collectAsStateWithLifecycle()
     val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
-    val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
+  val isGlobalLoading = baseUIState.isGlobalLoading || baseUIState.mainLoading
+
+
+  val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
     val chatUid = remember(baseUIState, selectedUser.uid) {
         if (baseUIState.userRole == UserRole.StandardUser) {
             baseUIState.uid.toString()
@@ -95,7 +99,7 @@ fun RootNavGraph(
         NavHost(
             modifier = modifier
               .fillMaxSize()
-                .padding(paddingValues = paddingValues)
+              .padding(paddingValues = paddingValues)
             ,
             navController = navController,
             startDestination = apartmentViewModel.onAppStart(),
@@ -253,6 +257,7 @@ fun RootNavGraph(
               )
             }
         }
+//      GlobalLoadingBarrier(isVisible = isGlobalLoading)
     }
 }
 

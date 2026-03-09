@@ -26,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 
@@ -33,10 +34,20 @@ open class BaseViewModel(
     private val logService: LogService,
 ) : ViewModel() {
 
-    val _uiState = MutableStateFlow(BaseUIState(isLoading = true))
+    val _uiState = MutableStateFlow(BaseUIState(
+
+    ))
     val uiState: StateFlow<BaseUIState> = _uiState.asStateFlow()
-
-
+//
+//  // Включить лоадер
+//  fun showProgress() {
+//    _uiState.update { it.copy(isGlobalLoading = true) }
+//  }
+//
+//  // Выключить лоадер
+//  fun hideProgress() {
+//    _uiState.update { it.copy(isGlobalLoading = false) }
+//  }
 
 
     fun launchCatching(snackbar: Boolean = true, block: suspend CoroutineScope.() -> Unit) =

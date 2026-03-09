@@ -46,7 +46,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-
 class ApartmentViewModel(
   private val firebaseService: FirebaseService,
   private val apartmentService: ApartmentService,
