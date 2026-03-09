@@ -49,13 +49,10 @@ import kotlinx.coroutines.withContext
 
 class ApartmentViewModel(
   private val firebaseService: FirebaseService,
-  private val getApartmentList: GetApartmentList,
-  private val getApartment: GetApartment,
-  private val deleteApartment: DeleteApartment,
-  private val addApartment: AddApartment,
+  private val apartmentService: ApartmentService,
   private val networkHandler: NetworkHandler,
-  private val logService: LogService,
-  private val updateBti: UpdateBti
+  private val logService: LogService
+
 ) : BaseViewModel(logService) {
 
   private val isEmailVerified get() = firebaseService.currentUser?.isEmailVerified ?: false
@@ -156,18 +153,23 @@ class ApartmentViewModel(
   }
 
   fun addApartment(restartApp: () -> Unit) {
-    this.addApartment(
-      code = secretCode.value, uid = firebaseService.uid, email = firebaseService.email
+    // Вызов через сервис-фасад (убираем прямую зависимость от UseCase AddApartment)
+    apartmentService.addApartment(
+      code = secretCode.value,
+      uid = firebaseService.uid,
+      email = firebaseService.email
     ).onEach { result ->
       when (result) {
         is Resource.Success -> {
-          _uiState.value = _uiState.value.copy(
-            addressId = result.data!!.addressId
-          )
+          // Обновляем ID новой квартиры в стейте
+          _uiState.update { it.copy(addressId = result.data?.addressId ?: 0) }
+
+          // Обновляем список квартир и выполняем навигацию/рестарт
           getApartmentList {
-            setAddressId(uiState.value.addressId)
+            setAddressId(_uiState.value.addressId)
             restartApp()
           }
+
           SnackbarManager.showMessage(R.string.success_add_flat)
           _secretCode.value = ""
         }
@@ -176,11 +178,13 @@ class ApartmentViewModel(
           SnackbarManager.showMessage(result.resourceMessage)
         }
 
-        is Resource.Loading -> {}
+        is Resource.Loading -> {
+          // Можно добавить индикатор загрузки, если нужно
+        }
       }
-    }.launchIn(this.viewModelScope)
-
+    }.launchIn(viewModelScope)
   }
+
 
   fun initialContactState() {
     _contactUiState.value = ContactUIState(
@@ -200,11 +204,14 @@ class ApartmentViewModel(
   }
 
   fun onUpdateBti(uid: String) {
+    // 1. Валидация (остается во ViewModel)
     if (!email.isValidEmail() && email.isNotEmpty()) {
       SnackbarManager.showMessage(R.string.email_error)
       return
     }
-    this.updateBti(
+
+    // 2. Вызов через сервис-фасад (убираем прямую зависимость от UseCase)
+    apartmentService.updateBti(
       ApartmentEntity(
         addressId = _contactUiState.value.addressId,
         address = _contactUiState.value.address,
@@ -216,43 +223,50 @@ class ApartmentViewModel(
       when (result) {
         is Resource.Success -> {
           SnackbarManager.showMessage(R.string.updated)
-          getApartment()
+          getApartment() // Обновляем данные
         }
-
         is Resource.Error -> {
           SnackbarManager.showMessage(result.resourceMessage)
         }
-
-        is Resource.Loading -> {}
+        is Resource.Loading -> {
+          // Можно добавить индикатор загрузки, если нужно
+        }
       }
-    }.launchIn(this.viewModelScope)
+    }.launchIn(viewModelScope)
   }
 
+
   fun getApartment(addressId: Int = uiState.value.addressId) {
-    this.getApartment(addressId = addressId, uid).onEach { result ->
+    // Вызов через сервис-фасад (убираем прямую зависимость от UseCase GetApartment)
+    apartmentService.getApartment(addressId = addressId, uid = uid ?: "").onEach { result ->
       when (result) {
         is Resource.Success -> {
           Log.d("debug_test1", "success")
-          this._uiState.value = _uiState.value.copy(
-            apartment = result.data ?: ApartmentEntity(),
-            addressId = result.data!!.addressId,
-            address = result.data.address,
-            houseId = result.data.houseId,
-            osmdId = result.data.osmdId,
-            osbb = result.data.osbb.toString(),
+          val data = result.data ?: ApartmentEntity()
+
+          // Обновляем основной стейт
+          _uiState.value = _uiState.value.copy(
+            apartment = data,
+            addressId = data.addressId,
+            address = data.address,
+            houseId = data.houseId,
+            osmdId = data.osmdId,
+            osbb = data.osbb.toString(),
             apartmentLoading = false,
           )
-          this._contactUiState.value = _contactUiState.value.copy(
-            addressId = result.data.addressId,
-            email = result.data.email,
-            phone = result.data.phone,
-            address = result.data.address
+
+          // Синхронизируем стейт контактов
+          _contactUiState.value = _contactUiState.value.copy(
+            addressId = data.addressId,
+            email = data.email,
+            phone = data.phone,
+            address = data.address
           )
         }
 
         is Resource.Error -> {
           Log.d("debug_test1", "error")
-          this._uiState.value = _uiState.value.copy(
+          _uiState.value = _uiState.value.copy(
             error = result.message ?: "Unexpected error!",
             apartmentLoading = false
           )
@@ -260,19 +274,20 @@ class ApartmentViewModel(
 
         is Resource.Loading -> {
           Log.d("debug_test1", "loading")
-          this._uiState.value = _uiState.value.copy(
+          _uiState.value = _uiState.value.copy(
             apartmentLoading = true
           )
-
         }
       }
     }.launchIn(this.viewModelScope)
   }
+
   fun getApartmentList(onSuccess: () -> Unit = {}) {
     val currentUid = firebaseService.uid
-    if (currentUid.isEmpty()) return // Не делаем запрос без UID
+    if (currentUid.isEmpty()) return
 
-    this.getApartmentList(currentUid).onEach { result ->
+    // Вызов через сервис-фасад (вместо прямой зависимости от GetApartmentList)
+    apartmentService.getApartmentList(currentUid).onEach { result ->
       _uiState.update { state ->
         when (result) {
           is Resource.Success -> state.copy(
@@ -286,45 +301,51 @@ class ApartmentViewModel(
           is Resource.Loading -> state.copy(mainLoading = true)
         }
       }
+      // Выполняем onSuccess только при успешном получении данных
       if (result is Resource.Success) onSuccess()
     }.launchIn(viewModelScope)
   }
 
-  fun deleteApartment(
-  ) {
-    this.deleteApartment(
+
+  fun deleteApartment() {
+    // Вызов через сервис-фасад (убираем прямую зависимость от UseCase DeleteApartment)
+    apartmentService.deleteApartment(
       addressId = uiState.value.addressId,
-      uid = uid
+      uid = uid ?: ""
     ).onEach { result ->
       when (result) {
         is Resource.Success -> {
           SnackbarManager.showMessage(R.string.success_delete_flat)
+          // После успешного удаления обновляем список
           getApartmentList(
             onSuccess = {
-              this._uiState.value = _uiState.value.copy(
-                mainLoading = false,
-                addressId = 0
-              )
+              _uiState.update { currentState ->
+                currentState.copy(
+                  mainLoading = false,
+                  addressId = 0
+                )
+              }
             }
           )
         }
 
         is Resource.Error -> {
-          this._uiState.value = _uiState.value.copy(
-            error = result.message ?: "Unexpected error!",
-            mainLoading = false
-          )
+          _uiState.update { currentState ->
+            currentState.copy(
+              error = result.message ?: "Unexpected error!",
+              mainLoading = false
+            )
+          }
           SnackbarManager.showMessage(result.resourceMessage)
         }
 
         is Resource.Loading -> {
-          _uiState.value = _uiState.value.copy(
-            mainLoading = true
-          )
+          _uiState.update { it.copy(mainLoading = true) }
         }
       }
     }.launchIn(this.viewModelScope)
   }
+
 
   fun setAddressId(addressId: Int) {
     _uiState.value = uiState.value.copy(

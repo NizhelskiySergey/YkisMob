@@ -90,6 +90,7 @@ import com.ykis.mob.firebase.service.impl.LogServiceImpl
 import com.ykis.mob.firebase.service.repo.ConfigurationService
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.firebase.service.repo.LogService
+import com.ykis.mob.ui.screens.appartment.ApartmentService
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.auth.sign_in.SignInViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.SignUpViewModel
@@ -106,6 +107,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.android.ext.koin.androidApplication
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.viewModel
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -114,55 +116,56 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 val appModule = module {
   single {
     Moshi.Builder()
-      .add(KotlinJsonAdapterFactory()) // Не забудьте эту строку для работы с Kotlin-классами
+      .add(KotlinJsonAdapterFactory())
       .build()
   }
-  // Logging Interceptor
+
   single {
     HttpLoggingInterceptor().apply {
       level = HttpLoggingInterceptor.Level.BODY
     }
   }
 
-  // OkHttpClient
-  single {
+  // OkHttp инициализируется ~2.2 мс - выносим в фон
+  single(createdAtStart = true) {
     OkHttpClient.Builder()
       .addInterceptor(get<HttpLoggingInterceptor>())
       .build()
   }
 
-  // Retrofit
-  single {
+  // Retrofit инициализируется ~11 мс - выносим в фон
+  single(createdAtStart = true) {
     Retrofit.Builder()
       .addConverterFactory(MoshiConverterFactory.create(get()))
-      .baseUrl(BASE_URL) // Замените на константу
+      .baseUrl(BASE_URL)
       .client(get())
       .build()
   }
 
-  // ApiService
-  single { get<Retrofit>().create(ApiService::class.java) }
+  // ApiService создается ~12 мс (включая зависимости) - выносим в фон
+  single(createdAtStart = true) { get<Retrofit>().create(ApiService::class.java) }
+
   single { NetworkHandler(androidContext()) }
-  // Database
-  single {
+
+  // Room инициализируется ~5.5 мс - выносим в фон
+  single(createdAtStart = true) {
     Room.databaseBuilder(
       androidContext(),
       AppDatabase::class.java,
       AppDatabase.DATABASE_NAME
-    )
-      // Добавьте это, чтобы избежать блокировки при первом обращении
-      .setQueryCallback({ sqlQuery, bindArgs ->
-        // Опционально для дебага
-      }, { it.run() })
-      .build()
+    ).build()
   }
 
-  // Вместо прямой инъекции базы в ClearDatabase, передавайте её лениво
-//  single { ClearDatabase(getKoin().inject<AppDatabase>()) }
   factory { ClearDatabase() }
 }
+
 val domainModule = module {
   // Use Case Apartment
+//  single(named("lazyGetList")) { lazy { GetApartmentList(get(), get()) } }
+//  single(named("lazyGetDetail")) { lazy { GetApartment(get(), get()) } }
+//  single(named("lazyAdd")) { lazy { AddApartment(get()) } }
+//  single(named("lazyDelete")) { lazy { DeleteApartment(get(), get()) } }
+//  single(named("lazyUpdateBti")) { lazy { UpdateBti(get()) } }
   factory { GetApartmentList(get(),get()) }
   factory { GetApartment(get(),get()) }
   factory { DeleteApartment(get(),get()) }
@@ -190,7 +193,15 @@ val domainModule = module {
   factory { GetPaymentList(get(), get()) }
   factory { InsertPayment(get()) }
   single<LogService> { LogServiceImpl() }
-}
+  // В вашем di-модуле (domainModule)
+  // In your di-module
+  single(createdAtStart = true) {
+    ApartmentService(get(), get(), get(), get(), get())
+  }
+  }
+
+
+
 val dataModule = module {
   // 1. Scope
   single { CoroutineScope(SupervisorJob()) }
@@ -242,12 +253,7 @@ val firebaseModule = module {
   single(createdAtStart = true) { FirebaseStorage.getInstance() }
   single(createdAtStart = true) { FirebaseFunctions.getInstance() }
   single(createdAtStart = true) { FirebaseCrashlytics.getInstance() }
-//  single { FirebaseAuth.getInstance() }
-//  single{ FirebaseFirestore.getInstance() }
-//  single{ FirebaseDatabase.getInstance() }
-//  single{ FirebaseStorage.getInstance() }
-//  single{ FirebaseFunctions.getInstance() }
-//  single{ FirebaseCrashlytics.getInstance() }
+
   // 2. Ваши вспомогательные сервисы
 
   single<ConfigurationService> { ConfigurationServiceImpl() }
@@ -307,10 +313,7 @@ val viewModelsModule = module {
       get(),
       get(),
       get(),
-      get(),
-      get(),
-      get(),
-      get(), get()
+      get()
     )
   }
   viewModel { FamilyListViewModel(get(), get()) }
