@@ -3,48 +3,54 @@ package com.ykis.mob.domain.family
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import com.squareup.moshi.Json
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
+@Serializable // Заменили Moshi на Kotlin Serialization
 @Entity(tableName = "family")
 data class FamilyEntity(
-    @PrimaryKey(autoGenerate = false)
-    @Json(name = "rec_id")
-    @ColumnInfo(name = "rec_id")
-    val recId: Int = 0,
-    @Json(name = "address_id")
-    @ColumnInfo(name = "address_id")
-    val addressId: Int = 0,
-    val rodstvo: String = "Unknown",
-    @Json(name = "firstname")
-    @ColumnInfo(name = "firstname")
-    val fistname: String = "Unknown",
-    @Json(name = "lastname")
-    @ColumnInfo(name = "lastname")
-    val lastname: String = "Unknown",
-    @Json(name = "surname")
-    @ColumnInfo(name = "surname")
-    val surname: String = "Unknown",
+  @PrimaryKey(autoGenerate = false)
+  @SerialName("rec_id") // Заменили @Json
+  @ColumnInfo(name = "rec_id")
+  val recId: Int = 0,
 
-    val born: String = "Unknown",
+  @SerialName("address_id")
+  @ColumnInfo(name = "address_id")
+  val addressId: Int = 0,
 
-    val sex: String = "Unknown",
+  val rodstvo: String = "Unknown",
 
-    var phone: String = "Unknown",
+  @SerialName("firstname")
+  @ColumnInfo(name = "firstname")
+  val fistname: String = "Unknown",
 
-    val subsidia: Byte = 0,
+  @SerialName("lastname")
+  @ColumnInfo(name = "lastname")
+  val lastname: String = "Unknown",
 
-    val vkl: Byte = 0,
+  @SerialName("surname")
+  @ColumnInfo(name = "surname")
+  val surname: String = "Unknown",
 
-    val inn: String = "Unknown",
+  val born: String = "Unknown",
 
-    val document: String = "Unknown",
+  val sex: String = "Unknown",
 
-    val seria: String = "Unknown",
+  var phone: String = "Unknown",
 
-    val nomer: String = "Unknown",
+  val subsidia: Byte = 0,
 
-    val datav: String? = "Unknown",
+  val vkl: Byte = 0,
 
-    val organ: String = "Unknown"
+  val inn: String = "Unknown",
 
+  val document: String = "Unknown",
+
+  val seria: String = "Unknown",
+
+  val nomer: String = "Unknown",
+
+  val datav: String? = "Unknown",
+
+  val organ: String = "Unknown"
 )

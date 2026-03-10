@@ -17,11 +17,14 @@ import com.ykis.mob.ui.BaseViewModel
 import com.ykis.mob.ui.navigation.ContentDetail
 import com.ykis.mob.ui.screens.meter.heat.HeatMeterState
 import com.ykis.mob.ui.screens.meter.water.WaterMeterState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 class MeterViewModel (
@@ -117,29 +120,32 @@ class MeterViewModel (
 
   fun getWaterReadings(uid: String, vodomerId: Int) {
     viewModelScope.launch {
-      // 1. Включаем индикатор загрузки
-      _waterMeterState.value = _waterMeterState.value.copy(isReadingsLoading = true)
+      // 1. Включаем индикатор загрузки через update (атомарно)
+      _waterMeterState.update { it.copy(isReadingsLoading = true) }
 
       try {
-        // 2. Прямой вызов репозитория (убираем прослойку UseCase)
-        val response = waterMeterRepository.getWaterReadings(uid,vodomerId)
+        // 2. Выполняем запрос в IO потоке
+        val response = withContext(Dispatchers.IO) {
+          waterMeterRepository.getWaterReadings(uid, vodomerId)
+        }
 
-        // 3. Обновляем состояние списком из ответа (замените .waterReadings на ваше поле)
-        _waterMeterState.value = _waterMeterState.value.copy(
-          waterReadings = response.waterReadings ?: emptyList(),
-          isReadingsLoading = false
-        )
+        // 3. Обновляем состояние данными (Ktor уже распарсил JSON)
+        _waterMeterState.update { state ->
+          state.copy(
+            waterReadings = response.waterReadings, // Поле уже проинициализировано как emptyList() в модели
+            isReadingsLoading = false
+          )
+        }
       } catch (e: Exception) {
-        // 4. Обработка ошибки
+        // 4. Обработка ошибок (сеть, 404, ошибки парсинга)
         Log.e("MeterViewModel", "Error fetching readings: ${e.message}")
         SnackbarManager.showMessage("Ошибка загрузки показаний")
 
-        _waterMeterState.value = _waterMeterState.value.copy(
-          isReadingsLoading = false // Выключаем лоадер при ошибке
-        )
+        _waterMeterState.update { it.copy(isReadingsLoading = false) }
       }
     }
   }
+
 
 
   fun getLastWaterReading(uid: String, vodomerId: Int) {

@@ -12,8 +12,31 @@ object Constants {
 //    const val VERIFY_EMAIL_SCREEN = "Verify email"
 
     //Labels
-
-
+//Api
+    const val PARAM_ADDRESS_ID = "address_id"
+  const val UID = "uid"
+  const val YEAR = "year"
+  const val STREET_ID = "street_id"
+  const val HOUSE_ID = "house_id"
+  const val ADDRESS_ID = "address_id"
+  const val VODOMER_ID = "vodomer_id"
+  const val TEPLOMER_ID = "teplomer_id"
+  const val POK_ID = "pok_id"
+  const val NEW_VALUE = "new_value"
+  const val CURRENT_VALUE = "current_value"
+  const val CODE = "kod"
+  const val SERVICE = "service"
+  const val TOTAL = "total"
+  const val PHONE = "phone"
+  const val BLOCK_ID = "raion_id"
+  const val KVARTPLATA = "kvartplata"
+  const val RFOND = "rfond"
+  const val TEPLO = "teplo"
+  const val VODA = "voda"
+  const val TBO = "tbo"
+  const val RECIPIENT_TOKEN = "recipient_token"
+  const val TITLE = "title"
+  const val BODY = "body"
     //Messages
     const val VERIFY_DELETE_FLAT = "Appartment deleted"
 

@@ -1,57 +1,58 @@
 package com.ykis.mob.data.remote.water
 
+import com.ykis.mob.core.Constants.ADDRESS_ID
+import com.ykis.mob.core.Constants.CURRENT_VALUE
+import com.ykis.mob.core.Constants.NEW_VALUE
+import com.ykis.mob.core.Constants.POK_ID
+import com.ykis.mob.core.Constants.UID
+import com.ykis.mob.core.Constants.VODOMER_ID
 import com.ykis.mob.data.remote.GetSimpleResponse
-import com.ykis.mob.data.remote.api.ApiService
+import com.ykis.mob.data.remote.api.KtorApiService
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.meter.water.reading.AddWaterReadingParams
-import retrofit2.await
 
 class WaterMeterRemoteRepositoryImpl(
-  private val apiService: ApiService
+  private val ktorApiService: KtorApiService
 ) : WaterMeterRemoteRepository {
-
   override suspend fun getWaterMeterList(uid: String, addressId: Int): GetWaterMeterResponse {
-    return apiService.getWaterMeterList(createGetWaterMeterMap(uid = uid, addressId = addressId))
-      .await()
+    // 1. Убрали .await()
+    return ktorApiService.getWaterMeterList(createGetWaterMeterMap(uid = uid, addressId = addressId))
   }
 
   override suspend fun getWaterReadings(uid: String, vodomerId: Int): GetWaterReadingsResponse {
-    return apiService.getWaterReadings(
-      createGetWaterReadingMap(uid, vodomerId)
-    ).await()
+    // 2. Убрали .await()
+    return ktorApiService.getWaterReadings(createGetWaterReadingMap(uid, vodomerId))
   }
 
   override suspend fun getLastWaterReading(
     uid: String,
     vodomerId: Int,
   ): GetLastWaterReadingResponse {
-    return apiService.getLastWaterReading(
-      createGetWaterReadingMap(uid, vodomerId)
-    ).await()
+    // 3. Убрали .await()
+    return ktorApiService.getLastWaterReading(createGetWaterReadingMap(uid, vodomerId))
   }
 
   override suspend fun addWaterReading(params: AddWaterReadingParams): GetSimpleResponse {
-    return apiService.addWaterReading(
-
+    // 4. Убрали .await()
+    return ktorApiService.addWaterReading(
       createAddNewReadingMap(
         uid = params.uid,
         vodomerId = params.meterId,
         currentValue = params.currentValue,
         newValue = params.newValue
       )
-    ).await()
+    )
   }
 
-  override suspend fun deleteLastReading(uid: String, readingId: Int): BaseResponse {
-    return apiService.deleteLastWaterReading(
-      createDeleteWaterReadingMap(uid, readingId)
-    ).await()
+  override suspend fun deleteLastReading(uid: String, readingId: Int): GetSimpleResponse {
+    // 5. Убрали .await()
+    return ktorApiService.deleteLastWaterReading(createDeleteWaterReadingMap(uid, readingId))
   }
 
   private fun createGetWaterReadingMap(uid: String, vodomerId: Int): Map<String, String> {
     val map = HashMap<String, String>()
-    map[ApiService.VODOMER_ID] = vodomerId.toString()
-    map[ApiService.UID] = uid
+    map[VODOMER_ID] = vodomerId.toString()
+    map[UID] = uid
     return map
   }
 
@@ -62,10 +63,10 @@ class WaterMeterRemoteRepositoryImpl(
     currentValue: Int
   ): Map<String, String> {
     val map = HashMap<String, String>()
-    map[ApiService.VODOMER_ID] = vodomerId.toString()
-    map[ApiService.NEW_VALUE] = newValue.toString()
-    map[ApiService.CURRENT_VALUE] = currentValue.toString()
-    map[ApiService.UID] = uid
+    map[VODOMER_ID] = vodomerId.toString()
+    map[NEW_VALUE] = newValue.toString()
+    map[CURRENT_VALUE] = currentValue.toString()
+    map[UID] = uid
     return map
   }
 
@@ -74,15 +75,15 @@ class WaterMeterRemoteRepositoryImpl(
     pokId: Int
   ): Map<String, String> {
     val map = HashMap<String, String>()
-    map[ApiService.POK_ID] = pokId.toString()
-    map[ApiService.UID] = uid
+    map[POK_ID] = pokId.toString()
+    map[UID] = uid
     return map
   }
 
   private fun createGetWaterMeterMap(uid: String, addressId: Int): Map<String, String> {
     val map = HashMap<String, String>()
-    map[ApiService.ADDRESS_ID] = addressId.toString()
-    map[ApiService.UID] = uid
+    map[ADDRESS_ID] = addressId.toString()
+    map[UID] = uid
     return map
   }
 

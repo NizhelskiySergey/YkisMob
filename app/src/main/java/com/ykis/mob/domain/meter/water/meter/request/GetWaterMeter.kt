@@ -5,11 +5,11 @@ import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.domain.meter.water.meter.WaterMeterEntity
 import com.ykis.mob.domain.meter.water.meter.WaterMeterRepository
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.Dispatchers // ОБЯЗАТЕЛЬНО
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn // ОБЯЗАТЕЛЬНО
-import retrofit2.HttpException
 import java.io.IOException
 
 class GetWaterMeterList (
@@ -39,8 +39,9 @@ class GetWaterMeterList (
         database.waterMeterDao().insertWaterMeter(remoteMeters)
       }
 
-    } catch (e: HttpException) {
-      SnackbarManager.showMessage(e.message() ?: "Error")
+    } catch (e: ResponseException) {
+      // Ktor выбрасывает это при ошибках 4xx, 5xx и т.д.
+      SnackbarManager.showMessage(e.response.status.description)
       emit(Resource.Error())
     } catch (e: IOException) {
       val waterMeterList = database.waterMeterDao().getWaterMeter(addressId)

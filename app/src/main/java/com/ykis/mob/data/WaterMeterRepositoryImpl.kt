@@ -1,5 +1,6 @@
 package com.ykis.mob.data
 
+import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.data.remote.water.GetLastWaterReadingResponse
 import com.ykis.mob.data.remote.water.GetWaterMeterResponse
@@ -22,11 +23,11 @@ class WaterMeterRepositoryImpl (
     return waterMeterRemoteRepository.getLastWaterReading(uid,vodomerId)
   }
 
-  override suspend fun addWaterReading(params: AddWaterReadingParams): BaseResponse {
+  override suspend fun addWaterReading(params: AddWaterReadingParams): GetSimpleResponse {
     return waterMeterRemoteRepository.addWaterReading(params)
   }
 
-  override suspend fun deleteLastWaterReading(uid: String, readingId: Int ): BaseResponse {
+  override suspend fun deleteLastWaterReading(uid: String, readingId: Int ): GetSimpleResponse {
     return waterMeterRemoteRepository.deleteLastReading(uid,readingId )
   }
 }
