@@ -100,6 +100,7 @@ import com.ykis.mob.ui.screens.meter.MeterViewModel
 import com.ykis.mob.ui.screens.profile.ProfileViewModel
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
+import io.ktor.http.headers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
@@ -160,18 +161,12 @@ val appModule = module {
 }
 
 val domainModule = module {
-  // Use Case Apartment
-//  single(named("lazyGetList")) { lazy { GetApartmentList(get(), get()) } }
-//  single(named("lazyGetDetail")) { lazy { GetApartment(get(), get()) } }
-//  single(named("lazyAdd")) { lazy { AddApartment(get()) } }
-//  single(named("lazyDelete")) { lazy { DeleteApartment(get(), get()) } }
-//  single(named("lazyUpdateBti")) { lazy { UpdateBti(get()) } }
-  factory { GetApartmentList(get(),get()) }
-  factory { GetApartment(get(),get()) }
-  factory { DeleteApartment(get(),get()) }
+  factory { GetApartmentList(get(), get()) }
+  factory { GetApartment(get(), get()) }
+  factory { DeleteApartment(get(), get()) }
   factory { AddApartment(get()) }
-  factory { UpdateBti(get())}
-  factory { GetFamilyList(get(),get())}
+  factory { UpdateBti(get()) }
+  factory { GetFamilyList(get(), get()) }
 
   // Use Cases для воды
   factory { GetWaterMeterList(get(), get()) }
@@ -196,10 +191,15 @@ val domainModule = module {
   // В вашем di-модуле (domainModule)
   // In your di-module
   single(createdAtStart = true) {
-    ApartmentService(get(), get(), get(), get(), get())
+    ApartmentService(
+      getApartmentList = get(),
+      getApartment = get(),
+      addApartment = get(),
+      deleteApartment = get(),
+      updateBti = get()
+    )
   }
-  }
-
+}
 
 
 val dataModule = module {
@@ -218,7 +218,8 @@ val dataModule = module {
   single { get<AppDatabase>().heatReadingDao() }
 
   // 3. Repositories
-  single<ApartmentRepository> { ApartmentRepositoryImpl(get()) }
+  single<ApartmentRepository>(createdAtStart = true)
+  { ApartmentRepositoryImpl(get()) }
   single<FamilyRepository> { FamilyRepositoryImpl(get()) }
   single<ServiceRepository> { ServiceRepositoryImpl(get()) }
   single<PaymentRepository> { PaymentRepositoryImpl(get()) }
@@ -248,8 +249,8 @@ val dataModule = module {
 
 val firebaseModule = module {
   single(createdAtStart = true) { FirebaseAuth.getInstance() }
-  single { lazy { FirebaseFirestore.getInstance() }}
-  single(createdAtStart = true){ FirebaseDatabase.getInstance()}
+  single { lazy { FirebaseFirestore.getInstance() } }
+  single(createdAtStart = true) { FirebaseDatabase.getInstance() }
   single(createdAtStart = true) { FirebaseStorage.getInstance() }
   single(createdAtStart = true) { FirebaseFunctions.getInstance() }
   single(createdAtStart = true) { FirebaseCrashlytics.getInstance() }
@@ -257,7 +258,7 @@ val firebaseModule = module {
   // 2. Ваши вспомогательные сервисы
 
   single<ConfigurationService> { ConfigurationServiceImpl() }
-  single  {
+  single {
     lazy {
       Firebase.ai.generativeModel(
         modelName = "gemini-2.5-flash-lite",
@@ -277,13 +278,14 @@ val firebaseModule = module {
     }
   }
   // 3. Единственный сервис авторизации (теперь он легкий)
-  single (createdAtStart = true){
+  single(createdAtStart = true) {
     ChatRepository(
       firestoreLazy = get<Lazy<FirebaseFirestore>>(),
       realtime = get(),
       storage = get(),
       functions = get(),
-      aiModelLazy = get<Lazy<GenerativeModel>>())
+      aiModelLazy = get<Lazy<GenerativeModel>>()
+    )
   }
   single<FirebaseService> {
     FirebaseServiceImpl(
@@ -310,17 +312,20 @@ val viewModelsModule = module {
 
   viewModel {
     ApartmentViewModel(
-      get(),
-      get(),
-      get(),
-      get()
+      firebaseService = get(),
+      apartmentService = get(),
+      logService = get()
     )
   }
   viewModel { FamilyListViewModel(get(), get()) }
-  viewModel { ChatViewModel(get(),get()) }
+  viewModel { ChatViewModel(get(), get()) }
   viewModel { SignInViewModel(get(), get()) }
   viewModel { SignUpViewModel(get(), get(), get()) }
-  viewModel { MeterViewModel( get(),  get(), get()
+  viewModel {
+    MeterViewModel(
+      waterMeterRepository = get(),
+      heatMeterRepository =  get(),
+      logService = get()
     )
   }
   viewModel { ProfileViewModel(get(), get(), get()) }

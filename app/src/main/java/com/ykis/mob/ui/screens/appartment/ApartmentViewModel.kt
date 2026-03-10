@@ -49,7 +49,6 @@ import kotlinx.coroutines.withContext
 class ApartmentViewModel(
   private val firebaseService: FirebaseService,
   private val apartmentService: ApartmentService,
-  private val networkHandler: NetworkHandler,
   private val logService: LogService
 
 ) : BaseViewModel(logService) {
