@@ -10,7 +10,7 @@ plugins {
   alias(libs.plugins.crashlytics) apply false
   alias(libs.plugins.ksp) apply false
   alias(libs.plugins.kotzilla) apply false
-//  alias(libs.plugins.ktor) apply false
+  alias(libs.plugins.kotlinSerialization) apply false
 
 
 }

@@ -11,7 +11,6 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.ValueEventListener
-import com.squareup.moshi.Json
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.firebase.service.impl.ChatRepository
@@ -25,15 +24,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
-
+@Serializable
 data class SendNotificationArguments(
-  @Json(name = "recipient_token")
+  @SerialName("recipient_token") // Заменили @Json
   val recipientTokens: List<String>,
   val title: String,
   val body: String
 )
-
 data class ServiceWithCodeName(
   val name: String = "",
   val codeName: String = ""

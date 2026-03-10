@@ -1,6 +1,7 @@
 package com.ykis.mob.di
 
 
+import android.R.attr.level
 import androidx.room.Room
 import com.google.firebase.Firebase
 import com.google.firebase.ai.GenerativeModel
@@ -12,8 +13,6 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.ykis.mob.MainApplication
 import com.ykis.mob.data.ApartmentRepositoryImpl
 import com.ykis.mob.data.FamilyRepositoryImpl
@@ -40,8 +39,7 @@ import com.ykis.mob.data.cache.water.meter.WaterMeterCache
 import com.ykis.mob.data.cache.water.meter.WaterMeterCacheImpl
 import com.ykis.mob.data.cache.water.reading.WaterReadingCache
 import com.ykis.mob.data.cache.water.reading.WaterReadingCacheImpl
-import com.ykis.mob.data.remote.api.ApiService
-import com.ykis.mob.data.remote.api.ApiService.Companion.BASE_URL
+import com.ykis.mob.data.remote.api.KtorApiService
 import com.ykis.mob.data.remote.appartment.ApartmentRemote
 import com.ykis.mob.data.remote.appartment.ApartmentRemoteImpl
 import com.ykis.mob.data.remote.core.NetworkHandler
@@ -49,7 +47,6 @@ import com.ykis.mob.data.remote.family.FamilyRemote
 import com.ykis.mob.data.remote.family.FamilyRemoteImpl
 import com.ykis.mob.data.remote.heat.HeatMeterRemoteRepository
 import com.ykis.mob.data.remote.heat.HeatMeterRemoteRepositoryImpl
-
 import com.ykis.mob.data.remote.payment.PaymentRemote
 import com.ykis.mob.data.remote.payment.PaymentRemoteImpl
 import com.ykis.mob.data.remote.service.ServiceRemote
@@ -100,55 +97,55 @@ import com.ykis.mob.ui.screens.meter.MeterViewModel
 import com.ykis.mob.ui.screens.profile.ProfileViewModel
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
-import io.ktor.http.headers
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.logging.ANDROID
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logger
+import io.ktor.client.plugins.logging.Logging
+import io.ktor.http.ContentType
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
-import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
+import kotlinx.serialization.json.Json
 import org.koin.android.ext.koin.androidApplication
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.viewModel
-import org.koin.core.qualifier.named
 import org.koin.dsl.module
-import retrofit2.Retrofit
-import retrofit2.converter.moshi.MoshiConverterFactory
 
 
 val appModule = module {
-  single {
-    Moshi.Builder()
-      .add(KotlinJsonAdapterFactory())
-      .build()
-  }
 
-  single {
-    HttpLoggingInterceptor().apply {
-      level = HttpLoggingInterceptor.Level.BODY
+  // 1. ЕДИНЫЙ HttpClient (с createdAtStart для Kotzilla)
+  single(createdAtStart = true) {
+    HttpClient(io.ktor.client.engine.android.Android) {
+      install(ContentNegotiation) {
+        json(Json {
+          ignoreUnknownKeys = true
+          isLenient = true
+          encodeDefaults = true
+        }, contentType = ContentType.Any) // <--- ПРИНУДИТЕЛЬНО парсить любой контент как JSON
+      }
+      install(Logging) {
+        logger = Logger.ANDROID // Вывод в стандартный Logcat
+        level = LogLevel.ALL   // Видеть заголовки и ТЕЛО (JSON)
+      }
+
+      // ... остальное
     }
   }
 
-  // OkHttp инициализируется ~2.2 мс - выносим в фон
-  single(createdAtStart = true) {
-    OkHttpClient.Builder()
-      .addInterceptor(get<HttpLoggingInterceptor>())
-      .build()
-  }
 
-  // Retrofit инициализируется ~11 мс - выносим в фон
-  single(createdAtStart = true) {
-    Retrofit.Builder()
-      .addConverterFactory(MoshiConverterFactory.create(get()))
-      .baseUrl(BASE_URL)
-      .client(get())
-      .build()
-  }
+  // 2. ЕДИНЫЙ KtorApiService
+  single (createdAtStart = true) { KtorApiService(get()) }
 
-  // ApiService создается ~12 мс (включая зависимости) - выносим в фон
-  single(createdAtStart = true) { get<Retrofit>().create(ApiService::class.java) }
+  // 3. УДАЛИ или ЗАКОММЕНТИРУЙ Retrofit (он больше не нужен)
+  // single(createdAtStart = true) { get<Retrofit>().create(ApiService::class.java) }
 
+  // 4. ОСТАЛЬНЫЕ системные зависимости
   single { NetworkHandler(androidContext()) }
 
-  // Room инициализируется ~5.5 мс - выносим в фон
   single(createdAtStart = true) {
     Room.databaseBuilder(
       androidContext(),
@@ -159,6 +156,7 @@ val appModule = module {
 
   factory { ClearDatabase() }
 }
+
 
 val domainModule = module {
   factory { GetApartmentList(get(), get()) }
@@ -218,8 +216,7 @@ val dataModule = module {
   single { get<AppDatabase>().heatReadingDao() }
 
   // 3. Repositories
-  single<ApartmentRepository>(createdAtStart = true)
-  { ApartmentRepositoryImpl(get()) }
+  single<ApartmentRepository>(createdAtStart = true)  { ApartmentRepositoryImpl(get()) }
   single<FamilyRepository> { FamilyRepositoryImpl(get()) }
   single<ServiceRepository> { ServiceRepositoryImpl(get()) }
   single<PaymentRepository> { PaymentRepositoryImpl(get()) }
@@ -234,7 +231,7 @@ val dataModule = module {
   single<WaterMeterCache> { WaterMeterCacheImpl(get()) }
   single<WaterReadingCache> { WaterReadingCacheImpl(get()) }
   single<ApartmentCache> { ApartmentCacheImpl(get()) }
-  single<ApartmentRemote> { ApartmentRemoteImpl(get()) }
+  single<ApartmentRemote>(createdAtStart = true) { ApartmentRemoteImpl(get()) }
   single<FamilyRemote> { FamilyRemoteImpl(get()) }
   single<HeatMeterRemoteRepository> { HeatMeterRemoteRepositoryImpl(get()) }
   single<PaymentRemote> { PaymentRemoteImpl(get()) }

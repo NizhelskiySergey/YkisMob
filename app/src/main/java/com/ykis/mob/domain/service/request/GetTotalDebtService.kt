@@ -7,11 +7,11 @@ import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.domain.service.ServiceEntity
 import com.ykis.mob.domain.service.ServiceRepository
 import com.ykis.mob.domain.service.request.ServiceParams // Проверь импорт ServiceParams
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn // ДОБАВИТЬ
-import retrofit2.HttpException
 import java.io.IOException
 
 class GetTotalDebtServices (
@@ -38,8 +38,10 @@ class GetTotalDebtServices (
         throw ExceptionWithResourceMessage(R.string.generic_error)
       }
 
-    } catch (e: HttpException) {
-      emit(Resource.Error(e.localizedMessage ?: "Unexpected error!"))
+    } catch (e: ResponseException) {
+      // Ktor выбрасывает это при ошибках 4xx, 5xx и т.д.
+      SnackbarManager.showMessage(e.response.status.description)
+      emit(Resource.Error())
     } catch (e: IOException) {
       emit(Resource.Error("Check your internet connection"))
       // Чтение из базы теперь на IO потоке

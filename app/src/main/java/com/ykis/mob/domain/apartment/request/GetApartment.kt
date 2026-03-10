@@ -14,35 +14,50 @@ import kotlinx.coroutines.flow.flowOn
 import java.io.IOException
 
 class GetApartment (
-    private val repository: ApartmentRepository,
-    private val database: AppDatabase
+  private val repository: ApartmentRepository,
+  private val database: AppDatabase
 ){
   operator fun invoke(addressId: Int, uid: String): Flow<Resource<ApartmentEntity>> = flow {
     try {
       emit(Resource.Loading())
 
-      // Теперь эти вызовы будут на Dispatchers.IO
-      val apartment = database.apartmentDao().getFlatById(addressId = addressId)
-      if (apartment != null) {
-        emit(Resource.Success(apartment))
+      // 1. Проверка локальной базы
+      val localApartment = database.apartmentDao().getFlatById(addressId = addressId)
+      if (localApartment != null) {
+        emit(Resource.Success(localApartment))
       }
 
+      // 2. Запрос в сеть через Ktor
       val response = repository.getApartment(addressId, uid)
+
       if (response.success == 1) {
-        emit(Resource.Success(response.apartment))
-        database.apartmentDao().insertApartmentList(listOf(response.apartment))
-      } else throw ExceptionWithResourceMessage(R.string.generic_error)
+        // РЕШЕНИЕ: Безопасно извлекаем объект из ответа
+        response.apartment?.let { remoteApartment ->
+          emit(Resource.Success(remoteApartment))
+          // Теперь компилятор видит List<ApartmentEntity>, а не List<ApartmentEntity?>
+          database.apartmentDao().insertApartmentList(listOf(remoteApartment))
+        } ?: run {
+          // Если успех 1, но объекта нет — это ошибка данных сервера
+          emit(Resource.Error("Данные квартиры отсутствуют в ответе"))
+        }
+      } else {
+        throw ExceptionWithResourceMessage(R.string.generic_error)
+      }
 
     } catch (e: ExceptionWithResourceMessage) {
       SnackbarManager.showMessage(e.resourceMessage)
       emit(Resource.Error(e.localizedMessage ?: "Unexpected error!"))
     } catch (e: IOException) {
-      val apartment = database.apartmentDao().getFlatById(addressId = addressId)
-      if (apartment != ApartmentEntity()) {
-        emit(Resource.Success(apartment))
+      // 3. Обработка отсутствия сети
+      val cachedApartment = database.apartmentDao().getFlatById(addressId = addressId)
+      if (cachedApartment != null) {
+        emit(Resource.Success(cachedApartment))
       }
       SnackbarManager.showMessage(R.string.error_network)
       emit(Resource.Error())
+    } catch (e: Exception) {
+      emit(Resource.Error(e.localizedMessage ?: "Unexpected error"))
     }
   }.flowOn(Dispatchers.IO)
 }
+

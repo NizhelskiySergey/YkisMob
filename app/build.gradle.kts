@@ -1,6 +1,3 @@
-import org.gradle.kotlin.dsl.implementation
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 plugins {
   alias(libs.plugins.androidApplication)
   alias(libs.plugins.kotlinCompose)
@@ -9,7 +6,7 @@ plugins {
   alias(libs.plugins.ksp)
   alias(libs.plugins.koin.compiler)
   alias(libs.plugins.kotzilla)
-//  alias(libs.plugins.ktor)
+  alias(libs.plugins.kotlinSerialization)
 
 }
 
@@ -153,12 +150,10 @@ dependencies {
   implementation(libs.ktor.client.core)
   implementation(libs.ktor.client.android)
   implementation(libs.ktor.client.plugins)
-  implementation(libs.ktor.client.okhttp)
-  implementation(libs.ktor.client.cio
-  )
   implementation(libs.ktor.client.content.negotiation)
   implementation(libs.ktor.serialization.kotlinx.json)
   implementation(libs.ktor.client.logging)
+  implementation(libs.ktor.client.cio)
 
 
 
@@ -181,17 +176,6 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.legacy.support.v4)
   ksp(libs.androidx.room.compiler)
-
-//     Retrofit
-  implementation(libs.retrofit)
-  implementation(libs.converter.scalars)
-  implementation(libs.converter.moshi)
-  implementation(libs.moshi.kotlin)
-  implementation(libs.converter.gson)
-  ksp(libs.moshi.kotlin.codegen)
-  //okHttp
-  implementation(libs.okhttp)
-  implementation(libs.logging.interceptor)
 
   //coil
   implementation(libs.coil.compose)

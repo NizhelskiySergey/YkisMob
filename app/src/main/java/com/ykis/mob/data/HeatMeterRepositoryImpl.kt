@@ -1,6 +1,7 @@
 package com.ykis.mob.data
 
 
+import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.data.remote.heat.GetHeatMeterResponse
 import com.ykis.mob.data.remote.heat.GetHeatReadingResponse
@@ -24,11 +25,11 @@ class HeatMeterRepositoryImpl (
     return heatMeterRemoteRepository.getLastHeatReading(uid,teplomerId)
   }
 
-  override suspend fun addHeatReading(params: AddHeatReadingParams): BaseResponse {
+  override suspend fun addHeatReading(params: AddHeatReadingParams): GetSimpleResponse {
     return heatMeterRemoteRepository.addHeatReading(params)
   }
 
-  override suspend fun deleteLastHeatReading(uid: String,readingId: Int): BaseResponse {
+  override suspend fun deleteLastHeatReading(uid: String,readingId: Int): GetSimpleResponse {
     return heatMeterRemoteRepository.deleteLastHeatReading(uid,readingId)
   }
 }

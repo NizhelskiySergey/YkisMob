@@ -1,57 +1,64 @@
 package com.ykis.mob.data.remote.heat
 
-import com.ykis.mob.data.remote.api.ApiService
+import com.ykis.mob.core.Constants.ADDRESS_ID
+import com.ykis.mob.core.Constants.CURRENT_VALUE
+import com.ykis.mob.core.Constants.NEW_VALUE
+import com.ykis.mob.core.Constants.POK_ID
+import com.ykis.mob.core.Constants.TEPLOMER_ID
+import com.ykis.mob.core.Constants.UID
+import com.ykis.mob.data.remote.GetSimpleResponse
+import com.ykis.mob.data.remote.api.KtorApiService
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.meter.heat.reading.AddHeatReadingParams
-import retrofit2.await
 
 class HeatMeterRemoteRepositoryImpl (
-    private val apiService: ApiService
+    private val ktorApiService: KtorApiService
 ) : HeatMeterRemoteRepository {
+  override suspend fun getHeatMeterList(uid: String, addressId: Int): GetHeatMeterResponse {
+    // Просто возвращаем результат вызова
+    return ktorApiService.getHeatMeterList(createGetHeatMeterMap(uid, addressId))
+  }
 
-    override suspend fun getHeatMeterList(uid: String, addressId: Int): GetHeatMeterResponse {
-        return apiService.getHeatMeterList(createGetHeatMeterMap(uid,addressId)).await()
-    }
   override suspend fun getHeatReadings(uid: String, teplomerId: Int): GetHeatReadingResponse {
-    return apiService.getHeatReadings(
+    return ktorApiService.getHeatReadings(
       createGetHeatReadingMap(uid, teplomerId)
-    ).await()
+    )
   }
 
   override suspend fun getLastHeatReading(
     uid: String,
     teplomerId: Int
   ): GetLastHeatReadingResponse {
-    return apiService.getLastHeatReading(
+    return ktorApiService.getLastHeatReading(
       createGetHeatReadingMap(uid, teplomerId)
-    ).await()
+    )
   }
 
-  override suspend fun addHeatReading(params: AddHeatReadingParams): BaseResponse {
-    return apiService.addHeatReading(
+  override suspend fun addHeatReading(params: AddHeatReadingParams): GetSimpleResponse {
+    return ktorApiService.addHeatReading(
       createAddReadingMap(
         uid = params.uid,
         teplomerId = params.meterId,
         currentValue = params.currentValue,
-        newValue = params.newValue,
-
-        )
-    ).await()
+        newValue = params.newValue
+      )
+    )
   }
 
-  override suspend fun deleteLastHeatReading(uid: String, readingId: Int): BaseResponse {
-    return apiService.deleteLastHeatReading(
-      createDeleteWaterReadingMap(uid,  readingId)
-    ).await()
+  override suspend fun deleteLastHeatReading(uid: String, readingId: Int): GetSimpleResponse {
+    return ktorApiService.deleteLastHeatReading(
+      createDeleteWaterReadingMap(uid, readingId)
+    )
   }
+
 
   private fun createGetHeatReadingMap(
     uid: String,
     teplomerId: Int,
   ): Map<String, String> {
     val map = HashMap<String, String>()
-    map[ApiService.TEPLOMER_ID] = teplomerId.toString()
-    map[ApiService.UID] = uid
+    map[TEPLOMER_ID] = teplomerId.toString()
+    map[UID] = uid
     return map
   }
 
@@ -62,10 +69,10 @@ class HeatMeterRemoteRepositoryImpl (
     currentValue: Double,
   ): Map<String, String> {
     val map = HashMap<String, String>()
-    map[ApiService.TEPLOMER_ID] = teplomerId.toString()
-    map[ApiService.NEW_VALUE] = newValue.toString()
-    map[ApiService.CURRENT_VALUE] = currentValue.toString()
-    map[ApiService.UID] = uid
+    map[TEPLOMER_ID] = teplomerId.toString()
+    map[NEW_VALUE] = newValue.toString()
+    map[CURRENT_VALUE] = currentValue.toString()
+    map[UID] = uid
     return map
   }
 
@@ -74,15 +81,15 @@ class HeatMeterRemoteRepositoryImpl (
     pokId: Int,
   ): Map<String, String> {
     val map = HashMap<String, String>()
-    map[ApiService.POK_ID] = pokId.toString()
-    map[ApiService.UID] = uid
+    map[POK_ID] = pokId.toString()
+    map[UID] = uid
     return map
   }
 
     private fun createGetHeatMeterMap(uid: String,addressId: Int,): Map<String, String> {
         val map = HashMap<String, String>()
-        map[ApiService.ADDRESS_ID] = addressId.toString()
-        map[ApiService.UID] = uid
+        map[ADDRESS_ID] = addressId.toString()
+        map[UID] = uid
         return map
     }
 }
