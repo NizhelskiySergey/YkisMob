@@ -1,27 +1,31 @@
 package com.ykis.mob.data.remote.water
 
-import com.squareup.moshi.Json
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.meter.water.meter.WaterMeterEntity
 import com.ykis.mob.domain.meter.water.reading.WaterReadingEntity
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
+@Serializable
 class GetWaterMeterResponse(
-    success: Int,
-    message: String,
-    @Json(name = "water_meters")
-    val waterMeters: List<WaterMeterEntity>
-) : BaseResponse(success, message)
+  @SerialName("success") override val success: Int,
+  @SerialName("message") override val message: String,
+  @SerialName("water_meters")
+  val waterMeters: List<WaterMeterEntity> = emptyList()
+) : BaseResponse
 
+@Serializable
 class GetLastWaterReadingResponse(
-  success: Int,
-  message: String,
-  @Json(name = "water_reading")
-  val waterReading: WaterReadingEntity
-) : BaseResponse(success, message)
+  @SerialName("success") override val success: Int,
+  @SerialName("message") override val message: String,
+  @SerialName("water_reading")
+  val waterReading: WaterReadingEntity? = null
+) : BaseResponse
 
+@Serializable
 class GetWaterReadingsResponse(
-  success: Int,
-  message: String,
-  @Json(name = "water_readings")
-  val waterReadings: List<WaterReadingEntity>
-) : BaseResponse(success, message)
+  @SerialName("success") override val success: Int,
+  @SerialName("message") override val message: String,
+  @SerialName("water_readings")
+  val waterReadings: List<WaterReadingEntity> = emptyList()
+) : BaseResponse

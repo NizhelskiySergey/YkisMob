@@ -5,11 +5,11 @@ import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.domain.meter.heat.meter.HeatMeterRepository
 import com.ykis.mob.domain.meter.heat.reading.HeatReadingEntity
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn // ДОБАВИТЬ
-import retrofit2.HttpException
 import java.io.IOException
 
 class GetLastHeatReading (
@@ -39,8 +39,9 @@ class GetLastHeatReading (
           database.heatReadingDao().insertHeatReading(listOf(it))
         }
       }
-    } catch (e: HttpException) {
-      SnackbarManager.showMessage(e.message() ?: "Error")
+    } catch (e: ResponseException) {
+      // Ktor выбрасывает это при ошибках 4xx, 5xx и т.д.
+      SnackbarManager.showMessage(e.response.status.description)
       emit(Resource.Error())
     } catch (e: IOException) {
       val lastReading = database.heatReadingDao().getHeatReading(teplomerId)

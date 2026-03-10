@@ -1,12 +1,13 @@
 package com.ykis.mob.data.remote.family
 
-import com.ykis.mob.data.remote.api.ApiService
+import com.ykis.mob.core.Constants.ADDRESS_ID
+import com.ykis.mob.core.Constants.UID
+import com.ykis.mob.data.remote.api.KtorApiService
 import com.ykis.mob.domain.family.FamilyEntity
 import com.ykis.mob.domain.family.request.FamilyParams
-import retrofit2.await
 
 class FamilyRemoteImpl (
-    private val apiService: ApiService
+    private val ktorApiService: KtorApiService
 ) : FamilyRemote {
 
 
@@ -15,19 +16,24 @@ class FamilyRemoteImpl (
         uid: String
     ): Map<String, String> {
         val map = HashMap<String, String>()
-        map[ApiService.ADDRESS_ID] = addressId.toString()
-        map[ApiService.UID] = uid
+        map[ADDRESS_ID] = addressId.toString()
+        map[UID] = uid
         return map
     }
 
 
-    override suspend fun getFamilyList(params: FamilyParams): List<FamilyEntity> {
-       return apiService.getFamilyList(
-           createGetFamilyListMap(
-               addressId = params.addressId,
-               uid = params.uid
-           )
-       ).await().family
-    }
+  override suspend fun getFamilyList(params: FamilyParams): List<FamilyEntity> {
+    // 1. Вызываем метод (он уже suspend и возвращает GetFamilyResponse)
+    val response = ktorApiService.getFamilyList(
+      createGetFamilyListMap(
+        addressId = params.addressId,
+        uid = params.uid
+      )
+    )
+
+    // 2. Возвращаем список из ответа (убрали .await())
+    return response.family ?: emptyList()
+  }
+
 
 }

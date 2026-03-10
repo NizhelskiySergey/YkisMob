@@ -6,11 +6,11 @@ import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.domain.service.ServiceEntity
 import com.ykis.mob.domain.service.ServiceRepository
 import com.ykis.mob.domain.service.request.ServiceParams // Убедись, что импорт есть
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.Dispatchers // ДОБАВЛЕНО
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn // ДОБАВЛЕНО
-import retrofit2.HttpException
 import java.io.IOException
 
 class GetFlatServices (
@@ -48,8 +48,9 @@ class GetFlatServices (
         emit(Resource.Success(response.services))
       }
 
-    } catch (e: HttpException) {
-      SnackbarManager.showMessage(e.message() ?: "Error")
+    } catch (e: ResponseException) {
+      // Ktor выбрасывает это при ошибках 4xx, 5xx и т.д.
+      SnackbarManager.showMessage(e.response.status.description)
       emit(Resource.Error())
     } catch (e: IOException) {
       val serviceDetailList = database.serviceDao().getServiceDetail(

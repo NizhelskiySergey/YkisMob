@@ -1,4 +1,5 @@
 package com.ykis.mob.domain.family.request
+import android.net.http.HttpException
 import com.ykis.mob.core.Resource
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.domain.family.FamilyEntity
@@ -7,7 +8,6 @@ import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn // ДОБАВЛЕНО
-import retrofit2.HttpException
 import java.io.IOException
 
 class GetFamilyList (

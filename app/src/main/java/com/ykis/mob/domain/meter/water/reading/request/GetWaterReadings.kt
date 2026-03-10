@@ -6,11 +6,11 @@ import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.domain.meter.water.meter.WaterMeterRepository
 import com.ykis.mob.domain.meter.water.reading.WaterReadingEntity
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn // ДОБАВИТЬ
-import retrofit2.HttpException
 import java.io.IOException
 
 class GetWaterReadings (
@@ -38,8 +38,9 @@ class GetWaterReadings (
         // 3. Сохранение в базу (на IO)
         database.waterReadingDao().insertWaterReading(remoteReadings)
       }
-    } catch (e: HttpException) {
-      SnackbarManager.showMessage(e.message() ?: "Error")
+    } catch (e: ResponseException) {
+      // Ktor выбрасывает это при ошибках 4xx, 5xx и т.д.
+      SnackbarManager.showMessage(e.response.status.description)
       emit(Resource.Error())
     } catch (e: IOException) {
       val readingList = database.waterReadingDao().getWaterReadings(vodomerId)

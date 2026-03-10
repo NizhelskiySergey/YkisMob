@@ -5,11 +5,11 @@ import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.meter.water.meter.WaterMeterRepository
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.Dispatchers // ДОБАВИТЬ
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn // ДОБАВИТЬ
-import retrofit2.HttpException
 import java.io.IOException
 
 class DeleteLastWaterReading (
@@ -27,8 +27,9 @@ class DeleteLastWaterReading (
         database.waterReadingDao().deleteWaterReadingById(readingId)
         emit(Resource.Success(response))
       }
-    } catch (e: HttpException) {
-      SnackbarManager.showMessage(e.message() ?: "Error")
+    } catch (e: ResponseException) {
+      // Ktor выбрасывает это при ошибках 4xx, 5xx и т.д.
+      SnackbarManager.showMessage(e.response.status.description)
       emit(Resource.Error())
     } catch (e: IOException) {
       SnackbarManager.showMessage(R.string.error_network)
