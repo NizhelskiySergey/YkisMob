@@ -25,9 +25,9 @@ import io.ktor.http.parameters
 // ... импортируй остальные Response модели
 
 class KtorApiService(private val client: HttpClient) {
-//  private val baseUrl = "https://is.yuzhny.com/YkisMobileRest/rest_api/"
+  private val baseUrl = "https://is.yuzhny.com/YkisMobileRest/rest_api/"
 //  private val baseUrl = "http://10.0.2.2/YkisPAM/YkisMobileRest/rest_api/"
-  private val baseUrl = "http://192.168.0.77:8080/YkisMobileRest/rest_api/"
+//  private val baseUrl = "http://192.168.0.77:8080/YkisMobileRest/rest_api/"
 //  private val baseUrl = "http://192.168.0.177/YkisPAM/YkisMobileRest/rest_api/"
 
   // Универсальный метод для POST FormUrlEncoded (аналог @FormUrlEncoded)
