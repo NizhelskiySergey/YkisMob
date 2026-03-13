@@ -1,5 +1,6 @@
 package com.ykis.mob.ui.navigation
 
+import MainApartmentScreen
 import android.util.Log
 import android.net.Uri
 import androidx.compose.animation.EnterTransition
@@ -41,232 +42,177 @@ import com.ykis.mob.ui.screens.service.payment.choice.WebView
 import org.koin.compose.viewmodel.koinViewModel
 
 object Graph {
-    const val AUTHENTICATION = "auth_graph"
-    const val APARTMENT = "apartment_graph"
+  const val AUTHENTICATION = "auth_graph"
+  const val APARTMENT = "apartment_graph"
 }
+
 @Composable
 fun RootNavGraph(
-    modifier: Modifier = Modifier,
-    navController: NavHostController = rememberNavController(),
-    chatViewModel : ChatViewModel = koinViewModel(),
-    apartmentViewModel : ApartmentViewModel = koinViewModel(),
-    signUpViewModel: SignUpViewModel = koinViewModel(),
-    contentType: ContentType,
-    displayFeatures: List<DisplayFeature>,
-    navigationType: NavigationType,
+  modifier: Modifier = Modifier,
+  navController: NavHostController = rememberNavController(),
+  chatViewModel: ChatViewModel = koinViewModel(),
+  apartmentViewModel: ApartmentViewModel = koinViewModel(),
+  signUpViewModel: SignUpViewModel = koinViewModel(),
+  contentType: ContentType,
+  displayFeatures: List<DisplayFeature>,
+  navigationType: NavigationType,
 ) {
-    val appState = rememberAppState()
-    var isMainScreen by rememberSaveable {
-        mutableStateOf(false)
-    }
-    var isRailExpanded by rememberSaveable {
-        mutableStateOf(false)
-    }
-    val padding = when{
-        (navigationType == NavigationType.NAVIGATION_RAIL_COMPACT || navigationType == NavigationType.NAVIGATION_RAIL_EXPANDED )  && !isRailExpanded && isMainScreen-> Modifier.padding(start = 80.dp)
-        navigationType == NavigationType.BOTTOM_NAVIGATION && isMainScreen-> Modifier.padding(bottom = 80.dp)
-        (navigationType == NavigationType.NAVIGATION_RAIL_COMPACT || navigationType == NavigationType.NAVIGATION_RAIL_EXPANDED)  && isRailExpanded && isMainScreen -> Modifier.padding(start = 260.dp)
-        else -> Modifier.padding(0.dp)
-    }
-    val selectedUser by chatViewModel.selectedUser.collectAsStateWithLifecycle()
-    val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
-  val isGlobalLoading = baseUIState.isGlobalLoading || baseUIState.mainLoading
+  val appState = rememberAppState()
+  var isMainScreen by rememberSaveable { mutableStateOf(false) }
 
+  // ИСПРАВЛЕНИЕ: На планшете (RAIL) по умолчанию TRUE, чтобы меню было сразу развернуто
+  var isRailExpanded by rememberSaveable {
+    mutableStateOf(navigationType != NavigationType.BOTTOM_NAVIGATION)
+  }
 
+  val selectedUser by chatViewModel.selectedUser.collectAsStateWithLifecycle()
+  val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
   val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
-    val chatUid = remember(baseUIState, selectedUser.uid) {
-        if (baseUIState.userRole == UserRole.StandardUser) {
-            baseUIState.uid.toString()
-        } else selectedUser.uid
-    }
-//    val firstScreen = remember(baseUIState.userRole) {
-//        apartmentViewModel.
-//    }
-    Scaffold(
-  containerColor = MaterialTheme.colorScheme.surfaceContainer,
-  snackbarHost = {
-            SnackbarHost(
-                modifier = padding,
-                hostState = appState.snackbarHostState,
-                snackbar = { snackbarData ->
-                    Snackbar(
-                        snackbarData
-                    )
-                }
-            )
-        },
-    ){ paddingValues ->
-        NavHost(
-            modifier = modifier
-              .fillMaxSize()
-              .padding(paddingValues = paddingValues)
-            ,
-            navController = navController,
-            startDestination = apartmentViewModel.onAppStart(),
-            enterTransition = {
-//                fadeIn()
-                EnterTransition.None
-            },
-            exitTransition = {
-//                fadeOut()
-                ExitTransition.None
-            },
-            popEnterTransition = {
-//                fadeIn()
-                EnterTransition.None
-            },
-            popExitTransition = {
-//                fadeOut()
-                ExitTransition.None
-            }
-        ) {
 
-            authNavGraph(
-                navController,
-                signUpViewModel = signUpViewModel
-            )
+  val chatUid = remember(baseUIState, selectedUser.uid) {
+    if (baseUIState.userRole == UserRole.StandardUser) {
+      baseUIState.uid.toString()
+    } else selectedUser.uid
+  }
 
-            composable(
-                route = Graph.APARTMENT,
-                enterTransition = {
-                    fadeIn()
-                },
-                exitTransition = {
-                    fadeOut()
-                },
-                popEnterTransition = {
-                    fadeIn()
-                },
-                popExitTransition = {
-                    fadeOut()
-                }
-            ) {
-                MainApartmentScreen(
-                    contentType = contentType,
-                    navigationType = navigationType,
-                    displayFeatures = displayFeatures,
-                    rootNavController = navController,
-                    appState = appState,
-                    onLaunch = {isMainScreen = true},
-                    onDispose = {isMainScreen = false},
-                    isRailExpanded = isRailExpanded,
-                    onMenuClick = { isRailExpanded = !isRailExpanded },
-                    navigateToWebView = {
-                        uri->
-                        Log.d("wv_test" , uri.toString())
-                        navController.navigateToWebView(uri)
-                    },
-                    chatViewModel = chatViewModel,
-                    apartmentViewModel = apartmentViewModel,
-                    baseUIState = baseUIState
-                )
-            }
+  Scaffold(
+    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    snackbarHost = {
+      SnackbarHost(hostState = appState.snackbarHostState) { data ->
+        Snackbar(data)
+      }
+    },
+  ) { paddingValues ->
+    NavHost(
+      modifier = modifier
+        .fillMaxSize()
+        .padding(paddingValues),
+      navController = navController,
+      startDestination = apartmentViewModel.onAppStart(),
+      // ИСПРАВЛЕНИЕ: Соответствие типов Enter и Exit
+      enterTransition = { EnterTransition.None },
+      exitTransition = { ExitTransition.None },
+      popEnterTransition = { EnterTransition.None },
+      popExitTransition = { ExitTransition.None }
+    ) {
+      authNavGraph(
+        navController = navController,
+        signUpViewModel = signUpViewModel
+      )
 
-            composable(
-                route = WebViewScreen.routeWithArgs,
-                arguments = WebViewScreen.arguments
-            ){
-                    navBackStackEntry->
-                val uri =
-                    navBackStackEntry.arguments?.getString(WebViewScreen.link)
-                WebView(
-                    uri = uri.toString()
-                )
-            }
-            composable(ChatScreen.route){
-              ChatScreen(
-                  userEntity = selectedUser,
-                  navigateBack = {
-                      navController.navigateUp()
-                  },
-                  chatViewModel = chatViewModel,
-                  baseUIState = baseUIState,
-                  navigateToSendImageScreen = {
-                      navController.navigate(SendImageScreen.route)
-                  },
-                  chatUid = chatUid,
-                  navigateToCameraScreen = {
-                      navController.navigate(CameraScreen.route)
-                  },
-                  navigateToImageDetailScreen = {
-                      chatViewModel.setSelectedMessage(it)
-                      navController.navigate(ImageDetailScreen.route)
-                  }
-              )
-            }
+      composable(
+        route = Graph.APARTMENT,
+        enterTransition = { fadeIn() },
+        exitTransition = { fadeOut() }, // ИСПРАВЛЕНО: Теперь ExitTransition
+        popEnterTransition = { fadeIn() },
+        popExitTransition = { fadeOut() } // ИСПРАВЛЕНО: Теперь ExitTransition
+      ) {
+        MainApartmentScreen(
+          contentType = contentType,
+          navigationType = navigationType,
+          displayFeatures = displayFeatures,
+          rootNavController = navController,
+          appState = appState,
+          onLaunch = { isMainScreen = true },
+          onDispose = { isMainScreen = false },
+          isRailExpanded = isRailExpanded,
+          onMenuClick = { isRailExpanded = !isRailExpanded },
+          navigateToWebView = { uri ->
+            Log.d("wv_test", uri.toString())
+            navController.navigateToWebView(uri)
+          },
+          chatViewModel = chatViewModel,
+          apartmentViewModel = apartmentViewModel,
+          baseUIState = baseUIState
+        )
+      }
 
-          composable(SendImageScreen.route) {
-            val messageText by chatViewModel.messageText.collectAsStateWithLifecycle()
-            val isLoadingAfterSending by chatViewModel.isLoadingAfterSending.collectAsStateWithLifecycle()
-            val context = androidx.compose.ui.platform.LocalContext.current
+      composable(
+        route = WebViewScreen.routeWithArgs,
+        arguments = WebViewScreen.arguments
+      ) { navBackStackEntry ->
+        val uri = navBackStackEntry.arguments?.getString(WebViewScreen.link)
+        WebView(uri = uri.toString())
+      }
 
-            LaunchedEffect(Unit) {
-              if (selectedImageUri != Uri.EMPTY) {
-                chatViewModel.analyzePhotoWithGemini(selectedImageUri, context)
-              }
-            }
-
-            SendImageScreen(
-              imageUri = selectedImageUri,
-              messageText = messageText,
-              onMessageTextChanged = {
-                chatViewModel.onMessageTextChanged(it)
-              },
-              navigateBack = {
-                navController.navigateUp()
-              },
-              onSent = {
-                chatViewModel.uploadPhotoAndSendMessage(
-                  context = context,
-                  chatUid = chatUid,
-                  senderUid = baseUIState.uid.toString(),
-                  senderDisplayedName = if (baseUIState.displayName.isNullOrEmpty())
-                    baseUIState.email.toString() else baseUIState.displayName.toString(),
-                  senderLogoUrl = baseUIState.photoUrl,
-                  role = baseUIState.userRole,
-                  senderAddress = if (baseUIState.userRole == UserRole.StandardUser)
-                    baseUIState.address ?: "" else "",
-                  osbbId = if (baseUIState.userRole == UserRole.OsbbUser)
-                    baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId,
-                  recipientTokens = emptyList(),
-                  onComplete = {
-                    navController.navigate(ChatScreen.route) {
-                      popUpTo(ChatScreen.route) { inclusive = true }
-                    }
-                  }
-                )
-              },
-              isLoadingAfterSending = isLoadingAfterSending,
-              chatViewModel = chatViewModel
-            )
+      composable(ChatScreen.route) {
+        ChatScreen(
+          userEntity = selectedUser,
+          navigateBack = { navController.navigateUp() },
+          chatViewModel = chatViewModel,
+          baseUIState = baseUIState,
+          navigateToSendImageScreen = { navController.navigate(SendImageScreen.route) },
+          chatUid = chatUid,
+          navigateToCameraScreen = { navController.navigate(CameraScreen.route) },
+          navigateToImageDetailScreen = {
+            chatViewModel.setSelectedMessage(it)
+            navController.navigate(ImageDetailScreen.route)
           }
+        )
+      }
 
-          composable(CameraScreen.route){
-              CameraScreen(
-                  navController = navController,
-                  setImageUri = {
-                      chatViewModel.setSelectedImageUri(it)
-                  }
-              )
-            }
-            composable(ImageDetailScreen.route){
-                val selectedMessage by chatViewModel.selectedMessage.collectAsStateWithLifecycle()
-              ImageDetailScreen(
-                  navigateUp = {navController.navigateUp()},
-                  messageEntity = selectedMessage
-              )
-            }
+      composable(SendImageScreen.route) {
+        val messageText by chatViewModel.messageText.collectAsStateWithLifecycle()
+        val isLoadingAfterSending by chatViewModel.isLoadingAfterSending.collectAsStateWithLifecycle()
+        val context = androidx.compose.ui.platform.LocalContext.current
+
+        LaunchedEffect(Unit) {
+          if (selectedImageUri != Uri.EMPTY) {
+            chatViewModel.analyzePhotoWithGemini(selectedImageUri, context)
+          }
         }
-//      GlobalLoadingBarrier(isVisible = isGlobalLoading)
+
+        SendImageScreen(
+          imageUri = selectedImageUri,
+          messageText = messageText,
+          onMessageTextChanged = { chatViewModel.onMessageTextChanged(it) },
+          navigateBack = { navController.navigateUp() },
+          onSent = {
+            chatViewModel.uploadPhotoAndSendMessage(
+              context = context,
+              chatUid = chatUid,
+              senderUid = baseUIState.uid.toString(),
+              senderDisplayedName = if (baseUIState.displayName.isNullOrEmpty())
+                baseUIState.email.toString() else baseUIState.displayName.toString(),
+              senderLogoUrl = baseUIState.photoUrl,
+              role = baseUIState.userRole,
+              senderAddress = if (baseUIState.userRole == UserRole.StandardUser)
+                baseUIState.address ?: "" else "",
+              osbbId = if (baseUIState.userRole == UserRole.OsbbUser)
+                baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId,
+              recipientTokens = emptyList(),
+              onComplete = {
+                navController.navigate(ChatScreen.route) {
+                  popUpTo(ChatScreen.route) { inclusive = true }
+                }
+              }
+            )
+          },
+          isLoadingAfterSending = isLoadingAfterSending,
+          chatViewModel = chatViewModel
+        )
+      }
+
+      composable(CameraScreen.route) {
+        CameraScreen(
+          navController = navController,
+          setImageUri = { chatViewModel.setSelectedImageUri(it) }
+        )
+      }
+
+      composable(ImageDetailScreen.route) {
+        val selectedMessage by chatViewModel.selectedMessage.collectAsStateWithLifecycle()
+        ImageDetailScreen(
+          navigateUp = { navController.navigateUp() },
+          messageEntity = selectedMessage
+        )
+      }
     }
+  }
 }
+
+
 
 private fun NavHostController.navigateToWebView(uri: String) {
-    this.navigate("${WebViewScreen.route}/$uri")
+  this.navigate("${WebViewScreen.route}/$uri")
 }
-
-
-
-
-
-
