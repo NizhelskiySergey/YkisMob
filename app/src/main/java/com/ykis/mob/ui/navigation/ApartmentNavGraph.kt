@@ -1,3 +1,5 @@
+package com.ykis.mob.ui.navigation
+import ModalNavigationDrawerContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -100,7 +102,7 @@ fun MainApartmentScreen(
 
   DisposableEffect(Unit) {
     onLaunch()
-    apartmentViewModel.observeApartments()
+    apartmentViewModel.getUserRole()
     onDispose { onDispose() }
   }
 
@@ -222,7 +224,7 @@ fun ApartmentNavGraph(
       exit = fadeOut(tween(delayMillis = 300)),
       enter = fadeIn(tween(delayMillis = 300))
     ) {
-      CircularProgressIndicator()
+//      CircularProgressIndicator()
     }
     AnimatedVisibility(
       visible = !baseUIState.mainLoading,
@@ -247,7 +249,7 @@ fun ApartmentNavGraph(
         }
         composable(UserListScreen.route) {
           LaunchedEffect(key1 = true) {
-            chatViewModel.trackUserIdentifiersWithRole(baseUIState.userRole , baseUIState.osbbRoleId)
+            chatViewModel.trackUserIdentifiersWithRole(baseUIState.userRole , baseUIState.osbbId)
           }
           UserListScreen(
             userList = userList,
@@ -329,3 +331,5 @@ fun ApartmentNavGraph(
     }
   }
 }
+
+

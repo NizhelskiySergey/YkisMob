@@ -19,6 +19,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -38,7 +39,10 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.ykis.mob.R
 import com.ykis.mob.ui.components.appbars.DefaultAppBar
+import com.ykis.mob.ui.navigation.AddApartmentScreen
+import com.ykis.mob.ui.navigation.Graph
 import com.ykis.mob.ui.navigation.NavigationType
+import com.ykis.mob.ui.navigation.UserListScreen
 import com.ykis.mob.ui.navigation.navigateToInfoApartment
 import com.ykis.mob.ui.theme.YkisPAMTheme
 import org.koin.compose.viewmodel.koinViewModel
@@ -113,19 +117,25 @@ fun AddApartmentScreenStateless(
                                         .weight(1f)
                                         .padding(start = 4.dp, end = 8.dp)
                                 ) {
-                                    OutlinedTextField(
-                                        value = code,
-                                        onValueChange = { newText ->
-                                            val filteredText = newText.filter { it.isDigit() }
-                                            onCodeChanged(filteredText)
-                                        },
-                                        label = {
-                                            Text(
-                                                text = stringResource(id = R.string.secret_сode)
-                                            )
-                                        },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                  OutlinedTextField(
+                                    value = code,
+                                    onValueChange = { newText ->
+                                      // Убираем .filter { it.isDigit() }, чтобы можно было вводить буквы
+                                      onCodeChanged(newText)
+                                    },
+                                    label = { Text(text = stringResource(id = R.string.secret_сode)) },
+                                    // Меняем тип клавиатуры на стандартный, если код буквенный
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
+                                  )
+
+                                  if (code.any { it.isLetter() }) {
+                                    Text(
+                                      text = "Режим активации прав администратора",
+                                      style = MaterialTheme.typography.labelSmall,
+                                      color = MaterialTheme.colorScheme.primary,
+                                      modifier = Modifier.padding(start = 16.dp)
                                     )
+                                  }
 
                                 }
                                 Button(
@@ -157,40 +167,52 @@ fun AddApartmentScreenStateless(
 }
 @Composable
 fun AddApartmentScreenContent(
-    modifier: Modifier = Modifier,
-    viewModel: ApartmentViewModel = koinViewModel(),
-    navController : NavHostController,
-    canNavigateBack : Boolean,
-    onDrawerClicked : () -> Unit,
-    navigationType: NavigationType,
-    closeContentDetail : ()->Unit
+  modifier: Modifier = Modifier,
+  viewModel: ApartmentViewModel = koinViewModel(),
+  navController: NavHostController,
+  canNavigateBack: Boolean,
+  onDrawerClicked: () -> Unit,
+  navigationType: NavigationType,
+  closeContentDetail: () -> Unit
 ) {
+  val secretCode by viewModel.secretCode.collectAsState()
+  val keyboard = LocalSoftwareKeyboardController.current
 
-    val secretCode by viewModel.secretCode.collectAsState()
-    val buttonEnabled by remember {
-        derivedStateOf{
-            secretCode.isNotEmpty()
-        }
-    }
-    val keyboard = LocalSoftwareKeyboardController.current
-
+  // Используем Surface, чтобы гарантировать фон и размер, если Stateless подведет
+  Surface(
+    modifier = modifier.fillMaxSize(),
+    color = MaterialTheme.colorScheme.background
+  ) {
     AddApartmentScreenStateless(
-        isButtonEnabled = buttonEnabled,
-        onDrawerClicked = onDrawerClicked,
-        onAddClick = {
-            keyboard?.hide()
-            viewModel.addApartment {
-                closeContentDetail()
-                navController.navigateToInfoApartment()
-            }
-        },
-        navigationType = navigationType,
-        code = secretCode,
-        onCodeChanged = {
-            viewModel.onSecretCodeChange(it)
-        }
+      isButtonEnabled = secretCode.isNotEmpty(),
+      onDrawerClicked = onDrawerClicked,
+      navigationType = navigationType,
+      code = secretCode,
+      onCodeChanged = { viewModel.onSecretCodeChange(it) },
+      onAddClick = {
+        keyboard?.hide()
 
+        // Логика определения типа кода
+        val isAdminCode = secretCode.any { it.isLetter() }
+
+        if (isAdminCode) {
+          viewModel.addAdminRole {
+            // ВАЖНО: Используем navigateUp или специальный флаг во ViewModel,
+            // чтобы выйти из этого экрана, когда роль обновится в Firestore.
+            navController.navigate(UserListScreen.route) {
+              popUpTo(AddApartmentScreen.route) { inclusive = true }
+            }
+          }
+        } else {
+          viewModel.addApartment {
+            closeContentDetail()
+            // Убедитесь, что этот метод расширения корректно определен
+            navController.navigateToInfoApartment()
+          }
+        }
+      }
     )
+  }
 }
 
 

@@ -60,6 +60,7 @@ import com.ykis.mob.domain.apartment.request.DeleteApartment
 import com.ykis.mob.domain.apartment.request.GetApartment
 import com.ykis.mob.domain.apartment.request.GetApartmentList
 import com.ykis.mob.domain.apartment.request.UpdateBti
+import com.ykis.mob.domain.apartment.request.VerifyAdminCode
 import com.ykis.mob.domain.family.FamilyRepository
 import com.ykis.mob.domain.family.request.GetFamilyList
 import com.ykis.mob.domain.meter.heat.meter.HeatMeterRepository
@@ -112,6 +113,7 @@ import kotlinx.serialization.json.Json
 import org.koin.android.ext.koin.androidApplication
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.viewModel
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 
@@ -160,6 +162,8 @@ val appModule = module {
 
 val domainModule = module {
   factory { GetApartmentList(get(), get()) }
+  factory { VerifyAdminCode(get(named("firestore"))) }
+
   factory { GetApartment(get(), get()) }
   factory { DeleteApartment(get(), get()) }
   factory { AddApartment(get()) }
@@ -194,7 +198,8 @@ val domainModule = module {
       getApartment = get(),
       addApartment = get(),
       deleteApartment = get(),
-      updateBti = get()
+      updateBti = get(),
+      verifyAdminCode = get()
     )
   }
 }
@@ -246,7 +251,8 @@ val dataModule = module {
 
 val firebaseModule = module {
   single(createdAtStart = true) { FirebaseAuth.getInstance() }
-  single { lazy { FirebaseFirestore.getInstance() } }
+  single(named("firestore")) { lazy { FirebaseFirestore.getInstance() } }
+
   single(createdAtStart = true) { FirebaseDatabase.getInstance() }
   single(createdAtStart = true) { FirebaseStorage.getInstance() }
   single(createdAtStart = true) { FirebaseFunctions.getInstance() }
@@ -255,7 +261,7 @@ val firebaseModule = module {
   // 2. Ваши вспомогательные сервисы
 
   single<ConfigurationService> { ConfigurationServiceImpl() }
-  single {
+  single(named("gemini")) {
     lazy {
       Firebase.ai.generativeModel(
         modelName = "gemini-2.5-flash-lite",
@@ -277,18 +283,18 @@ val firebaseModule = module {
   // 3. Единственный сервис авторизации (теперь он легкий)
   single(createdAtStart = true) {
     ChatRepository(
-      firestoreLazy = get<Lazy<FirebaseFirestore>>(),
+      firestoreLazy = get(named("firestore")),
       realtime = get(),
       storage = get(),
       functions = get(),
-      aiModelLazy = get<Lazy<GenerativeModel>>()
+      aiModelLazy = get(named("gemini")),
     )
   }
   single<FirebaseService> {
     FirebaseServiceImpl(
       context = androidContext(),
       auth = get(),
-      dbLazy = get<Lazy<FirebaseFirestore>>() // ЯВНО указываем тип тут!
+      dbLazy = get(named("firestore")) // ЯВНО указываем тип тут!
     )
   }
 

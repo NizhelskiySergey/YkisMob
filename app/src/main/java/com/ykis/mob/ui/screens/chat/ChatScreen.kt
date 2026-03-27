@@ -61,8 +61,11 @@ fun formatDate(timestamp: Long): String {
 sealed class ChatItem {
   data class DateHeader(val date: String) : ChatItem()
   data class MessageItem(val message: MessageEntity) : ChatItem()
-}@OptIn(ExperimentalFoundationApi::class)
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
+
 fun ChatScreen(
   modifier: Modifier = Modifier,
   userEntity: UserEntity,
@@ -94,7 +97,7 @@ fun ChatScreen(
     chatViewModel.readFromDatabase(
       role = baseUIState.userRole,
       senderUid = chatUid,
-      osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId
+      osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbId ?: 0 else baseUIState.osmdId
     )
   }
 
@@ -136,7 +139,7 @@ fun ChatScreen(
         chatItems.forEach { chatItem ->
           when (chatItem) {
             is ChatItem.DateHeader -> {
-              stickyHeader(key = chatItem.date) { DateChip(date = chatItem.date) }
+              stickyHeader(key = chatItem.date) { DateChip(date = chatItem.date, modifier=modifier) }
             }
             is ChatItem.MessageItem -> {
               item(key = chatItem.message.id) {
@@ -247,7 +250,7 @@ fun ChatScreen(
                   role = baseUIState.userRole,
                   senderAddress = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address ?: "" else "",
                   imageUrl = null,
-                  osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId,
+                  osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbId ?: 0 else baseUIState.osmdId,
                   recipientTokens = userEntity.tokens,
                   onComplete = {
                     // Очищаем AI подсказки сразу
@@ -295,26 +298,53 @@ fun ChatScreen(
           senderUid = chatUid,
           messageId = selectedMessageId,
           role = baseUIState.userRole,
-          osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId
+          osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbId ?: 0 else baseUIState.osmdId
         )
         showDeleteMessageDialog = false
       }
     )
   }
+
+
+
+
+
+  @Composable
+  fun DateChip(date: String, modifier: Modifier = Modifier) {
+    Box(
+      modifier = modifier
+        .fillMaxWidth()
+        .padding(vertical = 12.dp),
+      contentAlignment = Alignment.Center
+    ) {
+      Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 2.dp
+      ) {
+        Text(
+          text = date,
+          modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+          style = MaterialTheme.typography.labelMedium,
+          color = MaterialTheme.colorScheme.onSecondaryContainer
+        )
+      }
+    }
+  }
 }
 
-
 @Composable
-fun DateChip(date: String) {
+fun DateChip(date: String,modifier: Modifier) {
   Box(
-    modifier = Modifier
+    modifier = modifier
       .fillMaxWidth()
       .padding(vertical = 12.dp),
     contentAlignment = Alignment.Center
   ) {
     Surface(
       color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
-      shape = RoundedCornerShape(16.dp)
+      shape = RoundedCornerShape(16.dp),
+      tonalElevation = 2.dp
     ) {
       Text(
         text = date,
@@ -325,3 +355,5 @@ fun DateChip(date: String) {
     }
   }
 }
+
+

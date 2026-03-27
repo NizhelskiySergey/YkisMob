@@ -107,5 +107,18 @@ class ChatRepository (
     }
   }
 
+  suspend fun updateMessageReadStatus(chatUid: String, messageId: String) {
+    try {
+      firestore.collection("chats")
+        .document(chatUid)
+        .collection("messages")
+        .document(messageId)
+        .update("isRead", true)
+        .await()
+    } catch (e: Exception) {
+      Log.e("YkisMob", "Ошибка обновления статуса: ${e.message}")
+    }
+  }
+
 
 }

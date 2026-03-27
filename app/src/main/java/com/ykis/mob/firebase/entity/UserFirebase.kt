@@ -17,12 +17,15 @@ limitations under the License.
 package com.ykis.mob.firebase.entity
 
 data class UserFirebase(
-    val uid: String ,
+    val uid: String = "" ,
     val isEmailVerification: Boolean = false,
-    val provider: String?,
-    val name: String?,
-    val email: String,
-    val phone: String?,
-
-
+    val provider: String ="",
+    val name: String = "",
+    val phone: String ="",
+    val email: String = "",
+    val displayName: String = "",
+    val role: String = "standard_user",
+    val osbbId: Int? = null,
+    val fcmTokens: List<String> = emptyList(),
+    val createdAt: Any? = null
     )

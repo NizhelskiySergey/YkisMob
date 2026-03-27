@@ -50,12 +50,9 @@ class MainActivity : ComponentActivity() {
     setContent {
       val settingsViewModel: NewSettingsViewModel = koinViewModel()
       val currentTheme by settingsViewModel.theme.collectAsState()
-//            val mainApp = LocalContext.current.applicationContext as MainApplication
 
-//          settingsViewModel.getThemeValue()
       YkisPAMTheme(
         appTheme = currentTheme ?: "system"
-//                appTheme = mainApp.theme.value,
       ) {
         val windowSize = calculateWindowSizeClass(this)
         val displayFeatures = calculateDisplayFeatures(this)

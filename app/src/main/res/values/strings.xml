@@ -322,4 +322,5 @@
   <string name="verify_email_label">Ми відправили вам лист на пошту</string>
   <string name="verify_email_title">Підтвердження пошти</string>
   <string name="success_delete">Останні показання видаленін</string>
+    <string name="admin_access_granted">Админ доступ предоставлен</string>
 </resources>

@@ -1,8 +1,7 @@
 package com.ykis.mob.ui.navigation
 
-import MainApartmentScreen
-import android.util.Log
 import android.net.Uri
+import android.util.Log
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
@@ -21,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -29,7 +27,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.window.layout.DisplayFeature
 import com.ykis.mob.domain.UserRole
-import com.ykis.mob.ui.GlobalLoadingBarrier
 import com.ykis.mob.ui.rememberAppState
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.SignUpViewModel
@@ -179,7 +176,7 @@ fun RootNavGraph(
               senderAddress = if (baseUIState.userRole == UserRole.StandardUser)
                 baseUIState.address ?: "" else "",
               osbbId = if (baseUIState.userRole == UserRole.OsbbUser)
-                baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId,
+                baseUIState.osbbId ?: 0 else baseUIState.osmdId,
               recipientTokens = emptyList(),
               onComplete = {
                 navController.navigate(ChatScreen.route) {

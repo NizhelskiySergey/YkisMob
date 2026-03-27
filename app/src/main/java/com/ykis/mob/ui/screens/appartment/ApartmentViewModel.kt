@@ -19,6 +19,7 @@ package com.ykis.mob.ui.screens.appartment
 import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.ykis.mob.R
+import com.ykis.mob.core.Constants.UID
 import com.ykis.mob.core.Resource
 import com.ykis.mob.core.ext.isValidEmail
 import com.ykis.mob.core.snackbar.SnackbarManager
@@ -37,9 +38,13 @@ import com.ykis.mob.ui.BaseViewModel
 import com.ykis.mob.ui.navigation.Graph
 import com.ykis.mob.ui.screens.bti.ContactUIState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -53,10 +58,10 @@ class ApartmentViewModel(
 
 ) : BaseViewModel(logService) {
 
-  private val isEmailVerified get() = firebaseService.currentUser?.isEmailVerified ?: false
+//  private val isEmailVerified get() = firebaseService.currentUser?.isEmailVerified ?: false
   val uid get() = firebaseService.uid
 
-  private val displayName get() = firebaseService.displayName
+//  private val displayName get() = firebaseService.displayName
   val email get() = firebaseService.email
 
 
@@ -80,7 +85,7 @@ class ApartmentViewModel(
   fun onAppStart(): String {
     val userExists = firebaseService.hasUser
     val emailVerified = firebaseService.isEmailVerified
-
+    Log.d("YkisMob", "ApartmentViewModel onAppStart() for userExists: $userExists")
     // Если пользователь залогинен И почта подтверждена — в приложение.
     // Иначе — на экран входа/регистрации.
     return if (userExists && emailVerified == true) {
@@ -91,59 +96,39 @@ class ApartmentViewModel(
   }
 
 
-  fun observeApartments() {
-    viewModelScope.launch { // Стартуем в Main (default для viewModelScope)
-      Log.d("uid_null_test", "observeApartments started")
-
-      // 1. Выполняем тяжелые сетевые запросы в IO через async или в самом сервисе
-      val userRole = withContext(Dispatchers.IO) { firebaseService.getUserRole() }
-
-      // 2. Получаем данные (синхронные геттеры из сервиса работают быстро)
-      val newUid = firebaseService.uid
-      val newEmail = firebaseService.email
-      val newDisplayName = firebaseService.displayName
-
-      // 3. Обновляем UI стейт строго в Main потоке
-      _uiState.update { currentState ->
-        currentState.copy(
-          uid = newUid,
-          displayName = newDisplayName,
-          email = newEmail,
-          userRole = userRole
-        )
-      }
-
-      Log.d("iii_test", "Role: ${userRole.codeName}, UID: $newUid")
-
-      // 4. Загружаем список квартир
-      getApartmentList()
-    }
-  }
-
-
   fun getUserRole() {
-    viewModelScope.launch { // Стартуем в Main (UI) потоке
-      // 1. Уходим в IO только для сетевых запросов
-      val role = withContext(Dispatchers.IO) { firebaseService.getUserRole() }
-
-      var osbbId: Int? = null
-      if (role == UserRole.OsbbUser) {
-        osbbId = withContext(Dispatchers.IO) { firebaseService.getOsbbRoleId() }
+    viewModelScope.launch {
+      // 1. Получаем типизированный объект User (уже содержит role и orgId)
+      val user = withContext(Dispatchers.IO) {
+        firebaseService.getUserDocument()
       }
 
-      // 2. Обновляем State атомарно и в Main потоке
-      _uiState.update { currentState ->
-        currentState.copy(
-          userRole = role,
-          osbbRoleId = osbbId,
-          // Если UID и другие данные уже есть, их копировать повторно не нужно
-          uid = firebaseService.uid,
-          displayName = firebaseService.displayName,
-          email = firebaseService.email
-        )
+      // 2. Если данные получены, обновляем UI State
+      user?.let { userData ->
+        // Находим нужный Enum по строковому коду из документа
+        val role = UserRole.entries.find { it.codeName == userData.role }
+          ?: UserRole.StandardUser
+        Log.d("YkisMob", "ApartmentViewModel getUserRole() for role: ${userData.role}")
+        Log.d("YkisMob", "ApartmentViewModel getUserRole() for osbbId: ${userData.osbbId}")
+        _uiState.update { currentState ->
+          currentState.copy(
+            userRole = role,
+            osbbId = userData.osbbId,
+            uid = userData.uid,
+            displayName = userData.displayName,
+            email = userData.email
+          )
+        }
+      } ?: run {
+        // Опционально: обработка случая, если документ пользователя не найден
+        Log.e("YkisMob", "getUserRole() User document is null")
       }
     }
   }
+
+
+
+
 
 
   fun onSecretCodeChange(newValue: String) {
@@ -239,7 +224,7 @@ class ApartmentViewModel(
     apartmentService.getApartment(addressId = addressId, uid = uid ?: "").onEach { result ->
       when (result) {
         is Resource.Success -> {
-          Log.d("debug_test1", "success")
+          Log.d("APART_VIEW_MODEL", "getApartment() success")
           val data = result.data ?: ApartmentEntity()
 
           // Обновляем основной стейт
@@ -263,7 +248,7 @@ class ApartmentViewModel(
         }
 
         is Resource.Error -> {
-          Log.d("debug_test1", "error")
+          Log.d("APART_VIEW_MODEL", " getApartmen() error")
           _uiState.value = _uiState.value.copy(
             error = result.message ?: "Unexpected error!",
             apartmentLoading = false
@@ -271,7 +256,7 @@ class ApartmentViewModel(
         }
 
         is Resource.Loading -> {
-          Log.d("debug_test1", "loading")
+          Log.d("APART_VIEW_MODEL", "getApartment() loading")
           _uiState.value = _uiState.value.copy(
             apartmentLoading = true
           )
@@ -282,27 +267,41 @@ class ApartmentViewModel(
 
   fun getApartmentList(onSuccess: () -> Unit = {}) {
     val currentUid = firebaseService.uid
-    if (currentUid.isEmpty()) return
+    Log.d("APART_VIEW_MODEL", "getApartmentList() started for UID: $currentUid")
 
-    // Вызов через сервис-фасад (вместо прямой зависимости от GetApartmentList)
-    apartmentService.getApartmentList(currentUid).onEach { result ->
-      _uiState.update { state ->
-        when (result) {
-          is Resource.Success -> state.copy(
-            apartments = result.data ?: emptyList(),
-            mainLoading = false
-          )
-          is Resource.Error -> state.copy(
-            error = result.message ?: "Error",
-            mainLoading = false
-          )
-          is Resource.Loading -> state.copy(mainLoading = true)
+    if (currentUid.isBlank()) {
+      Log.d("APART_VIEW_MODEL", "getApartmentList() UID is empty, stopping loading")
+      _uiState.update { it.copy(mainLoading = false) }
+      return
+    }
+
+    apartmentService.getApartmentList(currentUid)
+      .onEach { result ->
+        Log.d("APART_VIEW_MODEL", "Received result: ${result::class.simpleName}")
+        _uiState.update { state ->
+          when (result) {
+            is Resource.Success -> {
+              Log.d("APART_VIEW_MODEL", "getApartmentList() Success! Apartments count: ${result.data?.size}")
+              state.copy(apartments = result.data ?: emptyList(), mainLoading = false)
+            }
+            is Resource.Error -> {
+              Log.e("APART_VIEW_MODEL", "getApartmentList() Error: ${result.message}")
+              state.copy(mainLoading = false, error = result.message)
+            }
+            is Resource.Loading -> {
+              state.copy(mainLoading = true)
+            }
+          }
         }
+        if (result is Resource.Success) onSuccess()
       }
-      // Выполняем onSuccess только при успешном получении данных
-      if (result is Resource.Success) onSuccess()
-    }.launchIn(viewModelScope)
+      .catch { e ->
+        Log.e("APART_VIEW_MODEL", "getApartmentList() Flow CRASHED: ${e.message}")
+        _uiState.update { it.copy(mainLoading = false, error = e.localizedMessage) }
+      }
+      .launchIn(viewModelScope)
   }
+
 
 
   fun deleteApartment() {
@@ -343,6 +342,38 @@ class ApartmentViewModel(
       }
     }.launchIn(this.viewModelScope)
   }
+
+  fun addAdminRole(onSuccess: () -> Unit) {
+    val code = _secretCode.value
+    if (code.isBlank()) return
+
+    // 1. Используем сервис через UseCase
+    apartmentService.verifyAdminCode(
+      code = code,
+      uid = firebaseService.uid ?: ""
+    ).onEach { result ->
+      when (result) {
+        is Resource.Success -> {
+          // 2. Сначала обновляем данные в БД, затем запрашиваем новую роль в стейт
+          getUserRole()
+
+          _secretCode.value = ""
+          // Убедитесь, что R.string.admin_access_granted добавлен в strings.xml
+          SnackbarManager.showMessage(R.string.admin_access_granted)
+
+          // 3. Коллбэк для навигации (например, navController.navigate(Graph.APARTMENT))
+          onSuccess()
+        }
+        is Resource.Error -> {
+          SnackbarManager.showMessage(result.resourceMessage)
+        }
+        is Resource.Loading -> {
+          // Можно добавить _uiState.update { it.copy(isLoading = true) }
+        }
+      }
+    }.launchIn(viewModelScope)
+  }
+
 
 
   fun setAddressId(addressId: Int) {

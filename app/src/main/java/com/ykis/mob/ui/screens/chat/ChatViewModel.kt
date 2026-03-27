@@ -47,7 +47,8 @@ data class MessageEntity(
   val senderAddress: String = "",
   val text: String = "",
   val imageUrl: String? = null,
-  val timestamp: Long = 0L
+  val timestamp: Long = 0L,
+  val isRead: Boolean = true
 )
 
 data class UserEntity(
@@ -57,7 +58,7 @@ data class UserEntity(
   val password: String? = "",
   val displayName: String? = "",
   val email: String? = "",
-  val osbbRoleId: Int? = null,
+  val orgId: Int? = null,
   val tokens: List<String> = emptyList()
 )
 
@@ -81,8 +82,6 @@ class ChatViewModel(
 
     // Перенаправляем ссылки на репозиторий
     private val chatsReference by lazy { chatRepo.realtime.getReference("chats") }
-//    private val userDatabase by lazy { chatRepo.firestore }
-//    private val storageReference by lazy { chatRepo.storage.reference }
 private val generativeModel by lazy { chatRepo.aiModel }
   private val _assistantResponse = MutableStateFlow<String?>(null)
   val assistantResponse = _assistantResponse.asStateFlow()
@@ -123,6 +122,15 @@ private val generativeModel by lazy { chatRepo.aiModel }
   private val _selectedMessage = MutableStateFlow(MessageEntity())
   val selectedMessage = _selectedMessage.asStateFlow()
 
+  fun markAsRead(chatUid: String, messageId: String) {
+    viewModelScope.launch(Dispatchers.IO) {
+      // Вызываем метод через ваш репозиторий/сервис, а не напрямую через firestore
+      chatRepo.updateMessageReadStatus(chatUid, messageId)
+    }
+  }
+
+
+
   // Метод для получения помощи от ИИ
   fun askAssistant(userText: String) {
     if (userText.isBlank()) return
@@ -134,7 +142,7 @@ private val generativeModel by lazy { chatRepo.aiModel }
         val responseText = chatRepo.askAiAssistant(userText)
 
         _assistantResponse.value = responseText ?: "AI connection error"
-        Log.d("Gemini_Debug", "Answer received: $responseText")
+        Log.d("YkisMob", "ChatViewModel askAssistant() Answer received: $responseText")
       } catch (e: Exception) {
         Log.e("Gemini_Debug", "Error: ${e.message}")
         _assistantResponse.value = "AI connection error"
@@ -238,7 +246,7 @@ private val generativeModel by lazy { chatRepo.aiModel }
     senderUid: String,
     senderDisplayedName: String,
     senderLogoUrl: String?,
-    senderAddress: String,
+    senderAddress: String, // Адрес принят
     imageUrl: String?,
     osbbId: Int,
     role: UserRole,
@@ -247,30 +255,29 @@ private val generativeModel by lazy { chatRepo.aiModel }
   ) {
     _isLoadingAfterSending.value = true
 
-    // 1. Формируем ID чата (логика прежняя)
+    // 1. Формируем ID чата (ваша логика)
     val chatId = when {
       role == UserRole.StandardUser && selectedService.value.codeName == UserRole.OsbbUser.codeName -> {
         "${selectedService.value.codeName}_${osbbId}_$chatUid"
       }
-
       role == UserRole.StandardUser -> "${selectedService.value.codeName}_$chatUid"
       role == UserRole.OsbbUser -> "${role.codeName}_${osbbId}_$chatUid"
       else -> "${role.codeName}_$chatUid"
     }
 
-    // 2. Используем внедренное свойство chatsReference вместо getInstance()
     val chatRef = chatsReference.child(chatId)
-    val key = chatRef.push().key ?: return // Безопасная проверка ключа
+    val key = chatRef.push().key ?: return
 
+    // 2. Создаем объект сообщения с адресом
     val messageEntity = MessageEntity(
       id = key,
       senderUid = senderUid,
-      text = messageText.value,
+      text = _messageText.value, // используем private поле для безопасности
       senderLogoUrl = senderLogoUrl,
       senderDisplayedName = senderDisplayedName,
-      senderAddress = senderAddress,
+      senderAddress = senderAddress, // Адрес сохранен в сущность
       imageUrl = imageUrl,
-      timestamp = System.currentTimeMillis() // Используем время системы или ServerValue.TIMESTAMP
+      timestamp = System.currentTimeMillis()
     )
 
     // 3. Запись данных
@@ -278,11 +285,18 @@ private val generativeModel by lazy { chatRepo.aiModel }
       .addOnCompleteListener { task ->
         _isLoadingAfterSending.value = false
         if (task.isSuccessful) {
+          // Добавляем адрес в текст пуша, чтобы диспетчер сразу видел откуда запрос
+          val notificationBody = if (senderAddress.isNotBlank()) {
+            "$senderAddress: ${_messageText.value}"
+          } else {
+            _messageText.value
+          }
+
           sendPushNotification(
             SendNotificationArguments(
               recipientTokens = recipientTokens,
               title = senderDisplayedName,
-              body = messageText.value
+              body = notificationBody
             )
           )
           _messageText.value = ""
@@ -294,6 +308,7 @@ private val generativeModel by lazy { chatRepo.aiModel }
         SnackbarManager.showMessage(it.message.toString())
       }
   }
+
 
   fun readFromDatabase(role: UserRole, senderUid: String, osbbId: Int) {
     val chatId = when {
@@ -343,7 +358,7 @@ private val generativeModel by lazy { chatRepo.aiModel }
     _messageText.value = value
   }
 
-  fun trackUserIdentifiersWithRole(role: UserRole, osbbRoleId: Int?) {
+  fun trackUserIdentifiersWithRole(role: UserRole, osbbId: Int?) {
     val ref = chatsReference
 
     val listener = object : ValueEventListener {
@@ -351,14 +366,14 @@ private val generativeModel by lazy { chatRepo.aiModel }
         viewModelScope.launch(Dispatchers.Default) {
           val userIdentifiers = dataSnapshot.children.mapNotNull { chatSnap ->
             val chatId = chatSnap.key ?: return@mapNotNull null
-            val condition = if (osbbRoleId != null) {
-              chatId.startsWith("${role.codeName}_${osbbRoleId}")
+            val condition = if (osbbId != null) {
+              chatId.startsWith("${role.codeName}_${osbbId}")
             } else {
               chatId.startsWith(role.codeName)
             }
 
             if (condition) {
-              if (osbbRoleId != null) chatId.substringAfter("${osbbRoleId}_")
+              if (osbbId != null) chatId.substringAfter("${osbbId}_")
               else chatId.substringAfter("_")
             } else null
           }
@@ -574,14 +589,26 @@ private val generativeModel by lazy { chatRepo.aiModel }
     }
 
 
+
   override fun onCleared() {
+    // Сначала вызываем логику очистки в базовом классе (если она есть)
     super.onCleared()
-    // Критически важно для Kotzilla: предотвращает утечки памяти и фоновую активность
+
+    // Безопасно удаляем всех слушателей
     listeners.forEach { (ref, listener) ->
-      ref.removeEventListener(listener)
+      try {
+        ref.removeEventListener(listener)
+      } catch (e: Exception) {
+        Log.e("YkisMob", "onClearead() Ошибка при удалении слушателя: ${e.message}")
+      }
     }
+
+    // Очищаем саму карту, чтобы ссылки на объекты были удалены
     listeners.clear()
+
+    Log.d("YkisMob", "onCleared() Все слушатели чатов успешно удалены")
   }
+
 
 
 }

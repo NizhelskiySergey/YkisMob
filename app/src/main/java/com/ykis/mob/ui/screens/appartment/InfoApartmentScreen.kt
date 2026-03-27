@@ -91,6 +91,7 @@ fun InfoApartmentScreen(
         }
       )
     }
+
   ) { innerPadding ->
     Column(
       modifier = modifier

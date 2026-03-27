@@ -6,6 +6,7 @@ import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseUser
 import com.ykis.mob.core.Resource
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.firebase.entity.UserFirebase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,9 +70,8 @@ interface FirebaseService {
 
     fun getAuthState(viewModelScope: CoroutineScope): AuthStateResponse
 
-    suspend fun getUserRole() : UserRole
 
-    suspend fun getOsbbRoleId () : Int?
+    suspend fun getUserDocument(): UserFirebase?
 
     suspend fun getUid() : String
     suspend fun getEmail() : String

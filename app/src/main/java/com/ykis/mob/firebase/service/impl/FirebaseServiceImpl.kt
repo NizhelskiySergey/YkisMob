@@ -8,14 +8,17 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.firebase.Firebase
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.ykis.mob.R
 import com.ykis.mob.core.Resource
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.firebase.entity.UserFirebase
 import com.ykis.mob.firebase.service.repo.AuthStateResponse
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.firebase.service.repo.OneTapSignInResponse
@@ -35,6 +38,7 @@ import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.java.KoinJavaComponent.inject
+import kotlin.jvm.java
 
 class FirebaseServiceImpl(
   private val context: Context,
@@ -178,26 +182,38 @@ class FirebaseServiceImpl(
   // --- Работа с Firestore ---
   override suspend fun addUserFirestore(): addUserFirestoreResponse = withContext(Dispatchers.IO) {
     try {
-      // Убедимся, что UID не пустой, прежде чем писать в БД
       val currentUid = uid
       if (currentUid.isEmpty()) return@withContext Resource.Error("UID is empty")
 
-      val userMap = hashMapOf(
+      // 1. Формируем данные, которые мы ХОТИМ обновить или задать при создании
+      val userMap = mutableMapOf<String, Any>(
         "uid" to currentUid,
         "email" to email,
         "displayName" to displayName,
-        "role" to UserRole.StandardUser.codeName, // Добавляем роль
-        "createdAt" to com.google.firebase.Timestamp.now() // Серверное время
+        "createdAt" to com.google.firebase.Timestamp.now()
       )
 
-      // Записываем данные в документ с ID равным UID пользователя
-      db.collection("users").document(currentUid).set(userMap).await()
+      // 2. Используем set с merge(), НО для роли нужна хитрая логика:
+      // Если мы хотим, чтобы роль 'standard_user' ставилась ТОЛЬКО новым пользователям,
+      // лучше сначала проверить существование документа или использовать специфичные правила.
+
+      // Однако, самый простой способ для вашей логики — добавить роль в map,
+      // но в Firestore Rules запретить изменять её, если она уже не 'standard_user'.
+
+      userMap["role"] = UserRole.StandardUser.codeName
+
+      // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Добавляем SetOptions.merge()
+      db.collection("users")
+        .document(currentUid)
+        .set(userMap, com.google.firebase.firestore.SetOptions.merge())
+        .await()
 
       Resource.Success(true)
     } catch (e: Exception) {
       Resource.Error(e.localizedMessage ?: "Firestore write error")
     }
   }
+
 
 
   // --- Остальные методы ---
@@ -239,30 +255,35 @@ class FirebaseServiceImpl(
     }
   }
 
+  override   suspend fun getUserDocument(): UserFirebase? {
+    val currentUid = Firebase.auth.currentUser?.uid ?: return null // Проверьте, что UID не пустой
 
-  override suspend fun getUserRole(): UserRole = withContext(Dispatchers.IO) {
-    try {
-      val snapshot = db.collection("users")
-        .document(uid)
+    return try {
+      val snapshot = FirebaseFirestore.getInstance()
+        .collection("users") // Проверьте регистр: "Users" или "users"?
+        .document(currentUid)
         .get()
         .await()
 
-      val roleString = snapshot.getString("role") ?: "standard_user"
-
-      // Маппим строку из БД в наш Enum
-      UserRole.entries.find { it.codeName == roleString } ?: UserRole.StandardUser
+      if (snapshot.exists()) {
+        snapshot.toObject(UserFirebase::class.java)
+      } else {
+        Log.e("YkisMob", "getUserDocument() Документа с UID $currentUid не существует в Firestore")
+        null
+      }
     } catch (e: Exception) {
-      Log.e("FirebaseService", "Error fetching role: ${e.message}")
-      UserRole.StandardUser // Возвращаем дефолт при ошибке
-    }
-  }
+      Log.e("YkisMob", "getUserDocument() Ошибка: ${e.message}")
+      null
+
+
 
 
   // Геттеры для UID, Email, DisplayName
+}
+}
   override suspend fun getUid(): String = uid
   override suspend fun getEmail(): String = email
   override suspend fun getDisplayName(): String = displayName
-  override suspend fun getOsbbRoleId(): Int? = null
 
   // Пустые методы (реализуйте по необходимости)
   override suspend fun authenticate(email: String, password: String) {}

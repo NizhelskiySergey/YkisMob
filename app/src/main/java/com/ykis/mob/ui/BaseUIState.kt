@@ -7,10 +7,9 @@ import com.ykis.mob.ui.navigation.ContentDetail
 data class BaseUIState(
     val uid: String? = null,
     val displayName: String? = null,
-
     val email: String? = null,
     val photoUrl: String? = null,
-    var apartment: ApartmentEntity = ApartmentEntity(),
+    val apartment: ApartmentEntity = ApartmentEntity(),
     val selectedContentDetail: ContentDetail = ContentDetail.BTI,
     val apartments: List<ApartmentEntity> = emptyList(),
     val osmdId: Int = 0,
@@ -22,10 +21,11 @@ data class BaseUIState(
     val isDetailOnlyOpen: Boolean = false,
     val isLoading: Boolean = false,
     val mainLoading: Boolean = true,
-    val isGlobalLoading: Boolean = false,
+    val isGlobalLoading: Boolean = false
+    ,
     val apartmentLoading : Boolean = true,
     val error: String? = null,
     val showDetail : Boolean = false,
     val userRole : UserRole = UserRole.StandardUser,
-    val osbbRoleId : Int? =  null
+    val osbbId : Int? =  null
 )

@@ -5,6 +5,7 @@ import com.ykis.mob.domain.apartment.request.DeleteApartment
 import com.ykis.mob.domain.apartment.request.GetApartment
 import com.ykis.mob.domain.apartment.request.GetApartmentList
 import com.ykis.mob.domain.apartment.request.UpdateBti
+import com.ykis.mob.domain.apartment.request.VerifyAdminCode
 
 import kotlin.Lazy
 class ApartmentService(
@@ -12,6 +13,7 @@ class ApartmentService(
   val getApartment: GetApartment,
   val addApartment: AddApartment,
   val deleteApartment: DeleteApartment,
-  val updateBti: UpdateBti
+  val updateBti: UpdateBti,
+  val verifyAdminCode: VerifyAdminCode
 )
 
