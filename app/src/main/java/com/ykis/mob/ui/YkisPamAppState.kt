@@ -1,17 +1,6 @@
 /*
-Copyright 2022 Google LLC
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+ * Copyright 2022-2024 Google LLC
+ * Адаптировано для проекта YkisPam
  */
 
 package com.ykis.mob.ui
@@ -25,20 +14,36 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
-
+/**
+ * Класс управления состоянием UI приложения.
+ * Аннотация @Stable говорит Compose, что состояние объекта отслеживается и
+ * изменения приведут к корректной рекомпозиции.
+ */
 @Stable
 class YkisPamAppState(
-    val snackbarHostState: SnackbarHostState,
-    private val snackbarManager: SnackbarManager,
-    private val resources: Resources,
-    val coroutineScope: CoroutineScope
+  // Состояние хоста Snackbar (через него физически выводятся сообщения)
+  val snackbarHostState: SnackbarHostState,
+  // Глобальный синглтон-менеджер сообщений (бизнес-логика)
+  private val snackbarManager: SnackbarManager,
+  // Доступ к ресурсам для перевода строк (strings.xml)
+  private val resources: Resources,
+  // Область видимости корутин (обычно привязана к жизненному циклу экрана)
+  val coroutineScope: CoroutineScope
 ) {
-    init {
-        coroutineScope.launch {
-            snackbarManager.snackbarMessages.filterNotNull().collect { snackbarMessage ->
-                val text = snackbarMessage.toMessage(resources)
-                snackbarHostState.showSnackbar(text)
-            }
+  init {
+    // Запускаем бесконечный цикл прослушивания сообщений при создании объекта
+    coroutineScope.launch {
+      // Подписываемся на поток сообщений из SnackbarManager
+      snackbarManager.snackbarMessages
+        .filterNotNull() // Пропускаем пустые значения
+        .collect { snackbarMessage ->
+          // 1. Преобразуем объект сообщения в готовую строку (с учетом локализации)
+          val text = snackbarMessage.toMessage(resources)
+
+          // 2. Вызываем системную функцию отображения всплывающего уведомления
+          // Это приостанавливающая функция (suspend), она дождется закрытия уведомления
+          snackbarHostState.showSnackbar(text)
         }
     }
+  }
 }

@@ -1,3 +1,6 @@
+package com.ykis.mob.ui.navigation
+
+import ModalNavigationDrawerContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -34,23 +37,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.window.layout.DisplayFeature
+import com.ykis.mob.domain.UserRole
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.YkisPamAppState
-import com.ykis.mob.ui.navigation.AddApartmentScreen
-import com.ykis.mob.ui.navigation.ChatScreen
-import com.ykis.mob.ui.navigation.ContentType
-import com.ykis.mob.ui.navigation.Graph
-import com.ykis.mob.ui.navigation.InfoApartmentScreen
-import com.ykis.mob.ui.navigation.MeterScreen
-import com.ykis.mob.ui.navigation.NavigationType
-import com.ykis.mob.ui.navigation.ProfileScreen
-import com.ykis.mob.ui.navigation.ServiceListScreen
-import com.ykis.mob.ui.navigation.SettingsScreen
-import com.ykis.mob.ui.navigation.UserListScreen
-import com.ykis.mob.ui.navigation.cleanNavigateTo
 import com.ykis.mob.ui.navigation.components.ApartmentNavigationRail
 import com.ykis.mob.ui.navigation.components.BottomNavigationBar
-import com.ykis.mob.ui.navigation.navigateWithPopUp
 import com.ykis.mob.ui.rememberAppState
 import com.ykis.mob.ui.screens.appartment.AddApartmentScreenContent
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
@@ -97,10 +88,23 @@ fun MainApartmentScreen(
     animationSpec = tween(400),
     label = "RailWidth"
   )
+// Внутри MainApartmentScreen
+  val firstDestination = remember(baseUIState.userRole, baseUIState.apartments) {
+    when {
+      // 1. Если это админ ОСББ — отправляем в список пользователей
+      baseUIState.userRole == UserRole.OsbbUser -> UserListScreen.route
+
+      // 2. Если обычный юзер и нет квартир — на ввод кода
+      baseUIState.apartments.isEmpty() -> AddApartmentScreen.route
+
+      // 3. Если квартиры есть — на главный экран
+      else -> InfoApartmentScreen.route
+    }
+  }
 
   DisposableEffect(Unit) {
     onLaunch()
-    apartmentViewModel.observeApartments()
+    apartmentViewModel.observeUserProfile()
     onDispose { onDispose() }
   }
 
@@ -247,7 +251,7 @@ fun ApartmentNavGraph(
         }
         composable(UserListScreen.route) {
           LaunchedEffect(key1 = true) {
-            chatViewModel.trackUserIdentifiersWithRole(baseUIState.userRole , baseUIState.osbbRoleId)
+            chatViewModel.trackUserIdentifiersWithRole(baseUIState.userRole , baseUIState.osbbId)
           }
           UserListScreen(
             userList = userList,

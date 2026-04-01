@@ -43,155 +43,135 @@ import com.ykis.mob.ui.navigation.navigateToInfoApartment
 import com.ykis.mob.ui.theme.YkisPAMTheme
 import org.koin.compose.viewmodel.koinViewModel
 
-
 @Composable
 fun AddApartmentScreenStateless(
-    modifier: Modifier = Modifier,
-    isButtonEnabled : Boolean,
-    onDrawerClicked: () -> Unit,
-    onAddClick : () -> Unit,
-    navigationType: NavigationType,
-    code : String,
-    onCodeChanged : (String)-> Unit
-                                ) {
-        Column(
-            modifier = modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Top,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            DefaultAppBar(
-                navigationType = navigationType,
-                onDrawerClick = onDrawerClicked,
-                title = stringResource(id = R.string.add_appartment),
-                canNavigateBack = false
+  modifier: Modifier = Modifier,
+  isButtonEnabled: Boolean,
+  onDrawerClicked: () -> Unit,
+  onAddClick: () -> Unit,
+  navigationType: NavigationType,
+  code: String,
+  onCodeChanged: (String) -> Unit
+) {
+  Column(
+    modifier = modifier.fillMaxSize(),
+    verticalArrangement = Arrangement.Top,
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    DefaultAppBar(
+      navigationType = navigationType,
+      onDrawerClick = onDrawerClicked,
+      title = stringResource(id = R.string.add_appartment),
+      canNavigateBack = false
+    )
+    Column(
+      modifier = Modifier // Исправлено: используем внутренний Modifier
+        .widthIn(max = 460.dp)
+        .padding(horizontal = 16.dp)
+        .verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.Top,
+      horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+      Card(
+        colors = CardDefaults.cardColors(
+          containerColor = MaterialTheme.colorScheme.secondaryContainer,
+          contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        )
+      ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+          Text(
+            text = stringResource(id = R.string.tooltip_code),
+            style = MaterialTheme.typography.bodyLarge
+          )
+
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 16.dp)
+          ) {
+            OutlinedTextField(
+              value = code,
+              onValueChange = { onCodeChanged(it) }, // УБРАН ФИЛЬТР ЦИФР
+              modifier = Modifier.weight(1f),
+              label = { Text(text = stringResource(id = R.string.secret_сode)) },
+              // ТИП КЛАВИАТУРЫ ИЗМЕНЕН НА TEXT
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+              singleLine = true
             )
-            Column(
-                modifier = modifier
-                    .widthIn(max = 460.dp)
-                    .padding(horizontal = 16.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.Top,
-                horizontalAlignment = Alignment.CenterHorizontally
+
+            Button(
+              onClick = onAddClick,
+              enabled = isButtonEnabled,
+              contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                Card(
-                    modifier = modifier,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-            )
-                ) {
-                        Column(
-                            modifier = Modifier
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(PaddingValues(8.dp)),
-
-                                ) {
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                ) {
-
-                                    Text(
-                                        text = stringResource(id = R.string.tooltip_code),
-                                        modifier = Modifier.padding(4.dp),
-                                        textAlign = TextAlign.Left,
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                }
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(PaddingValues(8.dp)),
-
-                                ) {
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(start = 4.dp, end = 8.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = code,
-                                        onValueChange = { newText ->
-                                            val filteredText = newText.filter { it.isDigit() }
-                                            onCodeChanged(filteredText)
-                                        },
-                                        label = {
-                                            Text(
-                                                text = stringResource(id = R.string.secret_сode)
-                                            )
-                                        },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                                    )
-
-                                }
-                                Button(
-                                    onClick = { onAddClick() },
-                                    enabled = isButtonEnabled,
-                                    colors = ButtonDefaults.buttonColors().copy(
-                                         disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                )
-                                {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Image(
-                                            painter = painterResource(R.drawable.ic_stat_name),
-                                            contentDescription = null,
-                                            colorFilter = ColorFilter.tint(if(isButtonEnabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
-                                        )
-                                        Text(text = stringResource(id = R.string.add))
-                                    }
-                                }
-                            }
-                        }
-                }
-
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                  painter = painterResource(R.drawable.ic_stat_name),
+                  contentDescription = null,
+                  colorFilter = ColorFilter.tint(
+                    if (isButtonEnabled) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                  )
+                )
+                Text(
+                  text = stringResource(id = R.string.add),
+                  modifier = Modifier.padding(start = 8.dp)
+                )
+              }
             }
+          }
+        }
+      }
     }
+  }
 }
 @Composable
 fun AddApartmentScreenContent(
-    modifier: Modifier = Modifier,
-    viewModel: ApartmentViewModel = koinViewModel(),
-    navController : NavHostController,
-    canNavigateBack : Boolean,
-    onDrawerClicked : () -> Unit,
-    navigationType: NavigationType,
-    closeContentDetail : ()->Unit
+  modifier: Modifier = Modifier,
+  viewModel: ApartmentViewModel = koinViewModel(),
+  navController : NavHostController,
+  canNavigateBack : Boolean, // Если не используется в Stateless, можно удалить
+  onDrawerClicked : () -> Unit,
+  navigationType: NavigationType,
+  closeContentDetail : () -> Unit
 ) {
+  // Подписываемся на ввод кода из ViewModel
+  val secretCode by viewModel.secretCode.collectAsState()
 
-    val secretCode by viewModel.secretCode.collectAsState()
-    val buttonEnabled by remember {
-        derivedStateOf{
-            secretCode.isNotEmpty()
-        }
+  // Кнопка активна, если введено хотя бы что-то
+  val buttonEnabled by remember {
+    derivedStateOf {
+      secretCode.trim().isNotEmpty()
     }
-    val keyboard = LocalSoftwareKeyboardController.current
+  }
 
-    AddApartmentScreenStateless(
-        isButtonEnabled = buttonEnabled,
-        onDrawerClicked = onDrawerClicked,
-        onAddClick = {
-            keyboard?.hide()
-            viewModel.addApartment {
-                closeContentDetail()
-                navController.navigateToInfoApartment()
-            }
-        },
-        navigationType = navigationType,
-        code = secretCode,
-        onCodeChanged = {
-            viewModel.onSecretCodeChange(it)
-        }
+  val keyboard = LocalSoftwareKeyboardController.current
 
-    )
+  AddApartmentScreenStateless(
+    modifier = modifier,
+    isButtonEnabled = buttonEnabled,
+    onDrawerClicked = onDrawerClicked,
+    onAddClick = {
+      keyboard?.hide()
+
+      // Вызываем единый метод обработки во ViewModel.
+      // ViewModel внутри сама проверит: цифры это (квартира) или текст (админ).
+      viewModel.addApartment {
+        // Этот колбэк выполнится при успешном добавлении квартиры/роли
+        closeContentDetail()
+        navController.navigateToInfoApartment()
+      }
+    },
+    navigationType = navigationType,
+    code = secretCode,
+    onCodeChanged = { newValue ->
+      // ВАЖНО: Больше не фильтруем только цифры здесь,
+      // чтобы админ мог ввести свое секретное слово буквами.
+      viewModel.onSecretCodeChange(newValue)
+    }
+  )
 }
+
 
 
 @Preview

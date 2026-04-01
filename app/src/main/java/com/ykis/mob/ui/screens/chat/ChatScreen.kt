@@ -94,7 +94,7 @@ fun ChatScreen(
     chatViewModel.readFromDatabase(
       role = baseUIState.userRole,
       senderUid = chatUid,
-      osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId
+      osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbId ?: 0 else baseUIState.osmdId
     )
   }
 
@@ -247,7 +247,7 @@ fun ChatScreen(
                   role = baseUIState.userRole,
                   senderAddress = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address ?: "" else "",
                   imageUrl = null,
-                  osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId,
+                  osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbId ?: 0 else baseUIState.osmdId,
                   recipientTokens = userEntity.tokens,
                   onComplete = {
                     // Очищаем AI подсказки сразу
@@ -295,7 +295,7 @@ fun ChatScreen(
           senderUid = chatUid,
           messageId = selectedMessageId,
           role = baseUIState.userRole,
-          osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbRoleId ?: 0 else baseUIState.osmdId
+          osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbId ?: 0 else baseUIState.osmdId
         )
         showDeleteMessageDialog = false
       }

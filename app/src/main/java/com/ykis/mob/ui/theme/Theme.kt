@@ -164,53 +164,41 @@ private val darkScheme = darkColorScheme(
     surfaceContainerHighest = surfaceContainerHighestDark,
 )
 
-
 @Composable
 fun YkisPAMTheme(
-    appTheme : String? = ThemeValues.LIGHT_MODE.title,
-    useDarkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable() () -> Unit
+  appTheme: String? = ThemeValues.LIGHT_MODE.title,
+  useDarkTheme: Boolean = isSystemInDarkTheme(),
+  content: @Composable () -> Unit
 ) {
-        Log.d("theme_test" , "PamTheme " + appTheme.toString())
+  // Определяем, какую схему использовать
+  val darkTheme = when (appTheme) {
+    ThemeValues.SYSTEM_DEFAULT.title -> useDarkTheme
+    ThemeValues.DARK_MODE.title -> true
+    ThemeValues.LIGHT_MODE.title -> false
+    else -> useDarkTheme
+  }
 
-    val colors = when (appTheme) {
-        ThemeValues.SYSTEM_DEFAULT.title -> {
-            if (useDarkTheme) {
-                darkScheme
-            } else {
-                lightScheme
-            }
-        }
+  val colors = if (darkTheme) darkScheme else lightScheme
 
-        ThemeValues.LIGHT_MODE.title -> {
-            lightScheme
-        }
+  val view = LocalView.current
+  if (!view.isInEditMode) {
+    SideEffect {
+      val window = (view.context as Activity).window
 
-        ThemeValues.DARK_MODE.title -> {
-            darkScheme
-        }
-        else -> {
-            if (useDarkTheme) {
-                darkScheme
-            } else {
-                lightScheme
-            }
-        }
+      // При использовании enableEdgeToEdge() цвета баров лучше оставлять прозрачными,
+      // чтобы контент затекал под них. Мы управляем только цветом иконок.
+      val insetsController = WindowCompat.getInsetsController(window, view)
+
+      // Если тема светлая, иконки должны быть темными (isAppearanceLightStatusBars = true)
+      insetsController.isAppearanceLightStatusBars = !darkTheme
+      insetsController.isAppearanceLightNavigationBars = !darkTheme
     }
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = colors.primary.toArgb()
-            window.navigationBarColor = colors.surfaceContainer.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars =
-                useDarkTheme
-        }
-    }
-    MaterialTheme(
-        colorScheme = colors,
-        content = content,
-        typography = Typography,
-        shapes = shapes
-    )
+  }
+
+  MaterialTheme(
+    colorScheme = colors,
+    content = content,
+    typography = Typography,
+    shapes = shapes
+  )
 }

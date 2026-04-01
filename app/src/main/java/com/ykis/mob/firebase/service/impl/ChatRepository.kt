@@ -21,14 +21,12 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import kotlin.Lazy
 
 class ChatRepository (
-  private val firestoreLazy: Lazy<FirebaseFirestore>,
+  private val firestore:FirebaseFirestore,
   val realtime: FirebaseDatabase,
-  private val storage: FirebaseStorage,
+  val storage: FirebaseStorage,
   private val functions: FirebaseFunctions,
-  private val aiModelLazy: Lazy<GenerativeModel>,
+  val aiModel: GenerativeModel,
 ) {
-  val aiModel by aiModelLazy
-  private val firestore: FirebaseFirestore by firestoreLazy
 //  private val realtime: FirebaseDatabase by realtimeLazy
 
 

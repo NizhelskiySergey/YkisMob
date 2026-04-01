@@ -39,7 +39,7 @@ fun UserList(
   LaunchedEffect(key1 = userList) {
     userList.forEach { user ->
       val chatUid = if(baseUIState.userRole == UserRole.OsbbUser){
-        "${baseUIState.userRole.codeName}_${baseUIState.osbbRoleId}_${user.uid}"
+        "${baseUIState.userRole.codeName}_${baseUIState.osbbId}_${user.uid}"
       }else "${baseUIState.userRole.codeName}_${user.uid}"
       chatViewModel.addChatListener(
         chatUid,
@@ -61,8 +61,8 @@ fun UserList(
       )
     }
     userWithMessages = userMessages.sortedByDescending{ it.latestMessage.timestamp }
-    Log.d("desc_test" , userMessages.map { it.latestMessage }.toString())
-    Log.d("desc_test" , "sorted: ${ userMessages.sortedByDescending{ it.latestMessage.timestamp }.map { it.latestMessage.text }}")
+    Log.d("YkisMob", "UserList: ${userMessages.map { it.latestMessage }}")
+    Log.d("YkisMob", "UserList:  ${ userMessages.sortedByDescending{ it.latestMessage.timestamp }.map { it.latestMessage.text }}")
   }
 
   LazyColumn(modifier = modifier) {

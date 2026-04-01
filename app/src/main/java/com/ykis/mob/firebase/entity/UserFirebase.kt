@@ -16,13 +16,24 @@ limitations under the License.
 
 package com.ykis.mob.firebase.entity
 
+import com.ykis.mob.domain.UserRole
+
+/**
+ * Модель данных пользователя, полученная из Firebase Auth и Firestore.
+ */
 data class UserFirebase(
-    val uid: String ,
-    val isEmailVerification: Boolean = false,
-    val provider: String?,
-    val name: String?,
-    val email: String,
-    val phone: String?,
+  val uid: String,
+  val email: String,
+  val isEmailVerification: Boolean = false,
+  val provider: String? = null,
+  val name: String? = null,
+  val phone: String? = null,
 
+  // --- Поля для управления доступом (YkisPam) ---
+  // Роль из Firestore: STANDARD_USER, OSBB, WATER_SERVICE и т.д.
+  val userRole: UserRole = UserRole.StandardUser,
 
-    )
+  // ID организации (обязателен для роли OSBB, для остальных может быть 0 или null)
+  val osbbId: Int? = 0
+)
+

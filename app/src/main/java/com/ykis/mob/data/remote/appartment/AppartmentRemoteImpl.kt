@@ -59,7 +59,46 @@ class ApartmentRemoteImpl (
     )
   }
 
-    private fun createGetApartmentListMap(uid: String): Map<String, String> {
+  override suspend fun verifyAdminSecretWord(
+    code: String,
+    uid: String
+  ): GetSimpleResponse {
+    return ktorApiService.verifyAdminSecretWord(
+      createVerifyAdminSecretWord(
+        code = code,
+        uid = uid
+
+      )
+    )
+  }
+
+  override suspend fun saveUserUid(
+    uid: String,
+    email: String
+  ): GetSimpleResponse {
+    return ktorApiService.saveUserUid(
+      createSaveUserUid(
+        uid=uid,
+        email=email
+
+      )
+    )
+  }
+
+  override suspend fun deleteUserAccount(
+    uid: String,
+    email: String
+  ): GetSimpleResponse {
+    return ktorApiService.deleteUserAccount(
+      createDeleteUserAccount(
+        uid=uid,
+        email=email
+
+      )
+    )
+  }
+
+  private fun createGetApartmentListMap(uid: String): Map<String, String> {
         val map = HashMap<String, String>()
         map[UID] = uid
         return map
@@ -95,4 +134,22 @@ class ApartmentRemoteImpl (
         map[EMAIL] = email
         return map
     }
+  private fun createVerifyAdminSecretWord(code: String, uid: String ): Map<String, String> {
+        val map = HashMap<String, String>()
+        map[CODE] = code
+        map[UID] = uid
+        return map
+    }
+  private fun createSaveUserUid(uid: String,email: String ): Map<String, String> {
+    val map = HashMap<String, String>()
+    map[UID] = uid
+    map[EMAIL] = email
+    return map
+  }
+  private fun createDeleteUserAccount(uid: String,email: String ): Map<String, String> {
+    val map = HashMap<String, String>()
+    map[UID] = uid
+    map[EMAIL] = email
+    return map
+  }
 }

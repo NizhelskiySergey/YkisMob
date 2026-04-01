@@ -123,17 +123,7 @@ fun ServiceListScreen(
                 )
             }
         }
-//        Button(
-//            onClick = {
-//                setContentDetail(ContentDetail.PAYMENT_CHOICE)
-//            },
-//            colors = ButtonDefaults.buttonColors(
-//            )
-//        ) {
-//            Text(
-//                "Xpay"
-//            )
-//        }
+
         Crossfade(
             modifier = Modifier.fillMaxSize(),
             animationSpec = tween(delayMillis = 500),

@@ -56,6 +56,15 @@ class KtorApiService(private val client: HttpClient) {
   suspend fun addApartment(params: Map<String, String>) =
     postForm<GetSimpleResponse>("addMyFlatByUser.php", params)
 
+  suspend fun verifyAdminSecretWord(params: Map<String, String>) =
+    postForm<GetSimpleResponse>("getSecretCode.php", params)
+
+  suspend fun saveUserUid(params: Map<String, String>) =
+    postForm<GetSimpleResponse>("saveUserUid.php", params)
+
+  suspend fun deleteUserAccount(params: Map<String, String>) =
+    postForm<GetSimpleResponse>("deleteUserAccount.php", params)
+
   suspend fun deleteApartment(params: Map<String, String>) =
     postForm<GetSimpleResponse>("deleteFlatByUser.php", params)
 

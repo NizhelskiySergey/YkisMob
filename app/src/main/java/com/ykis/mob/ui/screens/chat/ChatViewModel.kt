@@ -34,6 +34,7 @@ data class SendNotificationArguments(
   val title: String,
   val body: String
 )
+
 data class ServiceWithCodeName(
   val name: String = "",
   val codeName: String = ""
@@ -79,18 +80,19 @@ class ChatViewModel(
 ) : BaseViewModel(logService) { // УДАЛИЛИ KoinComponent
 
 
-    // Перенаправляем ссылки на репозиторий
-    private val chatsReference by lazy { chatRepo.realtime.getReference("chats") }
-//    private val userDatabase by lazy { chatRepo.firestore }
-//    private val storageReference by lazy { chatRepo.storage.reference }
-private val generativeModel by lazy { chatRepo.aiModel }
+  // Перенаправляем ссылки на репозиторий
+  // Ссылки на Realtime Database
+  private val chatsReference by lazy { chatRepo.realtime.getReference("chats") }
+
+  // Модель ИИ (Gemini)
+  private val generativeModel by lazy { chatRepo.aiModel }
+
   private val _assistantResponse = MutableStateFlow<String?>(null)
   val assistantResponse = _assistantResponse.asStateFlow()
 
   // Для диспетчера: быстрая подсказка на основе входящего сообщения
   private val _quickHint = MutableStateFlow<String?>(null)
   val quickHint = _quickHint.asStateFlow()
-
 
 
   private val listeners = mutableMapOf<DatabaseReference, ValueEventListener>()
@@ -143,7 +145,6 @@ private val generativeModel by lazy { chatRepo.aiModel }
       }
     }
   }
-
 
 
   private fun analyzeIncomingMessage(message: MessageEntity, role: UserRole) {
@@ -233,96 +234,149 @@ private val generativeModel by lazy { chatRepo.aiModel }
     _quickHint.value = null
   }
 
+  /**
+   * Записывает сообщение в Realtime Database и отправляет Push-уведомление.
+   */
   fun writeToDatabase(
-    chatUid: String,
-    senderUid: String,
+    chatUid: String,            // ID текущего диалога (обычно UID жильца)
+    senderUid: String,          // Кто отправляет (жилец или админ)
     senderDisplayedName: String,
     senderLogoUrl: String?,
-    senderAddress: String,
-    imageUrl: String?,
-    osbbId: Int,
-    role: UserRole,
+    senderAddress: String,      // Адрес (для жильцов)
+    imageUrl: String?,          // Ссылка на фото (если есть)
+    osbbId: Int,                // ID ОСББ
+    role: UserRole,             // Роль отправителя
     onComplete: () -> Unit,
     recipientTokens: List<String>
   ) {
+    // Если текста нет и картинки нет — ничего не отправляем
+    if (messageText.value.isBlank() && imageUrl == null) return
+
     _isLoadingAfterSending.value = true
 
-    // 1. Формируем ID чата (логика прежняя)
+    // 1. ФОРМИРОВАНИЕ ID ЧАТА
+    // Эта логика гарантирует, что сообщения Водоканала не попадут в Теплосеть,
+    // а сообщения одного ОСББ не увидит другое.
     val chatId = when {
-      role == UserRole.StandardUser && selectedService.value.codeName == UserRole.OsbbUser.codeName -> {
-        "${selectedService.value.codeName}_${osbbId}_$chatUid"
+      // 1. Жилец пишет в ОСББ
+      // Сравниваем строку из базы (codeName) со строковым именем константы Enum
+      role == UserRole.StandardUser && selectedService.value.codeName == ContentDetail.OSBB.name -> {
+        "OSBB_${osbbId}_$senderUid"
       }
 
-      role == UserRole.StandardUser -> "${selectedService.value.codeName}_$chatUid"
-      role == UserRole.OsbbUser -> "${role.codeName}_${osbbId}_$chatUid"
-      else -> "${role.codeName}_$chatUid"
+      // 2. Жилец пишет в одну из 3-х городских служб
+      role == UserRole.StandardUser -> {
+        "${selectedService.value.codeName}_$senderUid"
+      }
+
+      // 3. Пишет админ ОСББ
+      role == UserRole.OsbbUser -> {
+        "OSBB_${osbbId}_$senderUid"
+      }
+
+      // 4. Пишет админ городской службы (Водоканал, Теплосеть или Мусор)
+      else -> {
+        // Здесь берем codeName из роли (Enum) и превращаем в строку через .name
+        "${role.codeName.name}_$senderUid"
+      }
     }
 
-    // 2. Используем внедренное свойство chatsReference вместо getInstance()
-    val chatRef = chatsReference.child(chatId)
-    val key = chatRef.push().key ?: return // Безопасная проверка ключа
 
+    // 2. ПОДГОТОВКА ССЫЛКИ И КЛЮЧА
+    val chatRef = chatsReference.child(chatId)
+    val messageKey = chatRef.push().key ?: return
+
+    // Создаем объект сообщения
     val messageEntity = MessageEntity(
-      id = key,
+      id = messageKey,
       senderUid = senderUid,
       text = messageText.value,
       senderLogoUrl = senderLogoUrl,
       senderDisplayedName = senderDisplayedName,
       senderAddress = senderAddress,
       imageUrl = imageUrl,
-      timestamp = System.currentTimeMillis() // Используем время системы или ServerValue.TIMESTAMP
+      timestamp = System.currentTimeMillis() // Время для сортировки
     )
 
-    // 3. Запись данных
-    chatRef.child(key).setValue(messageEntity)
+    // 3. ЗАПИСЬ В БАЗУ ДАННЫХ
+    chatRef.child(messageKey).setValue(messageEntity)
       .addOnCompleteListener { task ->
         _isLoadingAfterSending.value = false
         if (task.isSuccessful) {
+          // Если запись успешна — отправляем PUSH через Firebase Cloud Messaging
           sendPushNotification(
             SendNotificationArguments(
               recipientTokens = recipientTokens,
               title = senderDisplayedName,
-              body = messageText.value
+              body = messageText.value.ifBlank { "Фотография" }
             )
           )
-          _messageText.value = ""
-          onComplete()
+          _messageText.value = "" // Очищаем поле ввода
+          onComplete()            // Закрываем экран или прокручиваем чат
         }
       }
-      .addOnFailureListener {
+      .addOnFailureListener { e ->
         _isLoadingAfterSending.value = false
-        SnackbarManager.showMessage(it.message.toString())
+        SnackbarManager.showMessage(e.message ?: "Ошибка отправки")
       }
   }
 
+
+  /**
+   * Подписывается на изменения в ветке чата в Realtime Database.
+   * Фильтрует путь к данным в зависимости от роли (Жилец/Админ) и ID предприятия.
+   */
   fun readFromDatabase(role: UserRole, senderUid: String, osbbId: Int) {
+    // 1. ФОРМИРОВАНИЕ ID ЧАТА (Должно строго совпадать с логикой записи)
     val chatId = when {
-      role == UserRole.StandardUser && selectedService.value.codeName == UserRole.OsbbUser.codeName -> {
-        "${selectedService.value.codeName}_${osbbId}_$senderUid"
+      // 1. Жилец пишет в ОСББ
+      // Сравниваем строку из базы (codeName) со строковым именем константы Enum.
+      role == UserRole.StandardUser && selectedService.value.codeName == ContentDetail.OSBB.name -> {
+        "OSBB_${osbbId}_$senderUid"
       }
 
-      role == UserRole.StandardUser -> "${selectedService.value.codeName}_$senderUid"
-      role == UserRole.OsbbUser -> "${role.codeName}_${osbbId}_$senderUid"
-      else -> "${role.codeName}_$senderUid"
+      // 2. Жилец пишет в одну из 3-х городских служб
+      role == UserRole.StandardUser -> {
+        "${selectedService.value.codeName}_$senderUid"
+      }
+
+      // 3. Пишет админ ОСББ
+      role == UserRole.OsbbUser -> {
+        "OSBB_${osbbId}_$senderUid"
+      }
+
+      // 4. Пишет админ городской службы (Водоканал, Теплосеть или Мусор)
+      else -> {
+        // Здесь берем codeName из роли (Enum) и превращаем в строку через .name
+        "${role.codeName.name}_$senderUid"
+      }
     }
+
 
     val ref = chatsReference.child(chatId)
 
-    // Удаляем старый слушатель для этого пути, если он был (перестраховка)
-    listeners[ref]?.let { ref.removeEventListener(it) }
+    // 2. УПРАВЛЕНИЕ СЛУШАТЕЛЯМИ (Предотвращение утечек памяти)
+    // Если на этой ветке уже висит слушатель — удаляем его перед созданием нового
+    listeners[ref]?.let {
+      ref.removeEventListener(it)
+    }
 
     val listener = object : ValueEventListener {
       override fun onDataChange(dataSnapshot: DataSnapshot) {
+        // Обработку данных выносим в Default поток, чтобы не нагружать UI
         viewModelScope.launch(Dispatchers.Default) {
+          // Парсим все сообщения из снимка базы данных
           val messageList = dataSnapshot.children.mapNotNull {
             it.getValue(MessageEntity::class.java)
           }
+
           if (messageList.isNotEmpty()) {
             val lastMessage = messageList.last()
-            // Вызываем анализ для последнего сообщения
+            // Вызываем анализ последнего сообщения (например, для уведомлений или ИИ)
             analyzeIncomingMessage(lastMessage, role)
           }
 
+          // Обновляем UI-стейт строго в Main потоке
           withContext(Dispatchers.Main) {
             _firebaseTest.value = messageList
           }
@@ -330,171 +384,248 @@ private val generativeModel by lazy { chatRepo.aiModel }
       }
 
       override fun onCancelled(error: DatabaseError) {
-        Log.w("firebase_error", "Failed to read value.", error.toException())
+        Log.w("YkisLog", "ApartmentViewModel onCancelled() Ошибка чтения чата $chatId", error.toException())
         SnackbarManager.showMessage(error.message)
       }
     }
 
+    // Регистрация нового слушателя
     ref.addValueEventListener(listener)
+    // Сохраняем ссылку, чтобы иметь возможность отписаться при выходе с экрана
     listeners[ref] = listener
   }
+
 
   fun onMessageTextChanged(value: String) {
     _messageText.value = value
   }
 
-  fun trackUserIdentifiersWithRole(role: UserRole, osbbRoleId: Int?) {
+  /**
+   * Отслеживает список активных чатов (ID пользователей) для конкретной роли админа.
+   * Например: админ ОСББ 105 увидит только ветки, начинающиеся на "OSBB_105_".
+   */
+  fun trackUserIdentifiersWithRole(role: UserRole, osbbId: Int?) {
     val ref = chatsReference
+
+    // Удаляем старый слушатель, если он был, чтобы избежать дублирования данных
+    listeners[ref]?.let { ref.removeEventListener(it) }
 
     val listener = object : ValueEventListener {
       override fun onDataChange(dataSnapshot: DataSnapshot) {
+        // Выполняем фильтрацию в фоновом потоке (Default), чтобы не вешать UI
         viewModelScope.launch(Dispatchers.Default) {
+          // Определяем префикс, который ищем в названиях веток БД
+          val targetPrefix = if (role == UserRole.OsbbUser && osbbId != null) {
+            "OSBB_${osbbId}_"
+          } else {
+            "${role.codeName.name}_"
+          }
+
+          // Сканируем все ключи (ID чатов) в корне /chats/
           val userIdentifiers = dataSnapshot.children.mapNotNull { chatSnap ->
             val chatId = chatSnap.key ?: return@mapNotNull null
-            val condition = if (osbbRoleId != null) {
-              chatId.startsWith("${role.codeName}_${osbbRoleId}")
-            } else {
-              chatId.startsWith(role.codeName)
-            }
 
-            if (condition) {
-              if (osbbRoleId != null) chatId.substringAfter("${osbbRoleId}_")
-              else chatId.substringAfter("_")
-            } else null
-          }
+            // Если ветка начинается с нашего префикса (напр. "WATER_SERVICE_")
+            if (chatId.startsWith(targetPrefix)) {
+              // Извлекаем UID пользователя (всё, что после префикса)
+              chatId.removePrefix(targetPrefix)
+            } else {
+              null
+            }
+          }.distinct() // Убираем дубликаты, если они возникли
+
+          // Обновляем список ID в Main потоке и запрашиваем данные этих пользователей
           withContext(Dispatchers.Main) {
             _userIdentifiersWithRole.value = userIdentifiers
+            // После получения списка ID (UID), загружаем их профили (имена, фото) из Firestore
             getUsers()
           }
         }
       }
 
-      override fun onCancelled(error: DatabaseError) { /* Log error */
+      override fun onCancelled(error: DatabaseError) {
+        Log.e("YkisLog", "ApartmentViewModel trackUserIdentifiersWithRole() Ошибка отслеживания идентификаторов: ${error.message}")
       }
     }
 
+    // Регистрируем слушатель и сохраняем ссылку для очистки в onCleared()
     ref.addValueEventListener(listener)
     listeners[ref] = listener
   }
 
 
-    fun getUsers() {
-      val userIdentifiers = _userIdentifiersWithRole.value
-      if (userIdentifiers.isEmpty()) {
-        _userList.value = emptyList()
-        return
-      }
 
-      viewModelScope.launch {
-        try {
-          // Используем репозиторий вместо прямой работы с db
-          val users = chatRepo.fetchUsersByIds(userIdentifiers)
-          _userList.value = users
-          Log.d("filtered_test", "Fetched ${users.size} users")
-        } catch (e: Exception) {
-          SnackbarManager.showMessage("Ошибка загрузки пользователей")
-        }
-      }
+  fun getUsers() {
+    val userIdentifiers = _userIdentifiersWithRole.value
+    if (userIdentifiers.isEmpty()) {
+      _userList.value = emptyList()
+      return
     }
 
+    viewModelScope.launch {
+      try {
+        // Используем репозиторий вместо прямой работы с db
+        val users = chatRepo.fetchUsersByIds(userIdentifiers)
+        _userList.value = users
+        Log.d("filtered_test", "Fetched ${users.size} users")
+      } catch (e: Exception) {
+        SnackbarManager.showMessage("Ошибка загрузки пользователей")
+      }
+    }
+  }
 
 
-    fun setSelectedUser(user: UserEntity) {
+  fun setSelectedUser(user: UserEntity) {
     _selectedUser.value = user
   }
 
+  /**
+   * Устанавливает текущую выбранную службу для чата на основе данных о долгах.
+   * Преобразует категорию контента в строковое имя для формирования ID чата.
+   */
   fun setSelectedService(totalServiceDebt: TotalServiceDebt) {
-    val codeName = when (totalServiceDebt.contentDetail) {
-      ContentDetail.WARM_SERVICE -> UserRole.YtkeUser.codeName
-      ContentDetail.WATER_SERVICE -> UserRole.VodokanalUser.codeName
-      ContentDetail.OSBB -> UserRole.OsbbUser.codeName
-      else -> UserRole.TboUser.codeName
+    // 1. Сопоставляем контентный раздел с ролью/службой
+    val selectedContentDetail = when (totalServiceDebt.contentDetail) {
+      ContentDetail.WARM_SERVICE -> ContentDetail.WARM_SERVICE
+      ContentDetail.WATER_SERVICE -> ContentDetail.WATER_SERVICE
+      ContentDetail.OSBB -> ContentDetail.OSBB
+      ContentDetail.GARBAGE_SERVICE -> ContentDetail.GARBAGE_SERVICE
+      else -> ContentDetail.WATER_SERVICE // Значение по умолчанию
     }
 
-    // Обновляем стейт атомарно
+    // 2. Обновляем состояние службы
+    // В поле codeName записываем строку (.name), чтобы избежать ошибок сравнения
     _selectedService.value = ServiceWithCodeName(
       name = totalServiceDebt.name,
-      codeName = codeName
+      codeName = selectedContentDetail.name
+    )
+
+    Log.d(
+      "YkisLog",
+      "ApartmentViewModel setSelectedService() Служба для чата установлена: ${totalServiceDebt.name} (${selectedContentDetail.name})"
     )
   }
 
 
-    fun addChatListener(chatUid: String, onLastMessageChange: (MessageEntity) -> Unit) {
-      viewModelScope.launch {
-        // Репозиторий скрывает сложность Firebase (Complexity -1)
-        chatRepo.observeLastMessage(chatUid)
-          .flowOn(Dispatchers.Default) // Маппинг в фоне
-          .collect { latestMessage ->
-            val message = latestMessage ?: MessageEntity()
-            Log.d("chat_listener", "Latest message in $chatUid: ${message.text}")
-            onLastMessageChange(message)
-          }
-      }
-    }
+  /**
+   * Подписывается на обновление последнего сообщения в конкретном чате.
+   * Используется для динамического обновления текста сообщения в списке чатов.
+   */
+  fun addChatListener(
+    chatUid: String,
+    onLastMessageChange: (MessageEntity) -> Unit
+  ) {
+    // Используем viewModelScope, чтобы подписка автоматически закрылась при уничтожении ViewModel
+    viewModelScope.launch {
+      Log.d("YkisLog", "ApartmentViewModel addChatListener() Подписка на последнее сообщение в ветке: $chatUid")
 
-    fun uploadPhotoAndSendMessage(
-      context: android.content.Context,
-      chatUid: String,
-      senderUid: String,
-      senderDisplayedName: String,
-      senderLogoUrl: String?,
-      senderAddress: String,
-      osbbId: Int,
-      role: UserRole,
-      onComplete: () -> Unit,
-      recipientTokens: List<String>
-    ) {
-      viewModelScope.launch { // Dispatchers.IO теперь внутри репозитория или через flowOn
-        _isLoadingAfterSending.value = true
-        try {
-          val uri = _selectedImageUri.value
-          if (uri == Uri.EMPTY) return@launch
+      // 1. Получаем поток (Flow) из репозитория
+      chatRepo.observeLastMessage(chatUid)
+        // 2. Выполняем маппинг данных (обработку Firebase Snapshot) в фоновом потоке
+        .flowOn(Dispatchers.Default)
+        // 3. Собираем данные (Collect)
+        .collect { latestMessage ->
+          // Если в чате еще нет сообщений, создаем пустую сущность
+          val message = latestMessage ?: MessageEntity(text = "Нет сообщений")
 
-          // --- ШАГ 1: СЖАТИЕ (выполняем в фоне) ---
-          val imageData = withContext(Dispatchers.IO) { compressImage(context, uri) }
+          Log.d("YkisLog", "ApartmentViewModel addChatListener() Обновление чата $chatUid: ${message.text}")
 
-          // --- ШАГ 2: ЛОГИКА ИДЕНТИФИКАТОРА ---
-          val chatId = when {
-            role == UserRole.StandardUser && selectedService.value.codeName == UserRole.OsbbUser.codeName -> {
-              "${selectedService.value.codeName}_${osbbId}_$chatUid"
-            }
-            role == UserRole.StandardUser -> "${selectedService.value.codeName}_$chatUid"
-            role == UserRole.OsbbUser -> "${role.codeName}_${osbbId}_$chatUid"
-            else -> "${role.codeName}_$chatUid"
-          }
-
-          // --- ШАГ 3: ЗАГРУЗКА ЧЕРЕЗ РЕПОЗИТОРИЙ ---
-          val imageUrl = withContext(Dispatchers.IO) {
-            chatRepo.uploadChatImage(imageData, chatId)
-          }
-
-          // --- ШАГ 4: ЗАПИСЬ В БД (Main Thread) ---
-          writeToDatabase(
-            chatUid = chatUid,
-            senderUid = senderUid,
-            senderDisplayedName = senderDisplayedName,
-            senderLogoUrl = senderLogoUrl,
-            senderAddress = senderAddress,
-            imageUrl = imageUrl,
-            osbbId = osbbId,
-            role = role,
-            recipientTokens = recipientTokens,
-            onComplete = {
-              _selectedImageUri.value = Uri.EMPTY
-              _messageText.value = ""
-              clearAiSuggestion()
-              _isLoadingAfterSending.value = false
-              onComplete()
-            }
-          )
-        } catch (e: Exception) {
-          _isLoadingAfterSending.value = false
-          Log.e("photo_upload", "Error: ${e.message}")
-          SnackbarManager.showMessage("Ошибка: ${e.localizedMessage}")
+          // 4. Передаем результат обратно в UI через callback
+          // Колбэк выполнится в Main потоке, так как viewModelScope.launch по умолчанию в Main
+          onLastMessageChange(message)
         }
+    }
+  }
+
+
+  /**
+   * Комплексный метод: сжимает фото, загружает его в Storage и отправляет сообщение в чат.
+   */
+  fun uploadPhotoAndSendMessage(
+    context: android.content.Context,
+    chatUid: String,            // ID диалога (UID жильца)
+    senderUid: String,          // Кто отправляет
+    senderDisplayedName: String,
+    senderLogoUrl: String?,
+    senderAddress: String,      // Адрес для идентификации жильца админом
+    osbbId: Int,                // ID ОСББ
+    role: UserRole,             // Роль отправителя
+    onComplete: () -> Unit,
+    recipientTokens: List<String>
+  ) {
+    viewModelScope.launch {
+      _isLoadingAfterSending.value = true
+      try {
+        val uri = _selectedImageUri.value
+        if (uri == Uri.EMPTY) {
+          _isLoadingAfterSending.value = false
+          return@launch
+        }
+
+        // --- ШАГ 1: СЖАТИЕ (в фоновом потоке) ---
+        // Уменьшаем размер файла перед отправкой, чтобы сэкономить трафик и место в Storage
+        val imageData = withContext(Dispatchers.IO) {
+          compressImage(context, uri)
+        }
+
+        // --- ШАГ 2: ЛОГИКА ИДЕНТИФИКАТОРА ЧАТА ---
+        // Должна быть идентична методам чтения и удаления
+        val chatId = when {
+          // Жилец пишет в ОСББ
+          role == UserRole.StandardUser && selectedService.value.codeName == ContentDetail.OSBB.name -> {
+            "OSBB_${osbbId}_$chatUid"
+          }
+          // Жилец пишет в одну из 3-х городских служб
+          role == UserRole.StandardUser -> {
+            "${selectedService.value.codeName}_$chatUid"
+          }
+          // Пишет админ ОСББ
+          role == UserRole.OsbbUser -> {
+            "OSBB_${osbbId}_$chatUid"
+          }
+          // Пишет админ городской службы (Водоканал, Теплосеть и т.д.)
+          else -> {
+            "${role.codeName.name}_$chatUid"
+          }
+        }
+
+        // --- ШАГ 3: ЗАГРУЗКА В FIREBASE STORAGE ---
+        // Выполняем через репозиторий, получаем готовую публичную ссылку на фото
+        val imageUrl = withContext(Dispatchers.IO) {
+          chatRepo.uploadChatImage(imageData, chatId)
+        }
+
+        // --- ШАГ 4: ЗАПИСЬ МЕТАДАННЫХ В REALTIME DATABASE ---
+        // Передаем полученную imageUrl в метод записи сообщения
+        writeToDatabase(
+          chatUid = chatUid,
+          senderUid = senderUid,
+          senderDisplayedName = senderDisplayedName,
+          senderLogoUrl = senderLogoUrl,
+          senderAddress = senderAddress,
+          imageUrl = imageUrl, // Ссылка на загруженное фото
+          osbbId = osbbId,
+          role = role,
+          recipientTokens = recipientTokens,
+          onComplete = {
+            // Очистка после успешной отправки
+            _selectedImageUri.value = Uri.EMPTY
+            _messageText.value = ""
+            clearAiSuggestion() // Очищаем подсказки Gemini (если были)
+            _isLoadingAfterSending.value = false
+            onComplete()
+          }
+        )
+      } catch (e: Exception) {
+        _isLoadingAfterSending.value = false
+        Log.e(
+          "YkisLog",
+          "ApartmentViewModel uploadPhotoAndSendMessage() Ошибка загрузки фото: ${e.message}"
+        )
+        SnackbarManager.showMessage("Ошибка загрузки: ${e.localizedMessage}")
       }
     }
-
+  }
 
 
   private suspend fun compressImage(context: android.content.Context, uri: Uri): ByteArray =
@@ -524,31 +655,56 @@ private val generativeModel by lazy { chatRepo.aiModel }
 // ... (предыдущий код без изменений)
 
   // ДОБАВИТЬ ЭТОТ МЕТОД
+  /**
+   * Удаляет сообщение из Realtime Database.
+   * Использует ту же логику формирования ID чата, что и при чтении/записи.
+   */
   fun deleteMessageFromDatabase(
-    senderUid: String,
-    messageId: String,
-    role: UserRole,
-    osbbId: Int
+    senderUid: String,  // UID жильца (владельца ветки чата)
+    messageId: String,  // Уникальный ID сообщения (key)
+    role: UserRole,     // Роль того, кто инициирует удаление
+    osbbId: Int         // ID объединения
   ) {
-    // 1. Формируем тот же ID чата, что и при записи/чтении
+    // 1. ФОРМИРОВАНИЕ ID ЧАТА
+    // Используем .name для сравнения String (из сервиса) и Enum (ContentDetail)
     val chatId = when {
-      role == UserRole.StandardUser && selectedService.value.codeName == UserRole.OsbbUser.codeName -> {
-        "${selectedService.value.codeName}_${osbbId}_$senderUid"
+      // Жилец в чате своего ОСББ
+      role == UserRole.StandardUser && selectedService.value.codeName == ContentDetail.OSBB.name -> {
+        "OSBB_${osbbId}_$senderUid"
       }
-
-      role == UserRole.StandardUser -> "${selectedService.value.codeName}_$senderUid"
-      role == UserRole.OsbbUser -> "${role.codeName}_${osbbId}_$senderUid"
-      else -> "${role.codeName}_$senderUid"
+      // Жилец в чате городской службы (Водоканал, Теплосеть и т.д.)
+      role == UserRole.StandardUser -> {
+        "${selectedService.value.codeName}_$senderUid"
+      }
+      // Админ ОСББ
+      role == UserRole.OsbbUser -> {
+        "OSBB_${osbbId}_$senderUid"
+      }
+      // Админы городских служб
+      else -> {
+        "${role.codeName.name}_$senderUid"
+      }
     }
 
-    // 2. Ссылаемся на конкретный узел сообщения и удаляем его
+    // 2. УДАЛЕНИЕ ДАННЫХ
+    // Ссылаемся на путь: chats / {chatId} / {messageId}
     chatsReference.child(chatId).child(messageId).removeValue()
       .addOnSuccessListener {
-        // Опционально: показать уведомление об успехе
-        Log.d("firebase_delete", "Message deleted successfully")
+        // Сообщение удалено из базы.
+        // Слушатель (ValueEventListener) автоматически обновит список на экране.
+        Log.d(
+          "YkisLog",
+          "ApartmentViewModel deleteMessageFromDatabase() Сообщение $messageId успешно удалено из чата $chatId"
+        )
       }
-      .addOnFailureListener {
-        SnackbarManager.showMessage("Помилка видалення: ${it.message}")
+      .addOnFailureListener { e ->
+        // Если возникла ошибка (например, нет прав доступа в Security Rules)
+        Log.e(
+          "YkisLog",
+          "ApartmentViewModel deleteMessageFromDatabase()  Ошибка при удалении сообщения",
+          e
+        )
+        SnackbarManager.showMessage("Помилка видалення: ${e.localizedMessage}")
       }
   }
 
@@ -556,31 +712,33 @@ private val generativeModel by lazy { chatRepo.aiModel }
   fun setSelectedMessage(message: MessageEntity) {
     _selectedMessage.value = message
   }
-    fun sendPushNotification(sendNotificationArguments: SendNotificationArguments) {
-      viewModelScope.launch(Dispatchers.IO) {
-        sendNotificationArguments.recipientTokens.forEach { token ->
-          try {
-            // Вызываем через репозиторий (Complexity -1)
-            chatRepo.sendPushNotification(
-              token = token,
-              title = sendNotificationArguments.title,
-              body = sendNotificationArguments.body
-            )
-          } catch (e: Exception) {
-            // Ошибка уже залогирована в репозитории, здесь можно обработать UI если нужно
-          }
+
+  fun sendPushNotification(sendNotificationArguments: SendNotificationArguments) {
+    viewModelScope.launch(Dispatchers.IO) {
+      sendNotificationArguments.recipientTokens.forEach { token ->
+        try {
+          // Вызываем через репозиторий (Complexity -1)
+          chatRepo.sendPushNotification(
+            token = token,
+            title = sendNotificationArguments.title,
+            body = sendNotificationArguments.body
+          )
+        } catch (e: Exception) {
+          // Ошибка уже залогирована в репозитории, здесь можно обработать UI если нужно
         }
       }
     }
+  }
 
 
   override fun onCleared() {
     super.onCleared()
-    // Критически важно для Kotzilla: предотвращает утечки памяти и фоновую активность
+    // Проходим по всем активным слушателям и отключаем их от Firebase
     listeners.forEach { (ref, listener) ->
       ref.removeEventListener(listener)
     }
     listeners.clear()
+    Log.d("YkisLog", "ApartmentViewModel onCleared() Все слушатели чата успешно отключены")
   }
 
 

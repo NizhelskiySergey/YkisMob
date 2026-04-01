@@ -1,10 +1,8 @@
 package com.ykis.mob.di
 
 
-import android.R.attr.level
 import androidx.room.Room
 import com.google.firebase.Firebase
-import com.google.firebase.ai.GenerativeModel
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.content
 import com.google.firebase.auth.FirebaseAuth
@@ -57,9 +55,12 @@ import com.ykis.mob.domain.ClearDatabase
 import com.ykis.mob.domain.apartment.ApartmentRepository
 import com.ykis.mob.domain.apartment.request.AddApartment
 import com.ykis.mob.domain.apartment.request.DeleteApartment
+import com.ykis.mob.domain.apartment.request.DeleteUserAccount
 import com.ykis.mob.domain.apartment.request.GetApartment
 import com.ykis.mob.domain.apartment.request.GetApartmentList
+import com.ykis.mob.domain.apartment.request.SaveUserUid
 import com.ykis.mob.domain.apartment.request.UpdateBti
+import com.ykis.mob.domain.apartment.request.VerifyAdminCode
 import com.ykis.mob.domain.family.FamilyRepository
 import com.ykis.mob.domain.family.request.GetFamilyList
 import com.ykis.mob.domain.meter.heat.meter.HeatMeterRepository
@@ -98,7 +99,6 @@ import com.ykis.mob.ui.screens.profile.ProfileViewModel
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.ANDROID
 import io.ktor.client.plugins.logging.LogLevel
@@ -138,7 +138,7 @@ val appModule = module {
 
 
   // 2. ЕДИНЫЙ KtorApiService
-  single (createdAtStart = true) { KtorApiService(get()) }
+  single(createdAtStart = true) { KtorApiService(get()) }
 
   // 3. УДАЛИ или ЗАКОММЕНТИРУЙ Retrofit (он больше не нужен)
   // single(createdAtStart = true) { get<Retrofit>().create(ApiService::class.java) }
@@ -157,47 +157,61 @@ val appModule = module {
   factory { ClearDatabase() }
 }
 
-
 val domainModule = module {
-  factory { GetApartmentList(get(), get()) }
-  factory { GetApartment(get(), get()) }
-  factory { DeleteApartment(get(), get()) }
-  factory { AddApartment(get()) }
-  factory { UpdateBti(get()) }
-  factory { GetFamilyList(get(), get()) }
+  // Базовые Use Cases для квартир
+  // Используем single для всех логических компонентов (UseCases), так как они не хранят состояние
+  single { GetApartmentList(get(), get()) }
+  single { GetApartment(get(), get()) }
+  single { DeleteApartment(get(), get()) }
+  single { AddApartment(get()) }
+  single { UpdateBti(get()) }
+  single { GetFamilyList(get(), get()) }
 
-  // Use Cases для воды
-  factory { GetWaterMeterList(get(), get()) }
-  factory { GetLastWaterReading(get(), get()) }
-  factory { GetWaterReadings(get(), get()) }
-  factory { AddWaterReading(get(), get()) }
-  factory { DeleteLastWaterReading(get(), get()) }
+  // Наш новый Use Case для проверки админ-кода
+  single { VerifyAdminCode(get()) }
+  single { SaveUserUid(get()) }
+  single { DeleteUserAccount(get()) }
 
-  // Use Cases для тепла
-  factory { GetHeatMeterList(get(), get()) }
-  factory { GetHeatReadings(get(), get()) }
-  factory { GetLastHeatReading(get(), get()) }
-  factory { AddHeatReading(get(), get()) }
-  factory { DeleteLastHeatReading(get(), get()) }
+  // Use Cases для счетчиков (Вода)
+  single { GetWaterMeterList(get(), get()) }
+  single { GetLastWaterReading(get(), get()) }
+  single { GetWaterReadings(get(), get()) }
+  single { AddWaterReading(get(), get()) }
+  single { DeleteLastWaterReading(get(), get()) }
 
-  // Регистрация Use Cases для экрана сервисов и оплат
-  factory { GetFlatServices(get(), get()) }
-  factory { GetTotalDebtServices(get(), get()) }
-  factory { GetPaymentList(get(), get()) }
-  factory { InsertPayment(get()) }
+  // Use Cases для счетчиков (Тепло)
+  single { GetHeatMeterList(get(), get()) }
+  single { GetHeatReadings(get(), get()) }
+  single { GetLastHeatReading(get(), get()) }
+  single { AddHeatReading(get(), get()) }
+  single { DeleteLastHeatReading(get(), get()) }
+
+  // Сервисы и оплаты
+  single { GetFlatServices(get(), get()) }
+  single { GetTotalDebtServices(get(), get()) }
+  single { GetPaymentList(get(), get()) }
+  single { InsertPayment(get()) }
+
+  // Логирование
   single<LogService> { LogServiceImpl() }
-  // В вашем di-модуле (domainModule)
-  // In your di-module
+
+  // Фасад сервиса (ApartmentService)
+  // ИСПОЛЬЗУЕМ ИМЕНОВАННЫЕ АРГУМЕНТЫ, чтобы Koin не перепутал порядок
   single(createdAtStart = true) {
     ApartmentService(
       getApartmentList = get(),
       getApartment = get(),
       addApartment = get(),
+      verifyAdminCode = get(), // Теперь Koin точно найдет этот UseCase
       deleteApartment = get(),
-      updateBti = get()
+      updateBti = get(),
+      saveUserUid = get(),
+      deleteUserAccount = get()
+
     )
   }
 }
+
 
 
 val dataModule = module {
@@ -216,7 +230,7 @@ val dataModule = module {
   single { get<AppDatabase>().heatReadingDao() }
 
   // 3. Repositories
-  single<ApartmentRepository>(createdAtStart = true)  { ApartmentRepositoryImpl(get()) }
+  single<ApartmentRepository>(createdAtStart = true) { ApartmentRepositoryImpl(get()) }
   single<FamilyRepository> { FamilyRepositoryImpl(get()) }
   single<ServiceRepository> { ServiceRepositoryImpl(get()) }
   single<PaymentRepository> { PaymentRepositoryImpl(get()) }
@@ -243,56 +257,63 @@ val dataModule = module {
 
 
 }
-
 val firebaseModule = module {
-  single(createdAtStart = true) { FirebaseAuth.getInstance() }
-  single { lazy { FirebaseFirestore.getInstance() } }
-  single(createdAtStart = true) { FirebaseDatabase.getInstance() }
-  single(createdAtStart = true) { FirebaseStorage.getInstance() }
-  single(createdAtStart = true) { FirebaseFunctions.getInstance() }
-  single(createdAtStart = true) { FirebaseCrashlytics.getInstance() }
+  // 1. Firebase Core компоненты
+  single { FirebaseAuth.getInstance() }
+  single { FirebaseFirestore.getInstance() }
+  single { FirebaseDatabase.getInstance() }
+  single { FirebaseStorage.getInstance() }
+  single { FirebaseFunctions.getInstance() }
+  single { FirebaseCrashlytics.getInstance() }
 
-  // 2. Ваши вспомогательные сервисы
-
+  // 2. Вспомогательные сервисы
   single<ConfigurationService> { ConfigurationServiceImpl() }
+
+  // 3. Generative AI (Gemini)
+  // Примечание: Убедитесь, что версия 2.5-flash-lite доступна,
+  // обычно используют "gemini-1.5-flash" или актуальную превью-версию.
   single {
-    lazy {
-      Firebase.ai.generativeModel(
-        modelName = "gemini-2.5-flash-lite",
-        systemInstruction = content {
-          text(
-            """
-                You are the official AI assistant for a residential complex.
-                Your knowledge base is limited to the following rules:
-                1. Answer only questions about housing and utilities, tariffs, and life in the building.
-                2. If you are asked about something unrelated (politics, games, personal advice), politely answer that you only help with housing association issues.
-                3. Tone of communication: polite, official, but brief.
-                4. If you do not know the exact answer (for example, there is no water), advise you to contact the dispatcher at +380000000000.
-            """.trimIndent()
-          )
-        }
-      )
-    }
+    Firebase.ai.generativeModel(
+      modelName = "gemini-1.5-flash",
+      systemInstruction = content {
+        text(
+          """
+                    You are the official AI assistant for a residential complex.
+                    Your knowledge base is limited to the following rules:
+                    1. Answer only questions about housing and utilities, tariffs, and life in the building.
+                    2. If you are asked about something unrelated (politics, games, personal advice), politely answer that you only help with housing association issues.
+                    3. Tone of communication: polite, official, but brief.
+                    4. If you do not know the exact answer (for example, there is no water), advise you to contact the dispatcher at +380000000000.
+                    """.trimIndent()
+        )
+      }
+    )
   }
-  // 3. Единственный сервис авторизации (теперь он легкий)
-  single(createdAtStart = true) {
+
+  // 4. Репозитории и сервисы
+  // Передаем зависимости напрямую (без Lazy), Koin сам подставит нужные синглтоны
+  single {
     ChatRepository(
-      firestoreLazy = get<Lazy<FirebaseFirestore>>(),
+      firestore = get(),
       realtime = get(),
       storage = get(),
       functions = get(),
-      aiModelLazy = get<Lazy<GenerativeModel>>()
+      aiModel = get()
     )
   }
+
   single<FirebaseService> {
     FirebaseServiceImpl(
       context = androidContext(),
-      auth = get(),
-      dbLazy = get<Lazy<FirebaseFirestore>>() // ЯВНО указываем тип тут!
+      auth = get<FirebaseAuth>(), // Explicitly specify FirebaseAuth
+      db = get<FirebaseFirestore>(),
+      apartmentService = get<ApartmentService>(),
+      chatRepo=get<ChatRepository>()// Explicitly specify Firestore
     )
   }
 
 }
+
 val viewModelsModule = module {
   single { androidApplication() as MainApplication }
 
@@ -321,7 +342,7 @@ val viewModelsModule = module {
   viewModel {
     MeterViewModel(
       waterMeterRepository = get(),
-      heatMeterRepository =  get(),
+      heatMeterRepository = get(),
       logService = get()
     )
   }

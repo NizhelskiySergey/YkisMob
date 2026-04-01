@@ -10,6 +10,8 @@
   <!--      Firebase  -->
   //IDs
   <string name="web_client_id">1062920014188-t49akhe8bi4u07vde9n40bqsfdvcpfj3.apps.googleusercontent.com</string>
+  <string name="google_app_id" translatable="false">1:1062920014188:android:2fd6c70e4349bef4088b49</string>
+
   <!--   Dialogs   -->
   <string name="sign_out_title">Вихід?</string>
   <string name="exit_app">Натисніть ще раз, щоб вийти з програми</string>
@@ -322,4 +324,11 @@
   <string name="verify_email_label">Ми відправили вам лист на пошту</string>
   <string name="verify_email_title">Підтвердження пошти</string>
   <string name="success_delete">Останні показання видаленін</string>
+    <string name="error_incorrect_admin_code">Невірний секретний код</string>
+  <string name="admin_access_granted">Надано адмін доступ</string>
+    <string name="error_admin_auth">помилка авторизації</string>
+  <string name="error_save_uid">користувач не доданий</string>
+  <string name="user_uid_exist">користувач існує</string>
+  <string name="error_add_user">помилка додавання користувача</string>
+  <string name="error_delete_account">помилка видалення облікового запису</string>
 </resources>

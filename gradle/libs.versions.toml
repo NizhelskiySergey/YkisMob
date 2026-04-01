@@ -20,7 +20,7 @@ kotlinx-coroutines-play-services = "1.10.2"
 
 legacy-support-v4 = "1.0.0"
 lifecycle-runtime-ktx = "2.10.0"
-firebase-bom = "34.10.0"
+firebase-bom = "34.11.0"
 google = "4.4.4"
 androidx-navigation-compose = "2.9.7"
 material3-adaptive-navigation-suite = "1.4.0"
@@ -79,9 +79,6 @@ androidx-room-ktx = { group = "androidx.room" ,name = "room-ktx", version.ref = 
 androidx-room-runtime = { group = "androidx.room", name= "room-runtime", version.ref = "room-runtime" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil-compose" }
 coil-gif = { group = "io.coil-kt", name = "coil-gif", version.ref = "coil-compose" }
-converter-gson = { group = "com.squareup.retrofit2" , name = "converter-gson", version.ref = "retrofit" }
-converter-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "retrofit" }
-converter-scalars = { group = "com.squareup.retrofit2", name = "converter-scalars", version.ref = "retrofit" }
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
 
 
@@ -102,7 +99,6 @@ ktor-client-android = { group = "io.ktor", name = "ktor-client-android", version
 ktor-client-plugins = { group = "io.ktor", name = "ktor-client-plugins", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-client-logging = { group = "io.ktor", name = "ktor-client-logging", version.ref = "ktor" }
-ktor-client-okhttp = { module ="io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -129,11 +125,6 @@ firebase-crashlytics-buildtools = { group = "com.google.firebase", name = "fireb
 
 constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
 play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "play-services-auth" }
-retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
-moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshi-kotlin" }
-moshi-kotlin-codegen = { module = "com.squareup.moshi:moshi-kotlin-codegen", version.ref = "moshi-kotlin" }
-okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance-appwidget" }
 androidx-splashscreen={group = "androidx.core" , name = "core-splashscreen" , version.ref ="splashscreen"}
 androidx-room-external-antlr = { group = "androidx.room", name = "room-external-antlr", version.ref = "roomExternalAntlr" }

@@ -1,17 +1,6 @@
 /*
- * Copyright 2022 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2022-2024 The Android Open Source Project
+ * Адаптировано для проекта ykis.mob
  */
 
 package com.ykis.mob.ui.navigation
@@ -22,53 +11,82 @@ import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 
 /**
- * Information about the posture of the device
+ * Описывает физическое состояние устройства (обычное, книга или разделение).
  */
-
 sealed interface DevicePosture {
-    data object NormalPosture : DevicePosture
+  // Обычное состояние (раскрыт полностью или обычный моноблок)
+  data object NormalPosture : DevicePosture
 
-    data class BookPosture(
-        val hingePosition: Rect
-    ) : DevicePosture
+  // Состояние "Книги" (вертикальный сгиб, полуоткрыт)
+  data class BookPosture(
+    val hingePosition: Rect
+  ) : DevicePosture
 
-    data class Separating(
-        val hingePosition: Rect,
-        var orientation: FoldingFeature.Orientation
-    ) : DevicePosture
+  // Состояние разделения (например, Surface Duo, где два экрана физически разделены)
+  data class Separating(
+    val hingePosition: Rect,
+    val orientation: FoldingFeature.Orientation // Изменил на val (неизменяемое)
+  ) : DevicePosture
 }
 
+/**
+ * Проверяет, находится ли устройство в режиме "книги".
+ * Используется экспериментальный контракт, чтобы компилятор понимал: если true, то foldFeature не null.
+ */
 @OptIn(ExperimentalContracts::class)
 fun isBookPosture(foldFeature: FoldingFeature?): Boolean {
-    contract { returns(true) implies (foldFeature != null) }
-    return foldFeature?.state == FoldingFeature.State.HALF_OPENED &&
-        foldFeature.orientation == FoldingFeature.Orientation.VERTICAL
+  contract { returns(true) implies (foldFeature != null) }
+  return foldFeature?.state == FoldingFeature.State.HALF_OPENED &&
+    foldFeature.orientation == FoldingFeature.Orientation.VERTICAL
 }
 
+/**
+ * Проверяет, разделено ли содержимое физическим препятствием (петлей).
+ */
 @OptIn(ExperimentalContracts::class)
 fun isSeparating(foldFeature: FoldingFeature?): Boolean {
-    contract { returns(true) implies (foldFeature != null) }
-    return foldFeature?.state == FoldingFeature.State.FLAT && foldFeature.isSeparating
+  contract { returns(true) implies (foldFeature != null) }
+  return foldFeature?.state == FoldingFeature.State.FLAT && foldFeature.isSeparating
 }
 
 /**
- * Different type of navigation supported by app depending on device size and state.
+ * Типы навигации в зависимости от размера экрана:
+ * - BOTTOM_NAVIGATION: для телефонов (снизу)
+ * - NAVIGATION_RAIL: боковая узкая панель (для планшетов)
+ * - PERMANENT_DRAWER: широкая панель (для десктопов/больших экранов)
  */
 enum class NavigationType {
-    BOTTOM_NAVIGATION, NAVIGATION_RAIL_COMPACT , NAVIGATION_RAIL_EXPANDED
-}
-/**
- * App Content shown depending on device size and state.
- */
-enum class ContentType {
-    SINGLE_PANE, DUAL_PANE
+  BOTTOM_NAVIGATION,
+  NAVIGATION_RAIL_COMPACT,
+  NAVIGATION_RAIL_EXPANDED,
+  PERMANENT_NAVIGATION_DRAWER
 }
 
-enum class ContentDetail {
-    // TODO: remove useles
-    BTI, FAMILY, OSBB, WATER_SERVICE,
-    WARM_SERVICE, GARBAGE_SERVICE,
-    WATER_METER , HEAT_METER
-    , WATER_READINGS , HEAT_READINGS,
-    PAYMENT_LIST , PAYMENT_CHOICE
+/**
+ * ContentType определяет, сколько колонок контента показывать:
+ * - SINGLE_PANE: одна колонка (телефон)
+ * - DUAL_PANE: две колонки (планшет/складной экран)
+ */
+enum class ContentType {
+  SINGLE_PANE, DUAL_PANE
 }
+
+/**
+ * Перечисление разделов приложения для детального отображения контента.
+ */
+enum class ContentDetail {
+  STANDARD_USER,
+  BTI,            // БТИ
+  FAMILY,         // Состав семьи
+  OSBB,           // ОСМД / ОСББ
+  WATER_SERVICE,  // Водоканал
+  WARM_SERVICE,   // Теплосеть
+  GARBAGE_SERVICE,// Вывоз мусора
+  WATER_METER,    // Водомеры (инфо)
+  HEAT_METER,     // Теплосчетчики (инфо)
+  WATER_READINGS, // Показания воды
+  HEAT_READINGS,  // Показания тепла
+  PAYMENT_LIST,   // Список платежей
+  PAYMENT_CHOICE  // Выбор оплаты (исправил CHOICE вместо PAYMENT_CHOICE)
+}
+

@@ -8,27 +8,52 @@ import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
 import com.ykis.mob.domain.apartment.ApartmentRepository
 
-class ApartmentRepositoryImpl (
-    private val apartmentRemote: ApartmentRemote
+class ApartmentRepositoryImpl(
+  private val apartmentRemote: ApartmentRemote
 ) : ApartmentRepository {
 
-    override suspend fun getApartmentList(uid: String): GetApartmentsResponse {
-        return apartmentRemote.getApartmentList(uid)
-    }
+  override suspend fun getApartmentList(uid: String): GetApartmentsResponse {
+    return apartmentRemote.getApartmentList(uid)
+  }
 
-    override suspend fun updateBti(params : ApartmentEntity): BaseResponse {
-        return apartmentRemote.updateBti(params)
-    }
+  override suspend fun updateBti(params: ApartmentEntity): BaseResponse {
+    return apartmentRemote.updateBti(params)
+  }
 
-    override suspend fun getApartment(addressId: Int, uid: String): GetApartmentResponse {
-        return apartmentRemote.getApartment(addressId , uid)
-    }
+  override suspend fun getApartment(addressId: Int, uid: String): GetApartmentResponse {
+    return apartmentRemote.getApartment(addressId, uid)
+  }
 
-    override suspend fun deleteApartment(addressId: Int, uid: String): BaseResponse {
-        return apartmentRemote.deleteApartment(addressId , uid)
-    }
+  override suspend fun deleteApartment(addressId: Int, uid: String): BaseResponse {
+    return apartmentRemote.deleteApartment(addressId, uid)
+  }
 
-    override suspend fun addApartmentUser(code: String ,uid :String , email : String): GetSimpleResponse {
-        return apartmentRemote.addApartment(code , uid , email)
-    }
+  override suspend fun addApartmentUser(
+    code: String,
+    uid: String,
+    email: String
+  ): GetSimpleResponse {
+    return apartmentRemote.addApartment(code, uid, email)
+  }
+
+  override suspend fun verifyAdminSecretWord(
+    code: String,
+    uid: String
+  ): GetSimpleResponse {
+    return apartmentRemote.verifyAdminSecretWord(code, uid)
+  }
+
+  override suspend fun saveUserUid(
+    uid: String,
+    email: String
+  ): GetSimpleResponse {
+    return apartmentRemote.saveUserUid(uid,email)
+  }
+
+  override suspend fun deleteUserAccount(
+    uid: String,
+    email: String
+  ): GetSimpleResponse {
+    return apartmentRemote.deleteUserAccount(uid,email)
+  }
 }

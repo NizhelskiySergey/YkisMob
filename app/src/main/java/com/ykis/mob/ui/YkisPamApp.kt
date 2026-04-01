@@ -10,7 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.window.layout.DisplayFeature
 import androidx.window.layout.FoldingFeature
 import com.ykis.mob.core.snackbar.SnackbarManager
@@ -22,85 +22,98 @@ import com.ykis.mob.ui.navigation.isBookPosture
 import com.ykis.mob.ui.navigation.isSeparating
 import kotlinx.coroutines.CoroutineScope
 
-
+/**
+ * Основной входной компонент UI приложения.
+ * Здесь происходит расчет адаптивной верстки (Adaptive UI).
+ */
 @Composable
 fun YkisPamApp(
-    windowSize: WindowSizeClass,
-    displayFeatures: List<DisplayFeature>,
-
+  windowSize: WindowSizeClass,
+  displayFeatures: List<DisplayFeature>
 ) {
-    val navigationType: NavigationType
-    val contentType: ContentType
-    val foldingFeature = displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull()
+  // Находим складную особенность экрана (если она есть)
+  val foldingFeature = displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull()
 
-    val foldingDevicePosture = when {
-        isBookPosture(foldingFeature) ->
-            DevicePosture.BookPosture(foldingFeature.bounds)
+  // Определяем физическую позу устройства (обычная, книжка или разделение)
+  val foldingDevicePosture = when {
+    isBookPosture(foldingFeature) ->
+      DevicePosture.BookPosture(foldingFeature.bounds)
 
-        isSeparating(foldingFeature) ->
-            DevicePosture.Separating(foldingFeature.bounds, foldingFeature.orientation)
+    isSeparating(foldingFeature) ->
+      DevicePosture.Separating(foldingFeature.bounds, foldingFeature.orientation)
 
-        else -> DevicePosture.NormalPosture
+    else -> DevicePosture.NormalPosture
+  }
+
+  // Решаем, какую навигацию и тип контента показать (Логика выбора)
+  val (navigationType, contentType) = when (windowSize.widthSizeClass) {
+    // 1. Компактные устройства (Обычные телефоны)
+    WindowWidthSizeClass.Compact -> {
+      NavigationType.BOTTOM_NAVIGATION to ContentType.SINGLE_PANE
     }
 
-    when (windowSize.widthSizeClass) {
-        WindowWidthSizeClass.Compact -> {
-            navigationType = NavigationType.BOTTOM_NAVIGATION
-            contentType = ContentType.SINGLE_PANE
-        }
-
-        WindowWidthSizeClass.Medium -> {
-            navigationType = NavigationType.NAVIGATION_RAIL_COMPACT
-            contentType = if (foldingDevicePosture != DevicePosture.NormalPosture) {
-                ContentType.DUAL_PANE
-            } else {
-                ContentType.SINGLE_PANE
-            }
-        }
-
-        WindowWidthSizeClass.Expanded -> {
-            navigationType =
-//                if (foldingDevicePosture is DevicePosture.BookPosture) {
-                NavigationType.NAVIGATION_RAIL_EXPANDED
-//            } else {
-//                NavigationType.PERMANENT_NAVIGATION_DRAWER
-//            }
-            contentType = ContentType.DUAL_PANE
-
-        }
-
-        else -> {
-            navigationType = NavigationType.BOTTOM_NAVIGATION
-            contentType = ContentType.SINGLE_PANE
-        }
+    // 2. Средние устройства (Складные телефоны в развернутом виде или маленькие планшеты)
+    WindowWidthSizeClass.Medium -> {
+      val nav = NavigationType.NAVIGATION_RAIL_COMPACT
+      // Если экран физически разделен (петлей или сгибом), показываем две колонки
+      val content = if (foldingDevicePosture != DevicePosture.NormalPosture) {
+        ContentType.DUAL_PANE
+      } else {
+        ContentType.SINGLE_PANE
+      }
+      nav to content
     }
-    RootNavGraph(
-        modifier = Modifier,
-        contentType = contentType,
-        displayFeatures = displayFeatures,
-        navigationType = navigationType,
-    )
+
+    // 3. Большие устройства (Планшеты, Десктопы)
+    WindowWidthSizeClass.Expanded -> {
+      val nav = if (foldingDevicePosture is DevicePosture.BookPosture) {
+        // Если это большой Fold в режиме книги — используем компактную боковую панель
+        NavigationType.NAVIGATION_RAIL_EXPANDED
+      } else {
+        // На огромных экранах — постоянная широкая боковая панель
+        NavigationType.PERMANENT_NAVIGATION_DRAWER
+      }
+      // На больших экранах всегда две колонки (Dual Pane)
+      nav to ContentType.DUAL_PANE
+    }
+
+    else -> NavigationType.BOTTOM_NAVIGATION to ContentType.SINGLE_PANE
+  }
+
+  // Запускаем основной граф навигации с вычисленными параметрами
+  RootNavGraph(
+    modifier = Modifier,
+    contentType = contentType,
+    displayFeatures = displayFeatures,
+    navigationType = navigationType,
+  )
 }
+
+/**
+ * Создает и запоминает состояние приложения (Snackbar, Coroutines и т.д.).
+ * Помогает "вынести" логику состояния из UI-компонентов.
+ */
 @Composable
 fun rememberAppState(
-    snackbarHostState: SnackbarHostState = SnackbarHostState(),
-    snackbarManager: SnackbarManager = SnackbarManager,
-    resources: Resources = resources(),
-    coroutineScope: CoroutineScope = rememberCoroutineScope(),
-) =
-    remember(snackbarManager, resources, coroutineScope) {
-        YkisPamAppState(
-            snackbarHostState,
-            snackbarManager,
-            resources,
-            coroutineScope
-        )
-    }
+  snackbarHostState: SnackbarHostState = SnackbarHostState(),
+  snackbarManager: SnackbarManager = SnackbarManager,
+  resources: Resources = resources(),
+  coroutineScope: CoroutineScope = rememberCoroutineScope(),
+) = remember(snackbarManager, resources, coroutineScope) {
+  YkisPamAppState(
+    snackbarHostState,
+    snackbarManager,
+    resources,
+    coroutineScope
+  )
+}
 
+/**
+ * Удобный хелпер для получения ресурсов в Composable функциях.
+ */
 @Composable
 @ReadOnlyComposable
 fun resources(): Resources {
-    LocalConfiguration.current
-    return LocalContext.current.resources
+  LocalConfiguration.current // Подписка на изменения конфигурации (повороты, язык)
+  return LocalResources.current
 }
-

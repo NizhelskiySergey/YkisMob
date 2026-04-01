@@ -60,8 +60,9 @@ fun UserListItem(
   lastMessage : MessageEntity
 ) {
   LaunchedEffect(key1 = lastMessage) {
-    Log.d("time_test" , lastMessage.timestamp.toString())
+    Log.d("YkisMob", "UserListItem: ${{lastMessage.timestamp.toString()}}")
   }
+
   Column(
     modifier = modifier.clickable {
       onUserClick(it)

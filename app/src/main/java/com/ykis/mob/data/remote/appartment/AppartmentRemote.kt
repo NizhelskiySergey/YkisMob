@@ -10,4 +10,7 @@ interface ApartmentRemote {
     suspend fun getApartment(addressId: Int , uid:String) : GetApartmentResponse
     suspend fun deleteApartment(addressId :Int , uid:String) : BaseResponse
     suspend fun addApartment(code:String , uid:String ,  email:String):GetSimpleResponse
+    suspend fun verifyAdminSecretWord(code:String , uid:String ):GetSimpleResponse
+    suspend fun saveUserUid(uid:String , email: String ):GetSimpleResponse
+    suspend fun deleteUserAccount(uid:String , email: String ):GetSimpleResponse
 }
