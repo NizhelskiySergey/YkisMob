@@ -10,6 +10,7 @@ import com.ykis.mob.firebase.entity.UserFirebase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import okhttp3.Address
 
 typealias SignOutResponse = Resource<Boolean>
 typealias RevokeAccessResponse = Resource<Boolean>
@@ -74,8 +75,10 @@ interface FirebaseService {
 
   suspend fun updateUserRoleAndPermissions(
     uid: String,
-    userRole: String,
-    osbbId: Int?
+    addressId:Int?,
+    userRole: UserRole,
+    osbbId: Int?,
+    displayName: String?=null
   )
 
   suspend fun getUid(): String

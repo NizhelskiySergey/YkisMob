@@ -25,7 +25,7 @@ data class BaseUIState(
   val addressNumber: String? = null,
 
   // Данные для админов предприятий (OSBB/ОСМД)
-  val osbbId: Int? = null, // ID одного из 4-х предприятий
+  val osbbId: Int =0, // ID одного из 4-х предприятий
   val osmdId: Int = 0,      // Для совместимости со старыми ключами
   val houseId: Int = 0,
   val osbb: String = "",

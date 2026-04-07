@@ -1,7 +1,9 @@
 package com.ykis.mob.firebase.service.impl
 
 import android.util.Log
+import com.google.firebase.Firebase
 import com.google.firebase.ai.GenerativeModel
+import com.google.firebase.auth.auth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
@@ -10,13 +12,17 @@ import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
+import com.ykis.mob.firebase.entity.UserFirebase
+import com.ykis.mob.firebase.entity.toEntity
 import com.ykis.mob.ui.screens.chat.MessageEntity
 import com.ykis.mob.ui.screens.chat.UserEntity
 import com.ykis.mob.ui.screens.chat.mapToUserEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import kotlin.Lazy
 
@@ -28,7 +34,8 @@ class ChatRepository (
   val aiModel: GenerativeModel,
 ) {
 //  private val realtime: FirebaseDatabase by realtimeLazy
-
+val currentUid: String?
+  get() = Firebase.auth.currentUser?.uid
 
   suspend fun fetchUsersByIds(ids: List<String>): List<UserEntity> {
     if (ids.isEmpty()) return emptyList()
@@ -69,6 +76,23 @@ class ChatRepository (
     // Важно для Kotzilla: предотвращаем утечки памяти, удаляя слушатель
     awaitClose { reference.removeEventListener(listener) }
   }
+  // В твоем репозитории
+  suspend fun fetchAdminsByOsbb(osbbId: Int): List<UserEntity> = withContext(Dispatchers.IO) {
+    try {
+      // Запрос в коллекцию "users"
+      val snapshot = firestore.collection("users")
+        .whereEqualTo("osbbId", osbbId)
+        .whereIn("userRole", listOf("OsbbUser", "VodokanalUser", "YtkeUser", "TboUser"))
+        .get()
+        .await()
+
+      snapshot.toObjects(UserFirebase::class.java).map { it.toEntity() }
+    } catch (e: Exception) {
+      Log.e("YkisLog", "Error fetching admins for OSBB $osbbId: ${e.message}")
+      emptyList()
+    }
+  }
+
   suspend fun uploadChatImage(imageData: ByteArray, chatId: String): String {
     val fileName = "${System.currentTimeMillis()}_image.jpg"
     val photoRef = storage.reference

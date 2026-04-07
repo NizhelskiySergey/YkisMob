@@ -189,6 +189,3 @@ fun FamilyListItem(
     }
   }
 }
-
-
-

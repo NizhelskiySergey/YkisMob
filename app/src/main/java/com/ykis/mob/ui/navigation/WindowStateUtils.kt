@@ -74,6 +74,7 @@ enum class ContentType {
 /**
  * Перечисление разделов приложения для детального отображения контента.
  */
+
 enum class ContentDetail {
   STANDARD_USER,
   BTI,            // БТИ

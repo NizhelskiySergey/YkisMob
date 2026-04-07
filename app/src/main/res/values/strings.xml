@@ -331,4 +331,6 @@
   <string name="user_uid_exist">користувач існує</string>
   <string name="error_add_user">помилка додавання користувача</string>
   <string name="error_delete_account">помилка видалення облікового запису</string>
+  <string name="error_invalid_admin_code">код адміна не вірний</string>
+  <string name="my_osbb">мій ОСББ</string>
 </resources>

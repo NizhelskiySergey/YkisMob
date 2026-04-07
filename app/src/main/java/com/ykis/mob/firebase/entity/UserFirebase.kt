@@ -17,23 +17,57 @@ limitations under the License.
 package com.ykis.mob.firebase.entity
 
 import com.ykis.mob.domain.UserRole
-
+import com.ykis.mob.ui.screens.chat.UserEntity
 /**
  * Модель данных пользователя, полученная из Firebase Auth и Firestore.
  */
 data class UserFirebase(
-  val uid: String,
-  val email: String,
+  val uid: String = "",
+  val email: String = "",
   val isEmailVerification: Boolean = false,
   val provider: String? = null,
-  val name: String? = null,
+  val name: String? = null,        // Сюда приходит "Адрес | Фамилия" или Nickname
   val phone: String? = null,
+  val photoUrl: String? = null,    // Добавили поле для фото
 
-  // --- Поля для управления доступом (YkisPam) ---
-  // Роль из Firestore: STANDARD_USER, OSBB, WATER_SERVICE и т.д.
-  val userRole: UserRole = UserRole.StandardUser,
+  // --- Поля для управления доступом ---
+  val userRole: String = "StandardUser", // В Firestore обычно хранится как String
 
-  // ID организации (обязателен для роли OSBB, для остальных может быть 0 или null)
-  val osbbId: Int? = 0
+  // ID организации (ОСББ)
+  val osbbId: Int = 0,
+
+  // ID конкретной квартиры
+  val addressId: Int = 0,
+
+  // СПИСОК ТОКЕНОВ ДЛЯ ПУШЕЙ (Критично для работы нескольких админов)
+  val fcmTokens: List<String>? = emptyList()
 )
+
+/**
+ * Маппер из Firebase-модели в Entity-модель для UI
+ */
+/**
+ * Маппер из Firebase-модели в Entity-модель для UI
+ */
+fun UserFirebase.toEntity(): UserEntity {
+  return UserEntity(
+    uid = this.uid,
+    // ИСПРАВЛЕНО: Убрали обращение к несуществующему displayName в UserFirebase
+    // Используем name, а если он null — email
+    displayName = this.name ?: this.email,
+    photoUrl = this.photoUrl,
+    // Преобразуем строку "OsbbUser" в Enum UserRole.OsbbUser
+    userRole = UserRole.entries.find { it.name == this.userRole } ?: UserRole.StandardUser,
+    email = this.email,
+    address = this.name ?: "",
+    osbbId = this.osbbId,
+    addressId = this.addressId,
+    // Мапим fcmTokens из БД в tokens в Entity
+    tokens = this.fcmTokens ?: emptyList()
+  )
+}
+
+
+
+
 

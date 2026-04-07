@@ -24,7 +24,7 @@ fun ApartmentList(
     onClick : (Int) ->Unit
 ) {
     LaunchedEffect(apartmentList) {
-        Log.d("fe_error", apartmentList.toString())
+        Log.d("YkisLog", apartmentList.toString())
     }
     LazyColumn(
         modifier = modifier

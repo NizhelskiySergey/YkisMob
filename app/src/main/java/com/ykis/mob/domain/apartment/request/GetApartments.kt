@@ -42,7 +42,7 @@ class GetApartmentList (
       addressIdList.clear()
       emit(Resource.Success(response.apartments))
 
-    } catch (e: HttpException) {
+    } catch (e: Exception) {
       emit(Resource.Error(e.localizedMessage ?: "Unexpected error!"))
     } catch (e: Exception) {
       val apartmentList = database.apartmentDao().getApartmentList()

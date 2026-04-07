@@ -13,27 +13,27 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
 class FamilyListViewModel (
-    private val getFamilyList: GetFamilyList,
-    private val logService: LogService,
+  private val getFamilyList: GetFamilyList,
+  private val logService: LogService,
 ) : BaseViewModel(logService) {
 
-    private val _state = MutableStateFlow(FamilyState())
-    val state : StateFlow<FamilyState> = _state.asStateFlow()
+  private val _state = MutableStateFlow(FamilyState())
+  val state : StateFlow<FamilyState> = _state.asStateFlow()
 
-    fun getFamilyList(uid:String, addressId:Int) {
-        this.getFamilyList(FamilyParams(uid , addressId)).onEach {
-                result->
-            when(result){
-                is Resource.Success -> {
-                    this._state.value = FamilyState(familyList = result.data ?: emptyList() , isLoading = false)
-                }
-                is Resource.Error -> {
-                    this._state.value = FamilyState(error = result.message ?: "Unexpected error!")
-                }
-                is Resource.Loading -> {
-                    this._state.value = FamilyState(isLoading = true)
-                }
-            }
-        }.launchIn(this.viewModelScope)
-    }
+  fun getFamilyList(uid:String, addressId:Int) {
+    this.getFamilyList(FamilyParams(uid , addressId)).onEach {
+        result->
+      when(result){
+        is Resource.Success -> {
+          this._state.value = FamilyState(familyList = result.data ?: emptyList() , isLoading = false)
+        }
+        is Resource.Error -> {
+          this._state.value = FamilyState(error = result.message ?: "Unexpected error!")
+        }
+        is Resource.Loading -> {
+          this._state.value = FamilyState(isLoading = true)
+        }
+      }
+    }.launchIn(this.viewModelScope)
+  }
 }

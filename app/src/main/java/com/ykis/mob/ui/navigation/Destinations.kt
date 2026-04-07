@@ -55,69 +55,65 @@ object UserListScreen : Destination {
     override val route: String
         get() = "UserListScreen"
 }
-object SendImageScreen : Destination {
+object SendImageScreenDest : Destination {
     override val route: String
         get() = "SendImageScreen"
 }
-object CameraScreen : Destination {
+object CameraScreenDest : Destination {
     override val route: String
         get() = "CameraScreen"
 }
-object ImageDetailScreen : Destination {
+object ImageDetailScreenDest : Destination {
     override val route: String
         get() = "ImageDetailScreen"
 }
-//object ChatServicesListScreen : Destination {
-//    override val route: String
-//        get() = "ChatServicesListScreen"
-//}
 
-object ChatScreen : Destination {
+object ChatScreenDest : Destination {
     override val route: String
         get() = "ChatScreen"
 }
-object ProfileScreen : Destination {
+object ProfileScreenDest : Destination {
     override val route: String
         get() = "ProfileScreen"
 
 }
-object SettingsScreen : Destination {
+object SettingsScreenDest : Destination {
     override val route: String
         get() = "SettingsScreen"
 
 }
-object ApartmentScreen : Destination {
-    override val route: String
-        get() = "ApartmentScreen"
-    const val addressIdArg = "address_id"
-
-    val routeWithArgs = "$route/{$addressIdArg}"
-
-    val arguments = listOf(
-        navArgument(addressIdArg) {
-            type = NavType.IntType
-            defaultValue = 0
-        }
-    )
-
-}
-object BtiScreen : Destination{
+//object ApartmentScreenDest : Destination {
+//    override val route: String
+//        get() = "ApartmentScreen"
+//    const val addressIdArg = "address_id"
+//
+//    val routeWithArgs = "$route/{$addressIdArg}"
+//
+//    val arguments = listOf(
+//        navArgument(addressIdArg) {
+//            type = NavType.IntType
+//            defaultValue = 0
+//        }
+//    )
+//
+//}
+object BtiScreenDest : Destination{
     override val route: String
         get() = "BtiScreen"
 
 }
-object FamilyScreen : Destination{
+object FamilyScreenDest : Destination{
     override val route: String
         get() = "FamilyScreen"
 
 }
-object InfoApartmentScreen : Destination{
+object InfoApartmentScreenDest : Destination{
     override val route: String
         get() = "InfoApartmentScreen"
     const val addressIdArg = "address_id"
 }
 
-object WebViewScreen : Destination {
+object WebViewScreenDest : Destination {
     override val route: String
         get() = "WebViewScreen"
     const val link = "link"

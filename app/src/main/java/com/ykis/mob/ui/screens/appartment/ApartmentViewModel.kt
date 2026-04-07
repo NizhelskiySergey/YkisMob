@@ -23,21 +23,20 @@ import com.ykis.mob.core.Resource
 import com.ykis.mob.core.ext.isValidEmail
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.remote.GetSimpleResponse
-import com.ykis.mob.data.remote.core.NetworkHandler
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.domain.UserRole.Companion.fromString
 import com.ykis.mob.domain.apartment.ApartmentEntity
-import com.ykis.mob.domain.apartment.request.AddApartment
-import com.ykis.mob.domain.apartment.request.DeleteApartment
-import com.ykis.mob.domain.apartment.request.GetApartment
-import com.ykis.mob.domain.apartment.request.GetApartmentList
-import com.ykis.mob.domain.apartment.request.UpdateBti
 import com.ykis.mob.firebase.service.repo.AuthStateResponse
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.firebase.service.repo.LogService
 import com.ykis.mob.ui.BaseViewModel
+import com.ykis.mob.ui.navigation.AddApartmentScreen
 import com.ykis.mob.ui.navigation.Graph
+import com.ykis.mob.ui.navigation.InfoApartmentScreenDest
 import com.ykis.mob.ui.screens.bti.ContactUIState
+import com.ykis.mob.ui.screens.chat.ChatViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,6 +49,7 @@ import kotlinx.coroutines.withContext
 class ApartmentViewModel(
   private val firebaseService: FirebaseService,
   private val apartmentService: ApartmentService,
+  private val chatViewModel: ChatViewModel,
   private val logService: LogService
 
 ) : BaseViewModel(logService) {
@@ -90,47 +90,93 @@ class ApartmentViewModel(
       Graph.AUTHENTICATION
     }
   }
-
-
   /**
    * Инициализирует профиль пользователя при старте приложения.
    * Загружает роль, ID организации и список квартир (для жильцов).
    */
   fun observeUserProfile() {
     viewModelScope.launch {
-      Log.d("YkisLog", "ApartmentViewModel observeUserProfile() Loading user profile...")
+      val methodName = "ApartmentViewModel.observeUserProfile()"
+      Log.d("YkisLog", "$methodName: [START] Loading user profile...")
 
-      // 1. Делаем ОДИН запрос к Firebase (Auth + Firestore)
       val user = withContext(Dispatchers.IO) {
         firebaseService.getUserProfile()
       }
 
-      // 2. Обновляем глобальный стейт атомарно
+      // 1. Первичное обновление стейта
       _uiState.update { currentState ->
         currentState.copy(
           uid = user.uid,
-          email = user.email,
-          displayName = user.name,
-          userRole = user.userRole,
+          userRole = fromString(user.userRole), // Здесь Enum (для UI)
           osbbId = user.osbbId,
-
-          // Автоматизация: Админов сразу переключаем на их чат (ContentDetail)
-          selectedContentDetail = if (user.userRole != UserRole.StandardUser) {
-            user.userRole.codeName
-          } else {
-            currentState.selectedContentDetail
-          },
-
-          // Скрываем начальный лоадер приложения
-          mainLoading = false
+          displayName = user.name ?: "",
+          mainLoading = (fromString(user.userRole) == UserRole.StandardUser)
         )
       }
 
-      Log.d("YkisLog", "ApartmentViewModel observeUserProfile() Role loaded: ${user.userRole.name}, OSBB_ID: ${user.osbbId}")
+      Log.d("YkisLog", "$methodName: Profile loaded. Role: ${user.userRole}, Name: ${user.name}, OSBB: ${user.osbbId}")
 
-      // 3. Если это жилец — подгружаем список его квартир из PHP бэкенда
-      if (user.userRole == UserRole.StandardUser) {
-        getApartmentList()
+      // --- ЛОГИКА ДЛЯ ЖИЛЬЦА ---
+      if (user.userRole == UserRole.StandardUser.name) {
+        getApartmentList {
+          val currentList = _uiState.value.apartments
+          if (currentList.isNotEmpty()) {
+            val first = currentList.first()
+            val newOsbbId = first.osmdId
+            val newAddressId = first.addressId
+            val combinedName = "${first.address} | ${first.nanim ?: ""}"
+
+            // 2. Обновляем данные квартиры в стейте
+            _uiState.update { currentState ->
+              currentState.copy(
+                addressId = newAddressId,
+                osbbId = newOsbbId,
+                osmdId = newOsbbId,
+                address = first.address,
+                displayName = combinedName,
+                apartment = first,
+                mainLoading = false
+              )
+            }
+
+            // 3. ЗАПУСК СЧЕТЧИКОВ И СБОРА ТОКЕНОВ АДМИНОВ
+            Log.d("YkisLog", "$methodName: [ACTION] Starting counters for resident ${user.uid}")
+            chatViewModel.subscribeToResidentCounters(
+              uid = user.uid,
+              osbbId = newOsbbId,
+              addressId = newAddressId
+            )
+
+            // 4. СИНХРОНИЗИРУЕМ FIRESTORE
+            if (user.osbbId != newOsbbId || user.name != combinedName) {
+              viewModelScope.launch(Dispatchers.IO) {
+                try {
+                  Log.d("YkisLog", "$methodName: [SYNC] Sending to Firestore: Role=${fromString(user.userRole)}, Name=$combinedName")
+
+                  firebaseService.updateUserRoleAndPermissions(
+                    uid = user.uid,
+                    addressId = newAddressId,
+                    // ИСПРАВЛЕНО: Приводим Enum к String через .name
+                    userRole = fromString(user.userRole),
+                    osbbId = newOsbbId,
+                    displayName = combinedName
+                  )
+                  Log.d("YkisLog", "$methodName: [SUCCESS] Firestore sync completed")
+                } catch (e: Exception) {
+                  Log.e("YkisLog", "$methodName: [ERROR] Firestore sync failed: ${e.message}")
+                }
+              }
+            }
+          } else {
+            Log.w("YkisLog", "$methodName: Apartment list empty")
+            _uiState.update { it.copy(mainLoading = false) }
+          }
+        }
+      } else {
+        // --- ЛОГИКА ДЛЯ АДМИНА ---
+        Log.d("YkisLog", "$methodName: [ADMIN_MODE] Subscribing admin to OSBB ${user.osbbId} chats")
+        chatViewModel.trackUserIdentifiersWithRole(fromString(user.userRole), user.osbbId)
+        _uiState.update { it.copy(mainLoading = false) }
       }
     }
   }
@@ -142,11 +188,11 @@ class ApartmentViewModel(
   fun onSecretCodeChange(newValue: String) {
     _secretCode.value = newValue
   }
-
   fun addApartment(restartApp: () -> Unit) {
+
     val input = secretCode.value.trim()
     if (input.isEmpty()) return
-
+    Log.d("YkisLog", "ApartmentViewModel.addApartment ()Button clicked, secret_code: $input")
     val uid = firebaseService.uid ?: return
     val email = firebaseService.email ?: ""
 
@@ -154,7 +200,7 @@ class ApartmentViewModel(
     if (input.all { it.isDigit() }) {
       // --- ЛОГИКА ЖИЛЬЦА (Твой текущий код) ---
       apartmentService.addApartment(input, uid, email).onEach { result ->
-        handleApartmentResult(result, restartApp)
+        handleApartmentResult(uid,result, restartApp)
       }.launchIn(viewModelScope)
     } else {
       // --- ЛОГИКА АДМИНА (Новая) ---
@@ -166,47 +212,89 @@ class ApartmentViewModel(
   /**
    * Обработка результата добавления квартиры для ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ (Жильца)
    */
-  private fun handleApartmentResult(
+  private suspend fun handleApartmentResult(
+    uid: String,
     result: Resource<GetSimpleResponse>,
     restartApp: () -> Unit
   ) {
+    val methodName = "ApartmentViewModel.handleApartmentResult()"
+
     when (result) {
       is Resource.Success -> {
-        // 1. Извлекаем адрес из ответа (предположим, success == 1 пришел из UseCase)
-        val newAddressId = result.data?.addressId ?: 0
+        val data = result.data ?: return
+        val newAddressId = data.addressId ?: 0
+        val newOsbbId = data.osbbId ?: 0
+        val newAddress = data.address ?: ""
 
-        // 2. Обновляем локальный стейт текущим ID квартиры
-        _uiState.update { currentState ->
-          currentState.copy(
+        Log.d("YkisLog", "$methodName: [SUCCESS] Начинаем привязку квартиры: $newAddress (ID: $newAddressId)")
+
+        try {
+          // 1. СИНХРОНИЗАЦИЯ С FIREBASE (Передаем роль как String)
+          Log.d("YkisLog", "$methodName: [STEP 1] Запись в Firestore. Роль: ${UserRole.StandardUser.name}")
+          firebaseService.updateUserRoleAndPermissions(
+            uid = uid,
             addressId = newAddressId,
-            // Принудительно подтверждаем роль, если она была неопределена
-            userRole = UserRole.StandardUser
+            userRole = UserRole.StandardUser, // ПЕРЕДАЕМ СТРОКУ
+            osbbId = newOsbbId,
+            displayName = newAddress
           )
-        }
 
-        // 3. Обновляем список всех квартир пользователя (чтобы подтянулись детали)
-        // После загрузки списка выполняем финальный переход/рестарт
-        getApartmentList {
-          setAddressId(newAddressId) // Устанавливаем активную квартиру
+          // 2. ОБНОВЛЕНИЕ ЛОКАЛЬНОГО UI STATE
+          Log.d("YkisLog", "$methodName: [STEP 2] Обновление локального UI State")
+          _uiState.update { currentState ->
+            currentState.copy(
+              addressId = newAddressId,
+              osmdId = newOsbbId,
+              osbbId = newOsbbId,
+              address = newAddress,
+              userRole = UserRole.StandardUser, // Здесь Enum
+              mainLoading = false,
+              apartmentLoading = false
+            )
+          }
 
-          _secretCode.value = "" // Очищаем ввод только после успеха
-          SnackbarManager.showMessage(R.string.success_add_flat)
+          // 3. ПОЛУЧЕНИЕ СПИСКА И ПОДПИСКА НА ЧАТЫ
+          getApartmentList {
+            Log.d("YkisLog", "$methodName: [STEP 3] Список квартир обновлен. Запуск счетчиков чатов.")
 
-          restartApp() // Вызываем колбэк навигации
+            // Активируем Badge для новой квартиры
+            chatViewModel.subscribeToResidentCounters(
+              uid = uid,
+              osbbId = newOsbbId,
+              addressId = newAddressId
+            )
+
+            _secretCode.value = ""
+            SnackbarManager.showMessage(R.string.success_add_flat)
+
+            viewModelScope.launch {
+              Log.d("YkisLog", "$methodName: [FINISH] Перезапуск приложения через 100мс")
+              delay(100)
+              restartApp()
+            }
+          }
+
+        } catch (e: Exception) {
+          Log.e("YkisLog", "$methodName: [CRITICAL ERROR] Ошибка при синхронизации: ${e.message}", e)
+          SnackbarManager.showMessage(R.string.error_add_apartment)
+          _uiState.update { it.copy(mainLoading = false) }
         }
       }
 
       is Resource.Error -> {
-        // Выводим ошибку (IncorrectCode, FlatAlreadyInDB и т.д.)
+        Log.e("YkisLog", "$methodName: [API ERROR] ${result.resourceMessage}")
+        _uiState.update { it.copy(mainLoading = false) }
         SnackbarManager.showMessage(result.resourceMessage ?: R.string.error_add_apartment)
       }
 
       is Resource.Loading -> {
-        // Здесь можно включить индикатор загрузки в UI через State
-        // _uiState.update { it.copy(isGlobalLoading = true) }
+        Log.d("YkisLog", "$methodName: [LOADING] Обработка запроса...")
+        _uiState.update { it.copy(mainLoading = true) }
       }
     }
   }
+
+
 
   /**
    * Обработка ответа для АДМИНА
@@ -216,46 +304,78 @@ class ApartmentViewModel(
    * Вызывается, если введенный код содержал буквы.
    */
   private fun handleAdminResult(result: Resource<GetSimpleResponse>, restartApp: () -> Unit) {
-    if (result is Resource.Success) {
-      val data = result.data ?: return
-      val currentUid = firebaseService.uid
-      if (currentUid.isEmpty()) return
+    val methodName = "ApartmentViewModel.handleAdminResult()"
 
-      viewModelScope.launch {
-        try {
-          // 1. Сохраняем в Firestore (используем пришедшие из базы значения)
-          firebaseService.updateUserRoleAndPermissions(
-            uid = currentUid,
-            userRole = data.userRole ?: "STANDARD_USER",
-            osbbId = data.osbbId
-          )
-
-          // 2. Обновляем локальный UI State
-          _uiState.update { currentState ->
-            val newRole = UserRole.fromString(data.userRole)
-            currentState.copy(
-              userRole = newRole,
-              osbbId = data.osbbId,
-              selectedContentDetail = newRole.codeName,
-              showDetail = true
-            )
-          }
-
-          _secretCode.value = ""
-          SnackbarManager.showMessage(R.string.admin_access_granted)
-
-          // Перезагружаем приложение для смены графа
-          restartApp()
-
-        } catch (e: Exception) {
-          logService.logNonFatalCrash(e)
-          SnackbarManager.showMessage(R.string.error_admin_auth)
+    when (result) {
+      is Resource.Success -> {
+        val data = result.data ?: return
+        val currentUid = firebaseService.uid ?: ""
+        if (currentUid.isEmpty()) {
+          Log.e("YkisLog", "$methodName ERROR: Firebase UID is empty")
+          return
         }
+
+        val mappedRole = UserRole.fromString(data.userRole)
+        val newOsbbId = data.osbbId
+
+        // ПРЕДОХРАНИТЕЛЬ: Если роль и подразделение уже те же — просто переходим
+        if (_uiState.value.userRole == mappedRole && _uiState.value.osbbId == newOsbbId) {
+          Log.d("YkisLog", "$methodName: Role already synced. Navigating...")
+          restartApp()
+          return
+        }
+
+        viewModelScope.launch {
+          try {
+            Log.d("YkisLog", "$methodName SUCCESS: MappedRole=${mappedRole.name}, OSBB_ID=$newOsbbId")
+
+            // 2. В Firestore записываем данные (для админа адрес всегда null)
+            firebaseService.updateUserRoleAndPermissions(
+              uid = currentUid,
+              addressId = 0,
+              userRole = mappedRole,
+              osbbId = newOsbbId,
+              displayName = null // ГАРАНТИРУЕМ отсутствие адреса для админа
+            )
+
+            // 3. Обновляем локальный стейт
+            _uiState.update { currentState ->
+              currentState.copy(
+                userRole = mappedRole,
+                osbbId = newOsbbId,
+                osmdId = newOsbbId,
+                addressId = 0,
+                address = "", // Очищаем старый адрес жильца, если он был
+                selectedContentDetail = mappedRole.codeName,
+                mainLoading = false
+              )
+            }
+
+            _secretCode.value = ""
+            Log.d("YkisLog", "$methodName: State updated, navigating to first screen.")
+
+            // Даем небольшую задержку, чтобы Firestore успел прописать права
+            // и NavHost не "захлебнулся" при пересоздании экрана
+            delay(150)
+            restartApp()
+
+          } catch (e: Exception) {
+            Log.e("YkisLog", "$methodName CRASH: ${e.message}")
+            _uiState.update { it.copy(mainLoading = false) }
+            SnackbarManager.showMessage(R.string.error_admin_auth)
+          }
+        }
+      }
+      is Resource.Error -> {
+        Log.w("YkisLog", "$methodName ERROR: ${result.message}")
+        _uiState.update { it.copy(mainLoading = false) }
+        SnackbarManager.showMessage(result.resourceMessage ?: R.string.error_invalid_admin_code)
+      }
+      is Resource.Loading -> {
+        _uiState.update { it.copy(mainLoading = true) }
       }
     }
   }
-
-
 
 
 
@@ -268,15 +388,12 @@ class ApartmentViewModel(
       address = _uiState.value.address
     )
   }
-
   fun onEmailChange(newValue: String) {
     _contactUiState.value = _contactUiState.value.copy(email = newValue)
   }
-
   fun onPhoneChange(newValue: String) {
     _contactUiState.value = _contactUiState.value.copy(phone = newValue)
   }
-
   fun onUpdateBti(uid: String) {
     // 1. Валидация (остается во ViewModel)
     if (!email.isValidEmail() && email.isNotEmpty()) {
@@ -308,109 +425,139 @@ class ApartmentViewModel(
       }
     }.launchIn(viewModelScope)
   }
-
-
   fun getApartment(addressId: Int = uiState.value.addressId) {
-    // Вызов через сервис-фасад (убираем прямую зависимость от UseCase GetApartment)
-    apartmentService.getApartment(addressId = addressId, uid = uid ?: "").onEach { result ->
+    // 1. ПРОВЕРКА: Если мы уже загрузили этот ID и не находимся в процессе загрузки - выходим
+    if (addressId == uiState.value.apartment.addressId && !uiState.value.apartmentLoading) {
+      return
+    }
+
+    if (addressId <= 0) return
+
+    val currentUid = uid ?: ""
+
+    apartmentService.getApartment(addressId = addressId, uid = currentUid).onEach { result ->
       when (result) {
         is Resource.Success -> {
-          Log.d("debug_test1", "success")
           val data = result.data ?: ApartmentEntity()
+          Log.d("YkisLog", "ApartmentViewModel.getApartment($addressId) -> SUCCESS")
 
-          // Обновляем основной стейт
-          _uiState.value = _uiState.value.copy(
-            apartment = data,
-            addressId = data.addressId,
-            address = data.address,
-            houseId = data.houseId,
-            osmdId = data.osmdId,
-            osbb = data.osbb.toString(),
-            apartmentLoading = false,
-          )
+          // 2. АТОМАРНОЕ ОБНОВЛЕНИЕ ЧЕРЕЗ update
+          _uiState.update { currentState ->
+            currentState.copy(
+              apartment = data,
+              addressId = data.addressId,
+              address = data.address,
+              houseId = data.houseId,
+              osmdId = data.osmdId,
+              osbbId = data.osmdId, // Синхронизируем наш новый ключ
+              osbb = data.osbb.toString(),
+              apartmentLoading = false,
+            )
+          }
 
           // Синхронизируем стейт контактов
-          _contactUiState.value = _contactUiState.value.copy(
-            addressId = data.addressId,
-            email = data.email,
-            phone = data.phone,
-            address = data.address
-          )
+          _contactUiState.update { currentContact ->
+            currentContact.copy(
+              addressId = data.addressId,
+              email = data.email,
+              phone = data.phone,
+              address = data.address
+            )
+          }
         }
 
         is Resource.Error -> {
-          Log.d("debug_test1", "error")
-          _uiState.value = _uiState.value.copy(
+          Log.e("YkisLog", "ApartmentViewModel.getApartment($addressId) -> ERROR: ${result.message}")
+          _uiState.update { it.copy(
             error = result.message ?: "Unexpected error!",
             apartmentLoading = false
-          )
+          )}
         }
 
         is Resource.Loading -> {
-          Log.d("debug_test1", "loading")
-          _uiState.value = _uiState.value.copy(
-            apartmentLoading = true
-          )
+          Log.d("YkisLog", "ApartmentViewModel.getApartment($addressId) -> LOADING")
+          _uiState.update { it.copy(apartmentLoading = true) }
         }
       }
     }.launchIn(this.viewModelScope)
   }
 
+
   fun getApartmentList(onSuccess: () -> Unit = {}) {
-    val currentUid = firebaseService.uid
+    val currentUid = firebaseService.uid ?: ""
     if (currentUid.isEmpty()) return
 
-    // Вызов через сервис-фасад (вместо прямой зависимости от GetApartmentList)
     apartmentService.getApartmentList(currentUid).onEach { result ->
       _uiState.update { state ->
         when (result) {
-          is Resource.Success -> state.copy(
-            apartments = result.data ?: emptyList(),
-            mainLoading = false
-          )
-          is Resource.Error -> state.copy(
-            error = result.message ?: "Error",
-            mainLoading = false
-          )
+          is Resource.Success -> {
+            val newList = result.data ?: emptyList()
+            // Если сейчас ничего не выбрано (ID=0), берем данные первой квартиры
+            if (state.addressId == 0 && newList.isNotEmpty()) {
+              val first = newList.first()
+              state.copy(
+                apartments = newList,
+                addressId = first.addressId,
+                address = first.address,
+                osbb = first.osbb.toString(), // Оживляем кнопку ОСББ
+                osbbId = first.osmdId,
+                apartment = first,
+                mainLoading = false
+              )
+            } else {
+              // Если ID уже есть, просто обновляем список (твой старый код)
+              state.copy(
+                apartments = newList,
+                mainLoading = false
+              )
+            }
+          }
+          is Resource.Error -> state.copy(error = result.message ?: "Error", mainLoading = false)
           is Resource.Loading -> state.copy(mainLoading = true)
         }
       }
-      // Выполняем onSuccess только при успешном получении данных
       if (result is Resource.Success) onSuccess()
     }.launchIn(viewModelScope)
   }
 
 
-  fun deleteApartment() {
-    // Вызов через сервис-фасад (убираем прямую зависимость от UseCase DeleteApartment)
+  fun deleteApartment(onNavigate: (String) -> Unit) {
+    val currentAddressId = _uiState.value.addressId
+    val currentUid = firebaseService.uid ?: ""
+
     apartmentService.deleteApartment(
-      addressId = uiState.value.addressId,
-      uid = uid ?: ""
+      addressId = currentAddressId,
+      uid = currentUid
     ).onEach { result ->
       when (result) {
         is Resource.Success -> {
           SnackbarManager.showMessage(R.string.success_delete_flat)
-          // После успешного удаления обновляем список
-          getApartmentList(
-            onSuccess = {
-              _uiState.update { currentState ->
-                currentState.copy(
-                  mainLoading = false,
-                  addressId = 0
-                )
-              }
+
+          // 1. Обновляем список квартир из сети
+          getApartmentList {
+            val updatedList = _uiState.value.apartments
+
+            if (updatedList.isEmpty()) {
+              // 2. Квартир нет — сбрасываем стейт и уходим на AddApartment
+              _uiState.update { it.copy(
+                addressId = 0,
+                address = "",
+                apartment = ApartmentEntity()
+              ) }
+              onNavigate(AddApartmentScreen.route)
+            } else {
+              // 3. Квартиры остались — выбираем первую из списка.
+              // Мы НЕ вызываем onNavigate, чтобы не пересоздавать экран и не ломать Drawer.
+              // Экран обновится сам, так как setAddressId изменит UIState.
+              val nextApartment = updatedList.first()
+              setAddressId(nextApartment.addressId)
             }
-          )
+          }
         }
 
         is Resource.Error -> {
-          _uiState.update { currentState ->
-            currentState.copy(
-              error = result.message ?: "Unexpected error!",
-              mainLoading = false
-            )
-          }
-          SnackbarManager.showMessage(result.resourceMessage)
+          _uiState.update { it.copy(mainLoading = false) }
+          SnackbarManager.showMessage(result.resourceMessage ?: R.string.error_delete_flat)
         }
 
         is Resource.Loading -> {
@@ -419,13 +566,47 @@ class ApartmentViewModel(
       }
     }.launchIn(this.viewModelScope)
   }
+  fun setAddressId(id: Int) {
+    val selected = _uiState.value.apartments.find { it.addressId == id } ?: return
+    val currentUid = firebaseService.uid ?: ""
 
+    // Формируем заголовок "Адрес | Фамилия"
+    val combinedName = "${selected.address} | ${selected.nanim ?: ""}"
 
-  fun setAddressId(addressId: Int) {
-    _uiState.value = uiState.value.copy(
-      addressId = addressId
-    )
-    getApartment(addressId)
+    // Предохранитель от лишних обновлений
+    if (_uiState.value.addressId == id && _uiState.value.displayName == combinedName) return
+
+    _uiState.update { it.copy(
+      addressId = id,
+      address = selected.address,
+      displayName = combinedName,
+      osbbId = selected.osmdId,
+      osmdId = selected.osmdId
+    )}
+
+    if (currentUid.isNotEmpty() && _uiState.value.userRole == UserRole.StandardUser) {
+      viewModelScope.launch(Dispatchers.IO) {
+        firebaseService.updateUserRoleAndPermissions(
+          uid = currentUid,
+          userRole = UserRole.StandardUser,
+          osbbId = selected.osmdId,
+          addressId = id,           // Передаем AddressID
+          displayName = combinedName // Передаем сформированную строку
+        )
+      }
+    }
+    getApartment(id)
   }
+
+
+
+
+
+
+
+
+
+
+
 
 }

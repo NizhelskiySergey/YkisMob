@@ -35,47 +35,52 @@ import com.ykis.mob.ui.theme.extendedColor
 
 @Composable
 fun assembleServiceList(
-    totalDebtState: TotalDebtState,
-    baseUIState: BaseUIState,
+  totalDebtState: TotalDebtState,
+  baseUIState: BaseUIState,
 ): List<TotalServiceDebt> {
-    val serviceList = mutableListOf<TotalServiceDebt>()
-    if (baseUIState.osmdId != 0) {
-        serviceList.add(
-            TotalServiceDebt(
-                name = baseUIState.osbb,
-                color = MaterialTheme.colorScheme.extendedColor.sectorColor4.color,
-                debt = totalDebtState.totalDebt.dolg4!!,
-                icon = Icons.Default.CorporateFare,
-                contentDetail = ContentDetail.OSBB
-            )
-        )
-    }
-    serviceList.addAll(
-        listOf(
-            TotalServiceDebt(
-                name = stringResource(R.string.vodokanal),
-                color = MaterialTheme.colorScheme.extendedColor.sectorColor1.color,
-                debt = totalDebtState.totalDebt.dolg1!!,
-                icon = Icons.Default.Water,
-                contentDetail = ContentDetail.WATER_SERVICE,
-            ),
-            TotalServiceDebt(
-                name = stringResource(id = R.string.ytke_short),
-                color = MaterialTheme.colorScheme.extendedColor.sectorColor2.color,
-                debt = totalDebtState.totalDebt.dolg2!!,
-                icon = Icons.Default.HotTub,
-                contentDetail = ContentDetail.WARM_SERVICE
-            ),
-            TotalServiceDebt(
-                name = stringResource(id = R.string.yzhtrans),
-                color = MaterialTheme.colorScheme.extendedColor.sectorColor3.color,
-                debt = totalDebtState.totalDebt.dolg3!!,
-                icon = Icons.Default.Commute,
-                contentDetail = ContentDetail.GARBAGE_SERVICE
-            )
-        )
+  val serviceList = mutableListOf<TotalServiceDebt>()
+
+  // 1. Добавляем ОСББ, только если у пользователя есть привязка
+  if (baseUIState.osmdId != 0) {
+    serviceList.add(
+      TotalServiceDebt(
+        // ГАРАНТИРУЕМ ТЕКСТ: если имя ОСББ пустое, пишем "Мой ОСББ" или берем из ресурсов
+        name = baseUIState.osbb.ifBlank { stringResource(R.string.my_osbb) },
+        color = MaterialTheme.colorScheme.extendedColor.sectorColor4.color,
+        debt = totalDebtState.totalDebt.dolg4 ?: 0.0,
+        icon = Icons.Default.CorporateFare,
+        contentDetail = ContentDetail.OSBB
+      )
     )
-    return serviceList
+  }
+
+  // 2. Добавляем остальные городские службы
+  serviceList.addAll(
+    listOf(
+      TotalServiceDebt(
+        name = stringResource(R.string.vodokanal),
+        color = MaterialTheme.colorScheme.extendedColor.sectorColor1.color,
+        debt = totalDebtState.totalDebt.dolg1 ?: 0.0,
+        icon = Icons.Default.Water,
+        contentDetail = ContentDetail.WATER_SERVICE,
+      ),
+      TotalServiceDebt(
+        name = stringResource(id = R.string.ytke_short),
+        color = MaterialTheme.colorScheme.extendedColor.sectorColor2.color,
+        debt = totalDebtState.totalDebt.dolg2 ?: 0.0,
+        icon = Icons.Default.HotTub,
+        contentDetail = ContentDetail.WARM_SERVICE
+      ),
+      TotalServiceDebt(
+        name = stringResource(id = R.string.yzhtrans),
+        color = MaterialTheme.colorScheme.extendedColor.sectorColor3.color,
+        debt = totalDebtState.totalDebt.dolg3 ?: 0.0,
+        icon = Icons.Default.Commute,
+        contentDetail = ContentDetail.GARBAGE_SERVICE
+      )
+    )
+  )
+  return serviceList
 }
 
 

@@ -160,7 +160,7 @@ val appModule = module {
 val domainModule = module {
   // Базовые Use Cases для квартир
   // Используем single для всех логических компонентов (UseCases), так как они не хранят состояние
-  single { GetApartmentList(get(), get()) }
+  factory { GetApartmentList(get(), get()) }
   single { GetApartment(get(), get()) }
   single { DeleteApartment(get(), get()) }
   single { AddApartment(get()) }
@@ -318,7 +318,7 @@ val viewModelsModule = module {
   single { androidApplication() as MainApplication }
 
 
-  viewModel {
+  single (createdAtStart = true){
     NewSettingsViewModel(
       dataStore = get(),
       application = get(), // Теперь get() сам найдет MainApplication, зарегистрированный строкой выше
@@ -332,11 +332,12 @@ val viewModelsModule = module {
     ApartmentViewModel(
       firebaseService = get(),
       apartmentService = get(),
+      chatViewModel = get(),
       logService = get()
     )
   }
   viewModel { FamilyListViewModel(get(), get()) }
-  viewModel { ChatViewModel(get(), get()) }
+  single { ChatViewModel(get(), get()) }
   viewModel { SignInViewModel(get(), get()) }
   viewModel { SignUpViewModel(get(), get(), get()) }
   viewModel {

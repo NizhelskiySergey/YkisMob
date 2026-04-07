@@ -1,4 +1,3 @@
-
 package com.ykis.mob.data.remote.appartment
 
 import com.ykis.mob.core.Constants.ADDRESS_ID
@@ -12,10 +11,9 @@ import com.ykis.mob.data.remote.api.KtorApiService
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
 
-class ApartmentRemoteImpl (
-    private val ktorApiService: KtorApiService
+class ApartmentRemoteImpl(
+  private val ktorApiService: KtorApiService
 ) : ApartmentRemote {
-
 
 
   override suspend fun getApartmentList(uid: String): GetApartmentsResponse {
@@ -55,6 +53,7 @@ class ApartmentRemoteImpl (
         code = code,
         uid = uid,
         email = email
+
       )
     )
   }
@@ -78,8 +77,8 @@ class ApartmentRemoteImpl (
   ): GetSimpleResponse {
     return ktorApiService.saveUserUid(
       createSaveUserUid(
-        uid=uid,
-        email=email
+        uid = uid,
+        email = email
 
       )
     )
@@ -91,62 +90,66 @@ class ApartmentRemoteImpl (
   ): GetSimpleResponse {
     return ktorApiService.deleteUserAccount(
       createDeleteUserAccount(
-        uid=uid,
-        email=email
+        uid = uid,
+        email = email
 
       )
     )
   }
 
   private fun createGetApartmentListMap(uid: String): Map<String, String> {
-        val map = HashMap<String, String>()
-        map[UID] = uid
-        return map
-    }
+    val map = HashMap<String, String>()
+    map[UID] = uid
+    return map
+  }
 
-    private fun createRequestByAddressId(
-        addressId: Int,
-        uid: String
-    ): Map<String, String> {
-        val map = HashMap<String, String>()
-        map[PARAM_ADDRESS_ID] = addressId.toString()
-        map[UID] = uid
-        return map
-    }
+  private fun createRequestByAddressId(
+    addressId: Int,
+    uid: String
+  ): Map<String, String> {
+    val map = HashMap<String, String>()
+    map[PARAM_ADDRESS_ID] = addressId.toString()
+    map[UID] = uid
+    return map
+  }
 
-    private fun createUpdateBti(
-        addressId: Int,
-        phone: String,
-        email: String,
-        uid: String
-    ): Map<String, String> {
-        val map = HashMap<String, String>()
-        map[ADDRESS_ID] = addressId.toString()
-        map[PHONE] = phone
-        map[EMAIL] = email
-        map[UID] = uid
-        return map
-    }
-    private fun createAddApartmentMap(code: String, uid: String ,email: String): Map<String, String> {
-        val map = HashMap<String, String>()
-        map[CODE] = code
-        map[UID] = uid
-        map[EMAIL] = email
-        return map
-    }
-  private fun createVerifyAdminSecretWord(code: String, uid: String ): Map<String, String> {
-        val map = HashMap<String, String>()
-        map[CODE] = code
-        map[UID] = uid
-        return map
-    }
-  private fun createSaveUserUid(uid: String,email: String ): Map<String, String> {
+  private fun createUpdateBti(
+    addressId: Int,
+    phone: String,
+    email: String,
+    uid: String
+  ): Map<String, String> {
+    val map = HashMap<String, String>()
+    map[ADDRESS_ID] = addressId.toString()
+    map[PHONE] = phone
+    map[EMAIL] = email
+    map[UID] = uid
+    return map
+  }
+
+  private fun createAddApartmentMap(code: String, uid: String, email: String): Map<String, String> {
+    val map = HashMap<String, String>()
+    map[CODE] = code
+    map[UID] = uid
+    map[EMAIL] = email
+    return map
+  }
+
+  private fun createVerifyAdminSecretWord(code: String, uid: String): Map<String, String> {
+    val map = HashMap<String, String>()
+    map[CODE] = code
+    map[UID] = uid
+    return map
+  }
+
+  private fun createSaveUserUid(uid: String, email: String): Map<String, String> {
     val map = HashMap<String, String>()
     map[UID] = uid
     map[EMAIL] = email
     return map
   }
-  private fun createDeleteUserAccount(uid: String,email: String ): Map<String, String> {
+
+  private fun createDeleteUserAccount(uid: String, email: String): Map<String, String> {
     val map = HashMap<String, String>()
     map[UID] = uid
     map[EMAIL] = email

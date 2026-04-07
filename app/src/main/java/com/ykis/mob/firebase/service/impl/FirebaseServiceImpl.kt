@@ -14,6 +14,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
 
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.StorageException
@@ -42,7 +43,6 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -66,7 +66,8 @@ class FirebaseServiceImpl(
   override val displayName: String get() = auth.currentUser?.displayName ?: ""
   override val email: String get() = auth.currentUser?.email ?: ""
   override val photoUrl: String get() = auth.currentUser?.photoUrl?.toString() ?: ""
-  override val providerId: String get() = auth.currentUser?.providerData?.getOrNull(1)?.providerId ?: ""
+  override val providerId: String
+    get() = auth.currentUser?.providerData?.getOrNull(1)?.providerId ?: ""
 
   // --- Авторизация (Email/Password) ---
   override suspend fun firebaseSignInWithEmailAndPassword(email: String, password: String) {
@@ -74,6 +75,7 @@ class FirebaseServiceImpl(
       auth.signInWithEmailAndPassword(email, password).await()
     }
   }
+
   override suspend fun firebaseSignUpWithEmailAndPassword(
     email: String,
     password: String
@@ -110,9 +112,6 @@ class FirebaseServiceImpl(
       Resource.Error(message = e.localizedMessage ?: "Помилка реєстрації")
     }
   }
-
-
-
 
 
   // Вход через Google (Credential Manager)
@@ -153,14 +152,15 @@ class FirebaseServiceImpl(
   }.flowOn(Dispatchers.IO)
 
 
-  override suspend fun firebaseSignInWithGoogle(googleCredential: AuthCredential): SignInWithGoogleResponse = try {
-    withContext(Dispatchers.IO) {
-      auth.signInWithCredential(googleCredential).await()
-      Resource.Success(true)
+  override suspend fun firebaseSignInWithGoogle(googleCredential: AuthCredential): SignInWithGoogleResponse =
+    try {
+      withContext(Dispatchers.IO) {
+        auth.signInWithCredential(googleCredential).await()
+        Resource.Success(true)
+      }
+    } catch (e: Exception) {
+      Resource.Error(e.localizedMessage ?: "Firebase Google Auth failed")
     }
-  } catch (e: Exception) {
-    Resource.Error(e.localizedMessage ?: "Firebase Google Auth failed")
-  }
 
 
   override fun revokeAccess(): Flow<Resource<Boolean>> = flow {
@@ -182,42 +182,53 @@ class FirebaseServiceImpl(
         .first()
 
       if (mysqlResult is Resource.Error) {
-        emit(Resource.Error(
-          resourceMessage = mysqlResult.resourceMessage ?: R.string.error_delete_account,
-          message = mysqlResult.message
-        ))
+        emit(
+          Resource.Error(
+            resourceMessage = mysqlResult.resourceMessage ?: R.string.error_delete_account,
+            message = mysqlResult.message
+          )
+        )
         return@flow
       }
-      Log.d("YkisLog", "1. MySQL: User deleted successfully")
+      Log.d("YkisLog", "FirebaseServiceImpl.revokeAccess() 1. MySQL: User deleted successfully")
 
       // 2. Удаляем фото из Storage (игнорируем ошибку 404, если фото нет)
       try {
         chatRepo.storage.reference.child("avatars/$currentUid").delete().await()
-        Log.d("YkisLog", "2. Storage: Photo deleted")
+        Log.d("YkisLog", "FirebaseServiceImpl.revokeAccess() 2. Storage: Photo deleted")
       } catch (e: Exception) {
         if (e is StorageException && e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) {
-          Log.d("YkisLog", "2. Storage: No photo found (skipping)")
+          Log.d(
+            "YkisLog",
+            "FirebaseServiceImpl.revokeAccess() 2. Storage: No photo found (skipping)"
+          )
         } else {
-          Log.e("YkisLog", "2. Storage: Other error: ${e.message}")
+          Log.e(
+            "YkisLog",
+            "FirebaseServiceImpl.revokeAccess() 2. Storage: Other error: ${e.message}"
+          )
         }
       }
 
       // 3. Удаляем данные из Realtime Database (ветка /users/$uid)
       try {
         chatRepo.realtime.getReference("users").child(currentUid).removeValue().await()
-        Log.d("YkisLog", "3. Realtime DB: Data deleted")
+        Log.d("YkisLog", "FirebaseServiceImpl.revokeAccess() 3. Realtime DB: Data deleted")
       } catch (e: Exception) {
-        Log.e("YkisLog", "3. Realtime DB Error: ${e.message}")
+        Log.e("YkisLog", "FirebaseServiceImpl.revokeAccess() 3. Realtime DB Error: ${e.message}")
       }
 
       // 4. Удаляем профиль из Firestore
       db.collection("users").document(currentUid).delete().await()
-      Log.d("YkisLog", "4. Firestore: Document deleted")
+      Log.d("YkisLog", "FirebaseServiceImpl.revokeAccess() 4. Firestore: Document deleted")
 
       // 5. Удаляем самого пользователя из Firebase Auth
       // Это ОБЯЗАТЕЛЬНО последний шаг, пока UID еще валиден для правил доступа
       user.delete().await()
-      Log.d("YkisLog", "5. Auth: User account deleted from Firebase")
+      Log.d(
+        "YkisLog",
+        "FirebaseServiceImpl.revokeAccess() 5. Auth: User account deleted from Firebase"
+      )
 
       // 6. Очищаем состояние Google Sign-In
       credentialManager.clearCredentialState(ClearCredentialStateRequest())
@@ -225,7 +236,10 @@ class FirebaseServiceImpl(
       emit(Resource.Success(true))
 
     } catch (e: FirebaseAuthRecentLoginRequiredException) {
-      Log.e("YkisLog", "Auth: Re-authentication required. Force signing out...")
+      Log.e(
+        "YkisLog",
+        "FirebaseServiceImpl.revokeAccess() Auth: Re-authentication required. Force signing out..."
+      )
 
       // Автоматически выходим, так как сессия устарела для удаления
       auth.signOut()
@@ -234,12 +248,10 @@ class FirebaseServiceImpl(
       emit(Resource.Error(message = "Для видалення акаунту потрібно заново увійти в систему"))
 
     } catch (e: Exception) {
-      Log.e("YkisLog", "revokeAccess() Global Error: ${e.message}")
+      Log.e("YkisLog", "FirebaseServiceImpl.revokeAccess() Global Error: ${e.message}")
       emit(Resource.Error(message = e.localizedMessage ?: "Помилка видалення аккаунту"))
     }
   }.flowOn(Dispatchers.IO)
-
-
 
 
   override fun revokeAccessEmail(): Flow<Resource<Boolean>> = revokeAccess()
@@ -266,7 +278,7 @@ class FirebaseServiceImpl(
       val userEmail = currentUser?.email ?: ""
 
       if (currentUid.isNullOrEmpty()) {
-        Log.e("YkisLog", "addUserFirestore() Error: UID is null")
+        Log.e("YkisLog", "FirebaseServiceImpl.addUserFirestore() Error: UID is null")
         return@withContext Resource.Error("UID is empty")
       }
 
@@ -287,7 +299,7 @@ class FirebaseServiceImpl(
         .set(userMap, SetOptions.merge())
         .await()
 
-      Log.d("YkisLog", "Firestore Success for $currentUid")
+      Log.d("YkisLog", "FirebaseServiceImpl.Firestore Success for $currentUid")
 
       // 3. Пишем в вашу внешнюю БД через ApartmentService
       // .filter { it !is Resource.Loading } — игнорируем состояние загрузки
@@ -302,16 +314,22 @@ class FirebaseServiceImpl(
       }
 
 
-      Log.d("YkisLog", "All databases updated successfully for $currentUid")
+      Log.d(
+        "YkisLog",
+        "FirebaseServiceImpl.addUserFirestore() All databases updated successfully for $currentUid"
+      )
       Resource.Success(true)
 
     } catch (e: Exception) {
-      Log.e("YkisLog", "addUserFirestore() Exception: ${e.message}")
+      Log.e("YkisLog", "FirebaseServiceImpl.addUserFirestore() Exception: ${e.message}")
       Resource.Error(e.localizedMessage ?: "Process error")
     }
   }
 
-  private suspend fun getSaveUserUidResult(uid: String, email: String): Resource<GetSimpleResponse> {
+  private suspend fun getSaveUserUidResult(
+    uid: String,
+    email: String
+  ): Resource<GetSimpleResponse> {
     return apartmentService.saveUserUid(uid, email)
       .filter { it !is Resource.Loading }
       .first() // Здесь .first() заберет Success или Error и закроет поток
@@ -356,40 +374,49 @@ class FirebaseServiceImpl(
         Resource.Error(message = "Користувача не знайдено")
       }
     } catch (e: Exception) {
-      Log.e("YkisLog", "reloadFirebaseUser() Error: ${e.message}")
+      Log.e("YkisLog", "FirebaseServiceImpl.reloadFirebaseUser() Error: ${e.message}")
       Resource.Error(message = e.localizedMessage ?: "Помилка оновлення профілю")
     }
   }
 
-
-
   override suspend fun updateUserRoleAndPermissions(
     uid: String,
-    userRole: String,
-    osbbId: Int?
+    addressId: Int?,
+    userRole: UserRole,
+    osbbId: Int?,
+    displayName: String? // Это наша строка "Адрес | Фамилия"
   ) {
     try {
       val updates = mutableMapOf<String, Any>(
-        "userRole" to userRole // Ключ "userRole" как в твоем методе получения
+        "userRole" to userRole.name,
+        "osbbId" to (osbbId ?: FieldValue.delete())
       )
 
-      // Сохраняем привязку для админа ОСББ
-      if (userRole == "OSBB" && osbbId != null) {
-        updates["osbbId"] = osbbId
+      // 1. Записываем комбинированную строку (Адрес | Фамилия) в displayName
+      displayName?.let {
+        updates["displayName"] = it
       }
 
-      // Используем уже имеющуюся переменную db вместо getInstance()
+      // 2. Записываем уникальный ID квартиры
+      addressId?.let {
+        updates["addressId"] = it
+      }
+
+      // Выполняем слияние данных. createdAt и другие поля не пострадают.
       db.collection("users")
         .document(uid)
         .set(updates, SetOptions.merge())
         .await()
 
-      Log.d("FirebaseService", "Permissions updated for $uid: $userRole")
+      Log.d("YkisLog", "FirebaseServiceImpl: Profile updated for $uid. Address: $displayName, AddressID: $addressId")
     } catch (e: Exception) {
-      // Здесь стоит вызвать твой logService.logNonFatalCrash(e)
+      Log.e("YkisLog", "FirebaseServiceImpl ERROR: ${e.message}")
       throw e
     }
   }
+
+
+
 
   override suspend fun getUserProfile(): UserFirebase = withContext(Dispatchers.IO) {
     val currentUser = auth.currentUser
@@ -399,40 +426,42 @@ class FirebaseServiceImpl(
       // Запрос к документу пользователя в Firestore
       val snapshot = db.collection("users").document(currentUid).get().await()
 
-      // Читаем данные из документа (userRole и osbbId)
-      val roleStr = snapshot.getString("userRole") ?: "STANDARD_USER"
+      // 1. Читаем роль и конвертируем в Enum
+      val userRole = snapshot.getString("userRole") ?: "StandardUser"
+      // 2. Читаем числовые ID
       val osbbIdFromDb = snapshot.getLong("osbbId")?.toInt() ?: 0
+      val addressIdFromDb = snapshot.getLong("addressId")?.toInt() ?: 0
+
+      // 3. Читаем имя (displayName). Если в Firestore пусто — берем из Google Auth
+      val displayNameFromDb = snapshot.getString("displayName") ?: currentUser?.displayName
 
       UserFirebase(
         uid = currentUid,
         email = currentUser?.email ?: "",
         isEmailVerification = currentUser?.isEmailVerified ?: false,
-        name = currentUser?.displayName,
+        // Используем имя из БД (там наш Адрес | Фамилия)
+        name = displayNameFromDb,
         provider = currentUser?.providerId,
         phone = currentUser?.phoneNumber,
-        // Маппинг строковой роли на Enum
-        userRole = when (roleStr) {
-          "STANDARD_USER"   -> UserRole.StandardUser
-          "WATER_SERVICE"   -> UserRole.VodokanalUser
-          "WARM_SERVICE"    -> UserRole.YtkeUser
-          "GARBAGE_SERVICE" -> UserRole.TboUser
-          "OSBB"            -> UserRole.OsbbUser
-          else              -> UserRole.StandardUser
-        },
-        osbbId = osbbIdFromDb
+        userRole = userRole,
+        osbbId = osbbIdFromDb,
+        addressId = addressIdFromDb // Передаем ID квартиры в модель
       )
     } catch (e: Exception) {
-      // Если документа еще нет (сразу после регистрации)
+      Log.w("YkisLog", "getUserProfile: Document not found or error, using defaults for $currentUid")
+      // Если документа еще нет (первый вход)
       UserFirebase(
         uid = currentUid,
         email = currentUser?.email ?: "",
-        userRole = UserRole.StandardUser,
-        osbbId = 0
+        userRole = UserRole.StandardUser.name,
+        osbbId = 0,
+        addressId = 0
       )
     }
   }
 
- // Геттеры для UID, Email, DisplayName
+
+  // Геттеры для UID, Email, DisplayName
   override suspend fun getUid(): String = uid
   override suspend fun getEmail(): String = email
   override suspend fun getDisplayName(): String = displayName
@@ -440,10 +469,15 @@ class FirebaseServiceImpl(
   // Пустые методы (реализуйте по необходимости)
   override suspend fun authenticate(email: String, password: String) {}
   override suspend fun sendRecoveryEmail(email: String) {}
-  //  override suspend fun linkAccount(email: String, password: String) {}
-  override suspend fun deleteAccount() { auth.currentUser?.delete()?.await() }
-  override suspend fun firebaseSignUpWithGoogle2(googleCredential: AuthCredential) { firebaseSignInWithGoogle(googleCredential) }
 
+  //  override suspend fun linkAccount(email: String, password: String) {}
+  override suspend fun deleteAccount() {
+    auth.currentUser?.delete()?.await()
+  }
+
+  override suspend fun firebaseSignUpWithGoogle2(googleCredential: AuthCredential) {
+    firebaseSignInWithGoogle(googleCredential)
+  }
 
 
   // end google auth

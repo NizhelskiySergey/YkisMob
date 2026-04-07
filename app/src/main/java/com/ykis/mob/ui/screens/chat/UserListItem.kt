@@ -4,16 +4,20 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -51,56 +55,97 @@ fun formatTime24H(timestamp: Long): String {
 
   return sdfTime.format(Date(timestamp))
 }
-@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun UserListItem(
   modifier: Modifier = Modifier,
-  it : UserEntity,
-  onUserClick : (UserEntity) -> Unit,
-  lastMessage : MessageEntity
+  it: UserEntity,           // Объект жильца (с уникальным addressId)
+  onUserClick: (UserEntity) -> Unit,
+  lastMessage: MessageEntity, // Последнее сообщение именно из этой ветки
+  currentUid: String = ""    // UID админа для отображения "Вы: ..."
 ) {
-  LaunchedEffect(key1 = lastMessage) {
-    Log.d("YkisMob", "UserListItem: ${{lastMessage.timestamp.toString()}}")
-  }
+  // Разрезаем строку "Адрес | Фамилия"
+  val parts = remember(it.displayName) { it.displayName?.split("|") ?: emptyList() }
+  val displayAddress = parts.getOrNull(0)?.trim() ?: it.displayName ?: "Нет адреса"
 
   Column(
-    modifier = modifier.clickable {
-      onUserClick(it)
-    }
+    modifier = modifier
+      .fillMaxWidth()
+      .clickable { onUserClick(it) }
+      .padding(horizontal = 12.dp)
   ) {
     Row(
-      modifier = modifier
-        .padding(vertical = 8.dp),
+      modifier = Modifier.padding(vertical = 12.dp),
       verticalAlignment = Alignment.CenterVertically
-    ){
+    ) {
       UserImage(photoUrl = it.photoUrl.toString())
+
       Column(
-        modifier = modifier.padding(horizontal = 8.dp)
+        modifier = Modifier
+          .weight(1f)
+          .padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
       ) {
+        // ПЕРВАЯ СТРОКА: АДРЕС
         Row(
-          verticalAlignment = Alignment.CenterVertically
-        ){
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.SpaceBetween
+        ) {
           Text(
-            modifier = modifier.weight(1f),
-            text = it.displayName ?: it.email.toString(),
-            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f),
+            text = displayAddress,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
           )
-          Text(
-            text = historyFormatTime(lastMessage.timestamp),
-            style = MaterialTheme.typography.bodySmall
-          )
+
+          if (lastMessage.timestamp > 0) {
+            Text(
+              text = historyFormatTime(lastMessage.timestamp),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
         }
+
+        // ВТОРАЯ СТРОКА: EMAIL
         Text(
-          text =  lastMessage.text
+          text = it.email ?: "Нет email",
+          style = MaterialTheme.typography.labelMedium,
+          color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), // Чуть выделим цветом
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis
+        )
+
+        // ТРЕТЬЯ СТРОКА: ТЕКСТ СООБЩЕНИЯ
+        val prefix = if (lastMessage.senderUid == currentUid) "Вы: " else ""
+        val displayText = when {
+          lastMessage.text.isNotBlank() -> "$prefix${lastMessage.text}"
+          lastMessage.imageUrl != null -> "$prefix📷 Фотография"
+          else -> "Сообщений пока нет"
+        }
+
+        Text(
+          text = displayText,
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis
         )
       }
     }
 
-    HorizontalDivider()
+    HorizontalDivider(
+      modifier = Modifier.padding(start = 56.dp),
+      thickness = 0.5.dp,
+      color = MaterialTheme.colorScheme.outlineVariant
+    )
   }
 }
+
+
+
+
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Preview(showBackground = true)

@@ -27,10 +27,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ykis.mob.R
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.navigation.AddApartmentScreen
 import com.ykis.mob.ui.navigation.NAV_RAIL_DESTINATIONS
+import com.ykis.mob.ui.navigation.UserListScreen
+import com.ykis.mob.ui.screens.chat.ChatViewModel
 
 @Composable
 fun CustomNavigationRail(
@@ -62,7 +65,6 @@ fun CustomNavigationRail(
     }
   }
 }
-
 @Composable
 fun ApartmentNavigationRail(
   baseUIState: BaseUIState,
@@ -70,15 +72,20 @@ fun ApartmentNavigationRail(
   navigateToDestination: (String) -> Unit = {},
   isRailExpanded: Boolean,
   onMenuClick: () -> Unit,
+  chatViewModel: ChatViewModel, // ПЕРЕДАЕМ ViewModel
   navigateToApartment: (Int) -> Unit = {},
   railWidth: Dp,
   maxApartmentListHeight: Dp,
   isApartmentsEmpty: Boolean,
+
   modifier: Modifier = Modifier
 ) {
+  // 1. Подписываемся на счетчики
+  val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
+  val totalUnread = remember(unreadCounts) { unreadCounts.values.sum() }
+
   var showApartmentList by rememberSaveable { mutableStateOf(true) }
 
-  // Упрощаем анимации для мгновенного отклика текста
   val transition = updateTransition(targetState = isRailExpanded, label = "RailExpansion")
   val contentAlpha by transition.animateFloat(label = "Alpha") { if (it) 1f else 0f }
   val listHeight by transition.animateDp(label = "ListHeight") { if (it) maxApartmentListHeight else 0.dp }
@@ -158,7 +165,6 @@ fun ApartmentNavigationRail(
           )
         }
 
-        // Для мгновенного появления списка используем обычный if вместо AnimatedVisibility
         if (showApartmentList && isRailExpanded) {
           ApartmentList(
             apartmentList = baseUIState.apartments,
@@ -197,32 +203,44 @@ fun ApartmentNavigationRail(
               verticalAlignment = Alignment.CenterVertically,
               modifier = Modifier.fillMaxWidth()
             ) {
-              Icon(
-                imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
-                contentDescription = null,
-                tint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-              )
+              // ВНЕДРЯЕМ BADGE ДЛЯ ИКОНКИ ЧАТА
+              BadgedBox(
+                badge = {
+                  // Если это пункт "Чат" и есть непрочитанные
+                  if (destination.route == UserListScreen.route && totalUnread > 0) {
+                    Badge(
+                      containerColor = MaterialTheme.colorScheme.error,
+                      contentColor = MaterialTheme.colorScheme.onError
+                    ) {
+                      Text(text = if (totalUnread > 99) "99+" else totalUnread.toString())
+                    }
+                  }
+                }
+              ) {
+                Icon(
+                  imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
+                  contentDescription = null,
+                  tint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+              }
 
-              // ВАЖНО: Убираем IF. Текст всегда в дереве Compose.
-              // Если он не виден — значит isRailExpanded равно false.
               Text(
                 text = stringResource(destination.labelId),
                 modifier = Modifier
                   .padding(start = 12.dp)
-                  // Если текст все равно не виден, временно поставь тут 1f для теста
                   .alpha(if (isRailExpanded) 1f else 0f),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                 color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 softWrap = false,
-                overflow = TextOverflow.Visible // Разрешаем выходить за границы во время анимации
+                overflow = TextOverflow.Visible
               )
             }
           }
         }
       }
-
     }
   }
 }
+

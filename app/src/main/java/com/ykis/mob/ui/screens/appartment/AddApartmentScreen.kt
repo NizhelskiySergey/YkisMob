@@ -35,12 +35,17 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.ykis.mob.R
 import com.ykis.mob.ui.components.appbars.DefaultAppBar
+import com.ykis.mob.ui.navigation.AddApartmentScreen
+import com.ykis.mob.ui.navigation.Graph
+import com.ykis.mob.ui.navigation.InfoApartmentScreenDest
 import com.ykis.mob.ui.navigation.NavigationType
 import com.ykis.mob.ui.navigation.navigateToInfoApartment
 import com.ykis.mob.ui.theme.YkisPAMTheme
+import kotlinx.coroutines.coroutineScope
 import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
@@ -125,21 +130,21 @@ fun AddApartmentScreenStateless(
     }
   }
 }
+
 @Composable
 fun AddApartmentScreenContent(
   modifier: Modifier = Modifier,
   viewModel: ApartmentViewModel = koinViewModel(),
-  navController : NavHostController,
-  canNavigateBack : Boolean, // Если не используется в Stateless, можно удалить
-  onDrawerClicked : () -> Unit,
+  navController: NavHostController,
+  canNavigateBack: Boolean, // Если не используется в Stateless, можно удалить
+  onDrawerClicked: () -> Unit,
   navigationType: NavigationType,
-  closeContentDetail : () -> Unit
+  closeContentDetail: () -> Unit
 ) {
   // Подписываемся на ввод кода из ViewModel
-  val secretCode by viewModel.secretCode.collectAsState()
+  val secretCode by viewModel.secretCode.collectAsStateWithLifecycle("")
 
-  // Кнопка активна, если введено хотя бы что-то
-  val buttonEnabled by remember {
+  val buttonEnabled by remember(secretCode) { // Добавь secretCode в ключи remember!
     derivedStateOf {
       secretCode.trim().isNotEmpty()
     }
@@ -154,12 +159,14 @@ fun AddApartmentScreenContent(
     onAddClick = {
       keyboard?.hide()
 
-      // Вызываем единый метод обработки во ViewModel.
-      // ViewModel внутри сама проверит: цифры это (квартира) или текст (админ).
       viewModel.addApartment {
-        // Этот колбэк выполнится при успешном добавлении квартиры/роли
+        // Сначала закрываем детали, потом уходим
         closeContentDetail()
-        navController.navigateToInfoApartment()
+        // Используй navigate с очисткой стека, чтобы не было "призраков"
+        navController.navigate(InfoApartmentScreenDest.route) {
+          popUpTo(AddApartmentScreen.route) { inclusive = true }
+        }
+
       }
     },
     navigationType = navigationType,
@@ -173,20 +180,21 @@ fun AddApartmentScreenContent(
 }
 
 
-
 @Preview
 @Composable
 private fun AddApartmentPreview() {
-    YkisPAMTheme {
-        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
-            AddApartmentScreenStateless(
-                isButtonEnabled = true,
-                onDrawerClicked = {},
-                onAddClick = {},
-                navigationType = NavigationType.BOTTOM_NAVIGATION,
-                code = "",
-                onCodeChanged = {}
-            )
-        }
+  YkisPAMTheme {
+    Box(modifier = Modifier
+      .fillMaxSize()
+      .background(MaterialTheme.colorScheme.background)) {
+      AddApartmentScreenStateless(
+        isButtonEnabled = true,
+        onDrawerClicked = {},
+        onAddClick = {},
+        navigationType = NavigationType.BOTTOM_NAVIGATION,
+        code = "",
+        onCodeChanged = {}
+      )
     }
+  }
 }

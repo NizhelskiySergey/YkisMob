@@ -48,7 +48,11 @@ class MeterViewModel (
 
   fun getWaterMeterList(uid: String, addressId: Int) {
     viewModelScope.launch {
-      _waterMeterState.value = _waterMeterState.value.copy(isMetersLoading = true)
+      // Очищаем старый список и включаем лоадер
+      _waterMeterState.update { it.copy(
+        waterMeterList = emptyList(), // Добавь это
+        isMetersLoading = true
+      )}
       try {
         // Прямой вызов репозитория (Resolution Time упадет до 2-5 мс)
         val response = waterMeterRepository.getWaterMeterList( uid,addressId)
@@ -74,7 +78,11 @@ class MeterViewModel (
   fun getHeatMeterList(uid: String, addressId: Int) {
     viewModelScope.launch {
       // 1. Включаем индикатор загрузки
-      _heatMeterState.value = _heatMeterState.value.copy(isMetersLoading = true)
+      // Очищаем старый список и включаем лоадер
+      _heatMeterState.update { it.copy(
+        heatMeterList = emptyList(), // Добавь это
+        isMetersLoading = true
+      )}
 
       try {
         // 2. Прямой вызов репозитория (Resolution Time упадет до 2-5 мс)

@@ -15,6 +15,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -39,123 +40,136 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import com.google.common.util.concurrent.ListenableFuture
-import com.ykis.mob.ui.navigation.SendImageScreen
+import com.ykis.mob.ui.navigation.SendImageScreenDest
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 @Composable
 fun CameraScreen(
-    navController: NavHostController,
-    setImageUri: (Uri) -> Unit
+  navController: NavHostController,
+  setImageUri: (Uri) -> Unit
 ) {
-    val context = LocalContext.current
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
-    val outputDirectory = context.filesDir
-    var previewView: PreviewView? by remember { mutableStateOf(null) }
-    var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
+  val context = LocalContext.current
+  val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+  val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+  val outputDirectory = context.filesDir
+  var previewView: PreviewView? by remember { mutableStateOf(null) }
+  var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
 
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { isGranted ->
-            if (isGranted) {
-                initializeCamera(cameraProviderFuture, lifecycleOwner, previewView) {
-                    imageCapture = it
-                }
-            } else {
-                Toast.makeText(context, "Camera permission denied", Toast.LENGTH_SHORT).show()
-                navController.navigateUp() // Navigate back if permission is denied
-            }
+  val cameraPermissionLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.RequestPermission(),
+    onResult = { isGranted ->
+      if (isGranted) {
+        initializeCamera(cameraProviderFuture, lifecycleOwner, previewView) {
+          imageCapture = it
         }
+      } else {
+        Toast.makeText(context, "Camera permission denied", Toast.LENGTH_SHORT).show()
+        navController.navigateUp() // Navigate back if permission is denied
+      }
+    }
+  )
+
+  LaunchedEffect(cameraProviderFuture) {
+    if (ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.CAMERA
+      ) == PackageManager.PERMISSION_GRANTED
+    ) {
+      initializeCamera(cameraProviderFuture, lifecycleOwner, previewView) {
+        imageCapture = it
+      }
+    } else {
+      cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+  }
+
+  Box(
+    modifier = Modifier
+      .fillMaxSize()
+      .navigationBarsPadding(), // ГАРАНТИРУЕТ, что контент будет выше системных кнопок/полоски
+    contentAlignment = Alignment.BottomCenter
+  ) {
+    AndroidView(
+      factory = { ctx ->
+        PreviewView(ctx).apply {
+          previewView = this
+          this.scaleType = PreviewView.ScaleType.FILL_CENTER
+        }
+      },
+      modifier = Modifier.fillMaxSize()
     )
+    IconButton(
+      modifier = Modifier
+        .padding(8.dp)
+        .align(Alignment.TopStart),
+      onClick = { navController.navigateUp() }
+    ) {
+      Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+    }
+    Button(
+      onClick = {
+        val photoFile = File(
+          outputDirectory,
+          SimpleDateFormat(
+            "yyyy-MM-dd-HH-mm-ss-SSS",
+            Locale.US
+          ).format(System.currentTimeMillis()) + ".jpg"
+        )
 
-    LaunchedEffect(cameraProviderFuture) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            initializeCamera(cameraProviderFuture, lifecycleOwner, previewView) {
-                imageCapture = it
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+        imageCapture?.takePicture(
+          outputOptions,
+          ContextCompat.getMainExecutor(context),
+          object : ImageCapture.OnImageSavedCallback {
+            override fun onError(exc: ImageCaptureException) {
+              Log.e("CameraScreen", "Photo capture failed: ${exc.message}", exc)
+              Toast.makeText(context, "Невдалося зробити фото: ${exc.message}", Toast.LENGTH_SHORT)
+                .show()
             }
-        } else {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-        AndroidView(
-            factory = { ctx ->
-                PreviewView(ctx).apply {
-                    previewView = this
-                    this.scaleType = PreviewView.ScaleType.FILL_CENTER
-                }
-            },
-            modifier = Modifier.fillMaxSize()
+            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+              val savedUri = Uri.fromFile(photoFile)
+              setImageUri(savedUri)
+              navController.navigate(SendImageScreenDest.route)
+            }
+          }
         )
-        IconButton(
-            modifier = Modifier.padding(8.dp).align(Alignment.TopStart),
-            onClick = { navController.navigateUp() }
-        ) {
-            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-        }
-        Button(
-            onClick = {
-                val photoFile = File(
-                    outputDirectory,
-                    SimpleDateFormat(
-                        "yyyy-MM-dd-HH-mm-ss-SSS",
-                        Locale.US
-                    ).format(System.currentTimeMillis()) + ".jpg"
-                )
-
-                val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-
-                imageCapture?.takePicture(
-                    outputOptions,
-                    ContextCompat.getMainExecutor(context),
-                    object : ImageCapture.OnImageSavedCallback {
-                        override fun onError(exc: ImageCaptureException) {
-                            Log.e("CameraScreen", "Photo capture failed: ${exc.message}", exc)
-                            Toast.makeText(context, "Невдалося зробити фото: ${exc.message}", Toast.LENGTH_SHORT).show()
-                        }
-
-                        override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                            val savedUri = Uri.fromFile(photoFile)
-                            setImageUri(savedUri)
-                            navController.navigate(SendImageScreen.route)
-                        }
-                    }
-                )
-            },
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text("Зробити фото")
-        }
+      },
+      modifier = Modifier.padding(16.dp)
+    ) {
+      Text("Зробити фото")
     }
+  }
 }
+
 private fun initializeCamera(
-    cameraProviderFuture: ListenableFuture<ProcessCameraProvider>,
-    lifecycleOwner: LifecycleOwner,
-    previewView: PreviewView?,
-    onImageCaptureCreated: (ImageCapture) -> Unit
+  cameraProviderFuture: ListenableFuture<ProcessCameraProvider>,
+  lifecycleOwner: LifecycleOwner,
+  previewView: PreviewView?,
+  onImageCaptureCreated: (ImageCapture) -> Unit
 ) {
-    val cameraProvider = cameraProviderFuture.get()
-    val preview = Preview.Builder().build().also {
-        it.setSurfaceProvider(previewView?.surfaceProvider)
-    }
+  val cameraProvider = cameraProviderFuture.get()
+  val preview = Preview.Builder().build().also {
+    it.setSurfaceProvider(previewView?.surfaceProvider)
+  }
 
-    val imageCapture = ImageCapture.Builder().build()
-    onImageCaptureCreated(imageCapture)
+  val imageCapture = ImageCapture.Builder().build()
+  onImageCaptureCreated(imageCapture)
 
-    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+  val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-    try {
-        cameraProvider.unbindAll()
-        cameraProvider.bindToLifecycle(
-            lifecycleOwner,
-            cameraSelector,
-            preview,
-            imageCapture
-        )
-    } catch (exc: Exception) {
-        Log.e("CameraScreen", "Use case binding failed", exc)
-    }
+  try {
+    cameraProvider.unbindAll()
+    cameraProvider.bindToLifecycle(
+      lifecycleOwner,
+      cameraSelector,
+      preview,
+      imageCapture
+    )
+  } catch (exc: Exception) {
+    Log.e("CameraScreen", "Use case binding failed", exc)
+  }
 }

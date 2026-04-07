@@ -32,10 +32,12 @@ import com.ykis.mob.ui.rememberAppState
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.SignUpViewModel
 import com.ykis.mob.ui.screens.chat.CameraScreen
-import com.ykis.mob.ui.screens.chat.ChatScreen
+import com.ykis.mob.ui.screens.chat.ChatScreenContent
+import com.ykis.mob.ui.screens.chat.ChatScreenStateful
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import com.ykis.mob.ui.screens.chat.ImageDetailScreen
 import com.ykis.mob.ui.screens.chat.SendImageScreen
+import com.ykis.mob.ui.screens.chat.UserEntity
 import com.ykis.mob.ui.screens.service.payment.choice.WebView
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -43,7 +45,6 @@ object Graph {
   const val AUTHENTICATION = "auth_graph"
   const val APARTMENT = "apartment_graph"
 }
-
 @Composable
 fun RootNavGraph(
   modifier: Modifier = Modifier,
@@ -58,7 +59,7 @@ fun RootNavGraph(
   val appState = rememberAppState()
   var isMainScreen by rememberSaveable { mutableStateOf(false) }
 
-  // Состояние бокового меню (Rail): для планшетов по умолчанию развернуто
+  // Состояние бокового меню (Rail)
   var isRailExpanded by rememberSaveable {
     mutableStateOf(navigationType != NavigationType.BOTTOM_NAVIGATION)
   }
@@ -67,10 +68,17 @@ fun RootNavGraph(
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
   val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
 
-  val chatUid = remember(baseUIState, selectedUser.uid) {
-    if (baseUIState.userRole == UserRole.StandardUser) {
-      baseUIState.uid.toString()
-    } else selectedUser.uid
+  // ИСПРАВЛЕНО: Универсальное вычисление chatUid для всех ролей
+  val chatUid = remember(baseUIState.userRole, baseUIState.osbbId, selectedUser) {
+    when (baseUIState.userRole) {
+      UserRole.YtkeUser -> "9997"
+      UserRole.VodokanalUser -> "9998"
+      UserRole.TboUser -> "9999"
+      // Добавляем безопасный вызов ?.uid
+      UserRole.OsbbUser -> selectedUser?.uid ?: ""
+      UserRole.StandardUser -> baseUIState.uid.toString()
+      else -> selectedUser?.uid ?: ""
+    }
   }
 
   Scaffold(
@@ -81,22 +89,17 @@ fun RootNavGraph(
       }
     },
   ) { paddingValues ->
-    // 1. Чтобы IDE не ругалась, мы создаем Box и НЕ применяем к нему paddingValues.
-    // Это позволяет избежать двойных отступов, если они есть в MainApartmentScreen.
-    // Если же в каких-то экранах (Chat) отступов не хватает, добавим их точечно.
     Box(
       modifier = modifier
         .fillMaxSize()
-        .padding(bottom = paddingValues.calculateBottomPadding() * 0) // Фиктивное использование для IDE
+        .padding(bottom = paddingValues.calculateBottomPadding() * 0)
     ) {
       NavHost(
         modifier = Modifier.fillMaxSize(),
         navController = navController,
         startDestination = apartmentViewModel.onAppStart(),
         enterTransition = { EnterTransition.None },
-        exitTransition = { ExitTransition.None },
-        popEnterTransition = { EnterTransition.None },
-        popExitTransition = { ExitTransition.None }
+        exitTransition = { ExitTransition.None }
       ) {
         // Граф авторизации
         authNavGraph(
@@ -105,11 +108,7 @@ fun RootNavGraph(
         )
 
         // Главный экран (Квартиры/Услуги)
-        composable(
-          route = Graph.APARTMENT,
-          enterTransition = { fadeIn() },
-          exitTransition = { fadeOut() }
-        ) {
+        composable(route = Graph.APARTMENT) {
           MainApartmentScreen(
             contentType = contentType,
             navigationType = navigationType,
@@ -120,51 +119,75 @@ fun RootNavGraph(
             onDispose = { isMainScreen = false },
             isRailExpanded = isRailExpanded,
             onMenuClick = { isRailExpanded = !isRailExpanded },
-            navigateToWebView = { uri ->
-              Log.d("YkisLog", "WebView: $uri")
-              navController.navigateToWebView(uri)
-            },
+            navigateToWebView = { uri -> navController.navigateToWebView(uri) },
             chatViewModel = chatViewModel,
             apartmentViewModel = apartmentViewModel,
-            baseUIState = baseUIState
           )
         }
 
-        // Встроенный браузер (Оплата)
+        // Встроенный браузер
         composable(
-          route = WebViewScreen.routeWithArgs,
-          arguments = WebViewScreen.arguments
+          route = WebViewScreenDest.routeWithArgs,
+          arguments = WebViewScreenDest.arguments
         ) { navBackStackEntry ->
-          val uri = navBackStackEntry.arguments?.getString(WebViewScreen.link)
+          val uri = navBackStackEntry.arguments?.getString(WebViewScreenDest.link)
           WebView(uri = uri.toString())
         }
 
-        // Экраны ЧАТА
-        composable(ChatScreen.route) {
-          ChatScreen(
-            userEntity = selectedUser,
-            navigateBack = { navController.navigateUp() },
-            chatViewModel = chatViewModel,
-            baseUIState = baseUIState,
-            navigateToSendImageScreen = { navController.navigate(SendImageScreen.route) },
-            chatUid = chatUid,
-            navigateToCameraScreen = { navController.navigate(CameraScreen.route) },
-            navigateToImageDetailScreen = {
-              chatViewModel.setSelectedMessage(it)
-              navController.navigate(ImageDetailScreen.route)
+        // ИСПРАВЛЕНО: Вызов ChatScreen (имя функции должно совпадать с твоим файлом)
+        composable(ChatScreenDest.route) {
+          ChatScreenContent(
+            modifier = Modifier,                        // Добавь это!
+            userEntity = selectedUser ?: UserEntity(),  // 1
+            chatViewModel = chatViewModel,              // 2
+            baseUIState = baseUIState,                  // 3
+            navigateBack = { navController.navigateUp() }, // 4
+            navigateToSendImageScreen = { navController.navigate(SendImageScreenDest.route) }, // 5
+            chatUid = chatUid,                          // 6
+            navigateToCameraScreen = { navController.navigate(CameraScreenDest.route) }, // 7
+            navigateToImageDetailScreen = { message ->  // 8
+              chatViewModel.setSelectedMessage(message)
+              navController.navigate(ImageDetailScreenDest.route)
             }
           )
         }
 
-        // Отправка фото в чат
-        composable(SendImageScreen.route) {
+
+
+        // Отправка фото
+        composable(SendImageScreenDest.route) {
           val messageText by chatViewModel.messageText.collectAsStateWithLifecycle()
           val isLoadingAfterSending by chatViewModel.isLoadingAfterSending.collectAsStateWithLifecycle()
           val context = androidx.compose.ui.platform.LocalContext.current
 
-          LaunchedEffect(Unit) {
-            if (selectedImageUri != Uri.EMPTY) {
-              chatViewModel.analyzePhotoWithGemini(selectedImageUri, context)
+          // 1. Вычисляем ID организации
+          val currentOsbbId = when (baseUIState.userRole) {
+            UserRole.YtkeUser -> 9997
+            UserRole.VodokanalUser -> 9998
+            UserRole.TboUser -> 9999
+            UserRole.OsbbUser -> baseUIState.osbbId
+            else -> baseUIState.osmdId
+          }
+
+          // 2. Вычисляем ID квартиры (из профиля жильца или текущего стейта)
+          val currentAddressId = if (baseUIState.userRole == UserRole.StandardUser) {
+            baseUIState.addressId
+          } else {
+            selectedUser.addressId
+          }
+
+          // 3. Формируем имя отправителя для заголовка уведомления
+          val finalDisplayName = if (baseUIState.userRole == UserRole.StandardUser) {
+            // Жилец отправляет "Адрес | Фамилия" (из displayName)
+            baseUIState.displayName ?: "Жилец"
+          } else {
+            // Админ отправляет название своей службы
+            when (baseUIState.userRole) {
+              UserRole.VodokanalUser -> "Водоканал"
+              UserRole.YtkeUser -> "Теплосеть"
+              UserRole.TboUser -> "Вывоз мусора"
+              UserRole.OsbbUser -> "ОСББ"
+              else -> "Диспетчер"
             }
           }
 
@@ -178,16 +201,16 @@ fun RootNavGraph(
                 context = context,
                 chatUid = chatUid,
                 senderUid = baseUIState.uid.toString(),
-                senderDisplayedName = baseUIState.displayName ?: baseUIState.email ?: "User",
+                senderDisplayedName = finalDisplayName,
                 senderLogoUrl = baseUIState.photoUrl,
                 role = baseUIState.userRole,
-                senderAddress = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address ?: "" else "",
-                osbbId = if (baseUIState.userRole == UserRole.OsbbUser) baseUIState.osbbId ?: 0 else baseUIState.osmdId,
-                recipientTokens = emptyList(),
+                senderAddress = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address else selectedUser.address,
+                addressId = currentAddressId, // ПЕРЕДАЕМ ID КВАРТИРЫ
+                osbbId = currentOsbbId,
+                recipientTokens = selectedUser.tokens,
                 onComplete = {
-                  navController.navigate(ChatScreen.route) {
-                    popUpTo(ChatScreen.route) { inclusive = true }
-                  }
+                  // Возврат в чат, закрывая камеру и экран отправки
+                  navController.popBackStack(ChatScreenDest.route, inclusive = false)
                 }
               )
             },
@@ -196,16 +219,15 @@ fun RootNavGraph(
           )
         }
 
-        // Камера
-        composable(CameraScreen.route) {
+
+        composable(CameraScreenDest.route) {
           CameraScreen(
             navController = navController,
             setImageUri = { chatViewModel.setSelectedImageUri(it) }
           )
         }
 
-        // Детальный просмотр фото
-        composable(ImageDetailScreen.route) {
+        composable(ImageDetailScreenDest.route) {
           val selectedMessage by chatViewModel.selectedMessage.collectAsStateWithLifecycle()
           ImageDetailScreen(
             navigateUp = { navController.navigateUp() },
@@ -217,9 +239,10 @@ fun RootNavGraph(
   }
 }
 
+
 /**
  * Расширение для навигации в WebView
  */
 private fun NavHostController.navigateToWebView(uri: String) {
-  this.navigate("${WebViewScreen.route}/$uri")
+  this.navigate("${WebViewScreenDest.route}/$uri")
 }
