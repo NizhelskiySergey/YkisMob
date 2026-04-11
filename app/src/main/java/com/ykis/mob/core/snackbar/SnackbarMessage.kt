@@ -23,6 +23,7 @@ import com.ykis.mob.core.Constants.NO_FLAT_DELETE
 import com.ykis.mob.core.Constants.NO_USER_IDENTIFIER
 import com.ykis.mob.core.Constants.PASSWORD_FAILURE
 import com.ykis.mob.core.Constants.SENSITIVE_OPERATION_MESSAGE
+import com.ykis.mob.core.Constants.SUCCESS_SEND_MESSAGE
 import com.ykis.mob.core.Constants.VERIFY_DELETE_FLAT
 import com.ykis.mob.R.string as AppText
 
@@ -48,6 +49,7 @@ sealed class SnackbarMessage {
           VERIFY_DELETE_FLAT -> ResourceSnackbar(AppText.success_delete_flat)
           NO_USER_IDENTIFIER -> ResourceSnackbar(AppText.no_user_identifier)
           PASSWORD_FAILURE -> ResourceSnackbar(AppText.password_failure)
+          SUCCESS_SEND_MESSAGE -> ResourceSnackbar(AppText.success_send_message)
           SENSITIVE_OPERATION_MESSAGE -> ResourceSnackbar(AppText.revoke_access_message)
           else -> StringSnackbar(message)
           }

@@ -1,6 +1,8 @@
+
 package com.ykis.mob.di
 
 
+import android.util.Log
 import androidx.room.Room
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
@@ -58,6 +60,7 @@ import com.ykis.mob.domain.apartment.request.DeleteApartment
 import com.ykis.mob.domain.apartment.request.DeleteUserAccount
 import com.ykis.mob.domain.apartment.request.GetApartment
 import com.ykis.mob.domain.apartment.request.GetApartmentList
+import com.ykis.mob.domain.apartment.request.GetOsbbApartmentsList
 import com.ykis.mob.domain.apartment.request.SaveUserUid
 import com.ykis.mob.domain.apartment.request.UpdateBti
 import com.ykis.mob.domain.apartment.request.VerifyAdminCode
@@ -99,6 +102,7 @@ import com.ykis.mob.ui.screens.profile.ProfileViewModel
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.ANDROID
 import io.ktor.client.plugins.logging.LogLevel
@@ -118,23 +122,44 @@ import org.koin.dsl.module
 val appModule = module {
 
   // 1. ЕДИНЫЙ HttpClient (с createdAtStart для Kotzilla)
-  single(createdAtStart = true) {
+  single(createdAtStart = false) { // 1. УБЕРИ true. Пусть создается при первом вызове (lazy)
     HttpClient(io.ktor.client.engine.android.Android) {
+
+      // Настройки самого движка Android (важно для стабильности)
+      engine {
+        connectTimeout = 30_000
+        socketTimeout = 30_000
+      }
+
       install(ContentNegotiation) {
         json(Json {
           ignoreUnknownKeys = true
           isLenient = true
           encodeDefaults = true
-        }, contentType = ContentType.Any) // <--- ПРИНУДИТЕЛЬНО парсить любой контент как JSON
-      }
-      install(Logging) {
-        logger = Logger.ANDROID // Вывод в стандартный Logcat
-        level = LogLevel.ALL   // Видеть заголовки и ТЕЛО (JSON)
+          prettyPrint = true // Для удобства в логах
+        }, contentType = ContentType.Any)
       }
 
-      // ... остальное
+      install(Logging) {
+        // 2. ИСПОЛЬЗУЙ КАСТОМНЫЙ ЛОГЕР вместо Logger.ANDROID
+        // Это решит проблему с обрезанием длинных JSON в Logcat
+        logger = object : Logger {
+          override fun log(message: String) {
+            Log.d("Ktor", message)
+          }
+        }
+        level = LogLevel.ALL
+      }
+
+      // 3. ТАЙМАУТЫ (Общие)
+      install(HttpTimeout) {
+        requestTimeoutMillis = 30_000
+        connectTimeoutMillis = 30_000
+        socketTimeoutMillis = 30_000
+      }
     }
   }
+
 
 
   // 2. ЕДИНЫЙ KtorApiService
@@ -146,21 +171,24 @@ val appModule = module {
   // 4. ОСТАЛЬНЫЕ системные зависимости
   single { NetworkHandler(androidContext()) }
 
-  single(createdAtStart = true) {
+  single (createdAtStart = true){
     Room.databaseBuilder(
       androidContext(),
       AppDatabase::class.java,
       AppDatabase.DATABASE_NAME
-    ).build()
+    )
+      .fallbackToDestructiveMigration(false) // Добавь эту строку
+      .build()
   }
+
 
   factory { ClearDatabase() }
 }
 
 val domainModule = module {
   // Базовые Use Cases для квартир
-  // Используем single для всех логических компонентов (UseCases), так как они не хранят состояние
   factory { GetApartmentList(get(), get()) }
+  factory { GetOsbbApartmentsList(get(), get()) }
   single { GetApartment(get(), get()) }
   single { DeleteApartment(get(), get()) }
   single { AddApartment(get()) }
@@ -200,6 +228,7 @@ val domainModule = module {
   single(createdAtStart = true) {
     ApartmentService(
       getApartmentList = get(),
+      getOsbbApartmentsList = get(),
       getApartment = get(),
       addApartment = get(),
       verifyAdminCode = get(), // Теперь Koin точно найдет этот UseCase

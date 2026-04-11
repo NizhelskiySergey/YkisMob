@@ -1,9 +1,11 @@
 package com.ykis.mob
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
@@ -30,24 +32,24 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
-
 class MainActivity : ComponentActivity() {
 
-  // Для логики выхода: храним состояние нажатия и ссылку на корутину сброса
   private var pressBackExitJob: Job? = null
   private var backPressedOnce = false
 
   @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
   override fun onCreate(savedInstanceState: Bundle?) {
-    // 1. Установка Splash Screen (экран загрузки) до super.onCreate
     installSplashScreen()
     super.onCreate(savedInstanceState)
 
-    // 2. Проверка разрешений на уведомления (обязательно для Android 13+)
     requestNotificationPermission()
-
-    // 3. Включение отрисовки "от края до края" (под статус-баром и навигацией)
     enableEdgeToEdge()
+
+    // 1. Считываем chatId из Intent (если приложение было закрыто)
+    val startChatId = intent.getStringExtra("chatId")
+    if (!startChatId.isNullOrEmpty()) {
+      Log.d("YkisLog", "MainActivity: [START] Открываем чат из пуша: $startChatId")
+    }
 
     setContent {
       val settingsViewModel: NewSettingsViewModel = koinViewModel()
@@ -57,46 +59,46 @@ class MainActivity : ComponentActivity() {
         val windowSize = calculateWindowSizeClass(this)
         val displayFeatures = calculateDisplayFeatures(this)
 
-        // Surface должен занимать весь экран БЕЗ отступов
         Surface(
           modifier = Modifier.fillMaxSize(),
           color = MaterialTheme.colorScheme.background
         ) {
-          // Передаем управление в главное приложение
           YkisPamApp(
             windowSize = windowSize,
-            displayFeatures = displayFeatures
+            displayFeatures = displayFeatures,
+            // 2. Передаем ID чата в основной компонент навигации
+            initialChatId = startChatId
           )
         }
       }
     }
 
-
-    // 4. Логика двойного клика кнопки "Назад" для выхода
     setupDoubleBackExit()
-
-    // 5. Регистрация токена Firebase Cloud Messaging
     addFcmToken()
   }
 
   /**
-   * Настройка обработчика кнопки "Назад".
-   * Если нажато один раз — показываем подсказку. Если второй раз в течение 2 сек — выходим.
+   * 3. Обработка уведомления, если приложение уже открыто в фоне
    */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    val chatId = intent.getStringExtra("chatId")
+    if (!chatId.isNullOrEmpty()) {
+      Log.d("YkisLog", "MainActivity: [NEW_INTENT] Переход в чат: $chatId")
+      // Здесь можно вызвать метод навигации через ViewModel или EventBus
+      // Например: appState.navigateToChat(chatId)
+    }
+  }
+
   private fun setupDoubleBackExit() {
     onBackPressedDispatcher.addCallback(this) {
       if (backPressedOnce) {
-        finish() // Закрываем активность
+        finish()
         return@addCallback
       }
-
-      // Показываем сообщение (текст берется из ресурсов)
       Toast.makeText(applicationContext, getString(R.string.exit_app), Toast.LENGTH_SHORT).show()
-
       backPressedOnce = true
-      pressBackExitJob?.cancel() // Сбрасываем старый таймер, если он был
-
-      // Запускаем таймер сброса состояния через 2 секунды
+      pressBackExitJob?.cancel()
       pressBackExitJob = lifecycleScope.launch {
         delay(2000)
         backPressedOnce = false
@@ -104,10 +106,6 @@ class MainActivity : ComponentActivity() {
     }
   }
 
-  /**
-   * Запрос разрешений для Android 13 (API 33) и выше.
-   * Без этого push-уведомления (о долгах или новых тарифах) не придут.
-   */
   private fun requestNotificationPermission() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       val hasPermission = ContextCompat.checkSelfPermission(
@@ -119,9 +117,12 @@ class MainActivity : ComponentActivity() {
         ActivityCompat.requestPermissions(
           this,
           arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-          101 // Код запроса
+          101
         )
       }
     }
   }
+
+  // Не забудь добавить метод addFcmToken() или импортировать его
 }
+

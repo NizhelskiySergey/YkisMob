@@ -160,16 +160,22 @@ fun AddApartmentScreenContent(
       keyboard?.hide()
 
       viewModel.addApartment {
-        // Сначала закрываем детали, потом уходим
+        // 1. Сначала закрываем UI-детали (шторки/панели)
         closeContentDetail()
-        // Используй navigate с очисткой стека, чтобы не было "призраков"
-        navController.navigate(InfoApartmentScreenDest.route) {
-          popUpTo(AddApartmentScreen.route) { inclusive = true }
-        }
 
+        // 2. Выполняем навигацию с ПРАВИЛЬНОЙ очисткой стека
+        navController.navigate(InfoApartmentScreenDest.route) {
+          // Очищаем ВЕСЬ путь до экрана добавления и сам экран добавления
+          popUpTo(AddApartmentScreen.route) {
+            inclusive = true
+          }
+          // Гарантируем, что мы не создадим две копии Info-экрана
+          launchSingleTop = true
+        }
       }
     },
-    navigationType = navigationType,
+
+      navigationType = navigationType,
     code = secretCode,
     onCodeChanged = { newValue ->
       // ВАЖНО: Больше не фильтруем только цифры здесь,

@@ -1,5 +1,4 @@
 package com.ykis.mob.domain.apartment.request
-import android.net.http.HttpException
 import com.ykis.mob.core.Resource
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.domain.apartment.ApartmentEntity
@@ -14,6 +13,7 @@ class GetApartmentList (
   private val database : AppDatabase
 ){
   operator fun invoke (uid : String) : Flow<Resource<List<ApartmentEntity>>> = flow {
+
     val addressIdList = mutableListOf<Int>()
     try {
       emit(Resource.Loading())
@@ -54,4 +54,5 @@ class GetApartmentList (
     }
   }.flowOn(Dispatchers.IO) // <--- ЭТО РЕШАЕТ ПРОБЛЕМУ CRASH
 }
+
 

@@ -268,6 +268,7 @@
   //success
   <string name="success_delete_flat">Квартира успішно видалена</string>
   <string name="success_add_flat">Квартиру додано</string>
+  <string name="success_send_message">Повідомлення успішно переслано</string>
   <string name="confirm_password">Подтвердите пароль</string>
   <string name="name">Имя</string>
   <string name="register">Регистрация</string>
@@ -333,4 +334,11 @@
   <string name="error_delete_account">помилка видалення облікового запису</string>
   <string name="error_invalid_admin_code">код адміна не вірний</string>
   <string name="my_osbb">мій ОСББ</string>
+    <string name="izm">змінено</string>
+  <string name="success_admin_auth">адмін доступ надано</string>
+    <string name="error_send_message">повідомлення не передано, помилка</string>
+  <string name="dispatcher">диспетчер</string>
+  <string name="forwarded">переслано</string>
+    <string name="forward_message">переслать повідомлення</string>
+    <string name="select_recipient">вибрати_отримувача</string>
 </resources>

@@ -23,7 +23,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun MainServiceScreen(
     modifier: Modifier = Modifier,
-    viewModel : ServiceViewModel = koinViewModel(),
+    viewModel : ServiceViewModel,
     baseUIState: BaseUIState,
     navigationType: NavigationType,
     displayFeature: List<DisplayFeature>,

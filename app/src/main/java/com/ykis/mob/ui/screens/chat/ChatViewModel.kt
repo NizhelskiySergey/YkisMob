@@ -1,32 +1,37 @@
 package com.ykis.mob.ui.screens.chat
 
-import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
-import androidx.annotation.StringRes
-import androidx.compose.ui.res.stringResource
-import androidx.core.R
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Timestamp
 import com.google.firebase.ai.type.content
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.PropertyName
 import com.google.firebase.database.ValueEventListener
+import com.ykis.mob.R
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.firebase.service.impl.ChatRepository
 import com.ykis.mob.firebase.service.repo.LogService
+import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.BaseViewModel
 import com.ykis.mob.ui.navigation.ContentDetail
 import com.ykis.mob.ui.screens.service.list.TotalServiceDebt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,8 +60,14 @@ data class MessageEntity(
   val text: String = "",
   val imageUrl: String? = null,
   val timestamp: Long = 0L,
-  var read: Boolean= false
+  var read: Boolean = false,
+  val edited: Boolean = false,        // Флаг редактирования
+  val deletedFor: List<String> = emptyList(), // Список UID, кто удалил сообщение "у себя"
+  @get:PropertyName("forwarded") // Говорим Firebase искать поле "forwarded"
+  @set:PropertyName("forwarded")
+  var isForwarded: Boolean = false
 )
+
 
 data class UserEntity(
   val uid: String = "",
@@ -70,6 +81,7 @@ data class UserEntity(
   val addressId: Int = 0,
   val tokens: List<String> = emptyList()
 )
+
 // Модель для одной строки в списке админа
 data class ChatSession(
   val chatId: String,        // Напр: "OSBB_3_1434_UID"
@@ -83,14 +95,16 @@ fun mapToUserEntity(uid: String, map: Map<String, Any>): UserEntity {
   return UserEntity(
     uid = uid,
     // Читаем роль: берем строку из мапы и превращаем в Enum
-    userRole = UserRole.entries.find { it.name == map["userRole"] as? String } ?: UserRole.StandardUser,
+    userRole = UserRole.entries.find { it.name == map["userRole"] as? String }
+      ?: UserRole.StandardUser,
 
     photoUrl = map["photoUrl"] as? String,
     createdAt = map["createdAt"] as? Timestamp,
 
     // В UserFirebase у тебя поле называется "name", а в Entity "displayName"
     // Проверяем оба ключа на всякий случай
-    displayName = (map["name"] as? String) ?: (map["displayName"] as? String) ?: (map["email"] as? String),
+    displayName = (map["name"] as? String) ?: (map["displayName"] as? String)
+    ?: (map["email"] as? String),
 
     email = map["email"] as? String,
 
@@ -104,8 +118,6 @@ fun mapToUserEntity(uid: String, map: Map<String, Any>): UserEntity {
     tokens = (map["fcmTokens"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
   )
 }
-
-
 
 
 class ChatViewModel(
@@ -133,7 +145,7 @@ class ChatViewModel(
   // Хранилище последних сообщений: Key = chatId, Value = MessageEntity
   private val _lastMessages = MutableStateFlow<Map<String, MessageEntity>>(emptyMap())
   val lastMessages: StateFlow<Map<String, MessageEntity>> = _lastMessages.asStateFlow()
-
+  private var lastTypingState = false
   // Список активных слушателей для последних сообщений, чтобы не плодить дубли
   private val lastMessageListeners = mutableMapOf<String, ValueEventListener>()
 
@@ -167,6 +179,8 @@ class ChatViewModel(
   private val _selectedMessage = MutableStateFlow(MessageEntity())
   val selectedMessage = _selectedMessage.asStateFlow()
   private var currentChatPath: String? = null // Храним путь текущего открытого чата
+  // В ChatViewModel.kt
+  private val typingReference = FirebaseDatabase.getInstance().getReference("typing")
 
 
   // ChatViewModel.kt
@@ -174,11 +188,307 @@ class ChatViewModel(
   // Хранилище счетчиков: Key = chatId, Value = количество новых сообщений
   private val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
   val unreadCounts: StateFlow<Map<String, Int>> = _unreadCounts.asStateFlow()
-
+  private val _isPartnerTyping = MutableStateFlow(false)
+  val isPartnerTyping = _isPartnerTyping.asStateFlow()
   private val _recipientTokens = MutableStateFlow<List<String>>(emptyList())
   val recipientTokens = _recipientTokens.asStateFlow()
   private val _messageToDelete = MutableStateFlow<MessageEntity?>(null)
   val messageToDelete = _messageToDelete.asStateFlow()
+
+  private val _editingMessage = MutableStateFlow<MessageEntity?>(null)
+  val editingMessage = _editingMessage.asStateFlow()
+
+  // В ChatViewModel.kt
+
+
+  private var typingJob: Job? = null
+
+  // В ChatViewModel.kt
+  // В ChatViewModel.kt
+  private val _forwardingMessage = MutableStateFlow<MessageEntity?>(null)
+  val forwardingMessage = _forwardingMessage.asStateFlow()
+
+  // Флаг для UI: показываем ли мы кнопку "Выбрать" в списке пользователей
+  val isForwardingMode = _forwardingMessage.map { it != null }.stateIn(viewModelScope, SharingStarted.Lazily, false)
+
+  fun startForwarding(message: MessageEntity) {
+    _forwardingMessage.value = message
+    Log.d("YkisLog", "ChatViewModel: Режим пересылки сообщения ${message.id}")
+  }
+  fun confirmForwardToService(
+    service: ContentDetail,
+    baseState: BaseUIState,
+    targetUser: UserEntity? = null // Добавляем целевого юзера для админа
+  ) {
+    val chatId = if (baseState.userRole == UserRole.StandardUser) {
+      // Логика ЖИЛЬЦА (без изменений)
+      if (service == ContentDetail.OSBB) {
+        "OSBB_${baseState.osbbId}_${baseState.addressId}_${baseState.uid}"
+      } else {
+        "${service.name}_${baseState.addressId}_${baseState.uid}"
+      }
+    } else {
+      // Логика АДМИНА (берем данные жильца из targetUser)
+      val tUser = targetUser ?: return // Если юзер не передан, выходим
+      val prefix = if (service == ContentDetail.OSBB) "OSBB_${baseState.osbbId}" else service.name
+
+      "${prefix}_${tUser.addressId}_${tUser.uid}"
+    }
+
+    Log.d("YkisLog", "confirmForward: Назначение -> $chatId")
+    sendForwardedMessage(chatId)
+  }
+
+
+
+
+  fun cancelForwarding() {
+    _forwardingMessage.value = null
+  }
+
+  // Метод самой пересылки
+  /**
+   * Шаг 2а: Пересылка конкретному пользователю (используется Админом)
+   */
+  fun confirmForward(targetUser: UserEntity) {
+    val methodName = "ChatViewModel.confirmForward()"
+
+    // Исправляем: принудительно используем логику пути для Жильца,
+    // так как мы пишем в его ветку чата
+    val targetChatId = getChatPath(
+      role = UserRole.StandardUser, // Гарантируем формат пути "Служба_Дом_Кв_Юзер"
+      osbbId = targetUser.osbbId ?: 0,
+      addressId = targetUser.addressId,
+      targetUserUid = targetUser.uid
+    )
+
+    Log.d("YkisLog", "$methodName: [TARGET] Path: $targetChatId")
+    sendForwardedMessage(targetChatId)
+  }
+
+
+  /**
+   * Вспомогательный метод для физической копии сообщения в Firebase
+   */
+  private fun sendForwardedMessage(targetChatId: String) {
+    val methodName = "ChatViewModel.sendForwardedMessage()"
+    val messageToForward = _forwardingMessage.value ?: return
+    val myUid = chatRepo.currentUid ?: ""
+
+    Log.d("YkisLog", "$methodName: [START] Исходное сообщение: ${messageToForward.id}, Есть фото: ${!messageToForward.imageUrl.isNullOrEmpty()}")
+
+    viewModelScope.launch(Dispatchers.IO) {
+      // 1. Создаем уникальный ключ в целевой ветке
+      val newMsgKey = chatsReference.child(targetChatId).push().key
+      if (newMsgKey == null) {
+        Log.e("YkisLog", "$methodName: [ERROR] Не удалось сгенерировать ключ для Firebase")
+        return@launch
+      }
+
+      // 2. Подготовка копии сообщения
+      // Явно прописываем imageUrl, чтобы он гарантированно перенесся в новый объект
+      val forwardedMsg = messageToForward.copy(
+        id = newMsgKey,
+        senderUid = myUid,
+        timestamp = System.currentTimeMillis(),
+        read = false,
+        isForwarded = true,
+        imageUrl = messageToForward.imageUrl // КРИТИЧЕСКИ ВАЖНО: сохраняем ссылку на фото
+      )
+
+      Log.d("YkisLog", "$methodName: [PREPARE] Путь: $targetChatId | URL фото: ${forwardedMsg.imageUrl ?: "null"}")
+
+      // 3. Отправка в Realtime Database
+      chatsReference.child(targetChatId).child(newMsgKey).setValue(forwardedMsg)
+        .addOnSuccessListener {
+          Log.d("YkisLog", "$methodName: [SUCCESS] Переслано в $targetChatId. ID: $newMsgKey")
+
+          // Сбрасываем состояние пересылки в Main потоке
+          viewModelScope.launch(Dispatchers.Main) {
+            cancelForwarding()
+            SnackbarManager.showMessage(R.string.success_send_message)
+          }
+        }
+        .addOnFailureListener { e ->
+          Log.e("YkisLog", "$methodName: [FAILED] Ошибка записи: ${e.message}")
+          viewModelScope.launch(Dispatchers.Main) {
+            SnackbarManager.showMessage(R.string.error_send_message)
+          }
+        }
+    }
+  }
+
+
+  fun deleteForMe(messageId: String) {
+    val methodName = "ChatViewModel.deleteForMe()"
+    val chatId = currentChatPath ?: return
+    val myUid = chatRepo.currentUid ?: return
+
+    viewModelScope.launch(Dispatchers.IO) {
+      Log.d("YkisLog", "$methodName: [START] Скрытие сообщения $messageId для пользователя $myUid")
+
+      // Путь: chats/chatId/messageId/deletedFor
+      val deletedForRef = chatsReference.child(chatId).child(messageId).child("deletedFor")
+
+      // Получаем текущий список, добавляем свой UID и сохраняем обратно
+      deletedForRef.get().addOnSuccessListener { snapshot ->
+        val currentList = snapshot.children.mapNotNull { it.getValue(String::class.java) }.toMutableList()
+
+        if (!currentList.contains(myUid)) {
+          currentList.add(myUid)
+          deletedForRef.setValue(currentList).addOnSuccessListener {
+            Log.d("YkisLog", "$methodName: [SUCCESS] Сообщение $messageId скрыто локально")
+          }.addOnFailureListener { e ->
+            Log.e("YkisLog", "$methodName: [ERROR] Ошибка записи: ${e.message}")
+          }
+        } else {
+          Log.d("YkisLog", "$methodName: [SKIP] UID уже в списке скрытых")
+        }
+      }.addOnFailureListener { e ->
+        Log.e("YkisLog", "$methodName: [CRITICAL] Ошибка получения данных: ${e.message}")
+      }
+    }
+  }
+
+  fun observeTypingStatus(chatId: String) {
+    val methodName = "ChatViewModel.observeTypingStatus()"
+    val myUid = chatRepo.currentUid ?: ""
+    val ref = typingReference.child(chatId)
+
+    // Мгновенный сброс перед подпиской
+    _isPartnerTyping.value = false
+    typingJob?.cancel()
+
+    Log.d("YkisLog", "$methodName: [OPEN_CHAT] Подписка на статус печати для $chatId")
+
+    val listener = object : ValueEventListener {
+      // В ChatViewModel.kt
+      override fun onDataChange(snapshot: DataSnapshot) {
+        val methodName = "ChatViewModel.observeTypingStatus()"
+        val now = System.currentTimeMillis()
+
+        val isTyping = snapshot.children.any { child ->
+          // Используем Any? и безопасное приведение к Long
+          val rawValue = child.value
+          val timestamp = when (rawValue) {
+            is Long -> rawValue
+            is Double -> rawValue.toLong()
+            else -> 0L // Если там Boolean или null — просто игнорируем
+          }
+
+          child.key != myUid && (now - timestamp) < 10000
+        }
+
+        _isPartnerTyping.value = isTyping
+        Log.d("YkisLog", "$methodName: [SYNC] Печатает: $isTyping")
+
+      if (isTyping) {
+          typingJob?.cancel()
+          typingJob = viewModelScope.launch {
+            delay(3000) // Гасим через 3 секунд тишины
+            _isPartnerTyping.value = false
+          }
+        }
+      }
+      override fun onCancelled(e: DatabaseError) {
+        Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+      }
+    }
+
+    // Удаляем старый, если был, и ставим новый
+    listeners[ref]?.let { ref.removeEventListener(it) }
+    ref.addValueEventListener(listener)
+    listeners[ref] = listener
+  }
+
+
+
+// ChatViewModel.kt
+
+  // 1. Метод отмены редактирования
+  fun cancelEditing() {
+    _editingMessage.value = null
+    _messageText.value = ""
+    Log.d("YkisLog", "ChatViewModel: Редактирование отменено")
+  }
+
+  // 2. Обновленный метод изменения текста (с отправкой статуса печати)
+  fun onMessageTextChanged(newText: String) {
+    _messageText.value = newText
+
+    // Если мы НЕ в режиме редактирования, отправляем "печатает"
+    // (При редактировании старого сообщения "печатает" обычно не показывают)
+    if (_editingMessage.value == null) {
+      setTypingStatus(newText.isNotBlank())
+    }
+  }
+
+  // 3. Метод сохранения исправленного сообщения
+  fun updateMessage(newText: String) {
+    val msg = _editingMessage.value ?: return
+    val chatId = currentChatPath ?: return
+
+    viewModelScope.launch(Dispatchers.IO) {
+      val updates = mapOf(
+        "text" to newText,
+        "edited" to true // Пометка, что сообщение было изменено
+      )
+      chatsReference.child(chatId).child(msg.id).updateChildren(updates)
+        .addOnSuccessListener {
+          Log.d("YkisLog", "ChatViewModel: [SUCCESS] Сообщение ${msg.id} обновлено")
+          cancelEditing() // Сбрасываем режим правки и чистим поле
+        }
+        .addOnFailureListener { e ->
+          Log.e("YkisLog", "ChatViewModel: [ERROR] Не удалось обновить: ${e.message}")
+        }
+    }
+  }
+
+  fun fetchAndSelectUser(userUid: String, onComplete: () -> Unit) {
+    val methodName = "ChatViewModel.fetchAndSelectUser()"
+    Log.d("YkisLog", "$methodName: [START] Поиск данных пользователя: $userUid")
+
+    viewModelScope.launch(Dispatchers.IO) {
+      try {
+        // Запрашиваем документ напрямую из репозитория/Firestore
+        val user = chatRepo.getUserByUid(userUid)
+
+        withContext(Dispatchers.Main) {
+          if (user != null) {
+            _selectedUser.value = user
+            Log.d("YkisLog", "$methodName: [SUCCESS] Пользователь найден: ${user.displayName}")
+            onComplete()
+          } else {
+            Log.e("YkisLog", "$methodName: [ERROR] Пользователь с UID $userUid не найден в базе")
+          }
+        }
+      } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [CRITICAL] Ошибка поиска: ${e.message}")
+      }
+    }
+  }
+
+
+  fun startEditing(message: MessageEntity) {
+    _editingMessage.value = message
+    _messageText.value = message.text // Переносим текст в поле ввода
+  }
+
+  fun confirmEdit(newText: String) {
+    val msg = _editingMessage.value ?: return
+    val chatId = currentChatPath ?: return
+
+    chatsReference.child(chatId).child(msg.id).updateChildren(
+      mapOf(
+        "text" to newText,
+        "edited" to true
+      )
+    )
+    _editingMessage.value = null
+    _messageText.value = ""
+  }
+
+
 
   // Добавляем логику в существующий метод подписки на сообщения
   // В ChatViewModel.kt
@@ -199,6 +509,37 @@ class ChatViewModel(
     // Вызываем наш основной метод подсчета
     subscribeToUnreadCount(chatKeys)
   }
+
+  // Установка статуса (вызывать при наборе текста)
+
+  fun setTypingStatus(isTyping: Boolean) {
+    val methodName = "ChatViewModel.setTypingStatus()"
+    val chatId = currentChatPath ?: return
+    val myUid = chatRepo.currentUid ?: return
+    val ref = typingReference.child(chatId).child(myUid)
+
+    if (isTyping) {
+      // Мы убрали проверку lastTypingState, чтобы каждое нажатие
+      // обновляло метку времени и "будило" слушателя у собеседника.
+      val timestamp = System.currentTimeMillis()
+
+      ref.setValue(timestamp).addOnSuccessListener {
+        Log.d("YkisLog", "$methodName: [UPDATE] Метка времени $timestamp отправлена в $chatId")
+      }.addOnFailureListener { e ->
+        Log.e("YkisLog", "$methodName: [ERROR] Ошибка записи: ${e.message}")
+      }
+    } else {
+      // Когда текст стерт полностью — удаляем узел
+      ref.removeValue().addOnSuccessListener {
+        Log.d("YkisLog", "$methodName: [STOP] Узел typing удален для $myUid")
+      }
+      // Сбрасываем локальный флаг, чтобы при следующем вводе сработал блок isTyping
+      lastTypingState = false
+    }
+  }
+
+  // Подписка на статус собеседника
+
 
   fun subscribeToUnreadCount(chatKeys: List<String>) {
     val methodName = "ChatViewModel.subscribeToUnreadCount()"
@@ -248,7 +589,6 @@ class ChatViewModel(
   }
 
 
-
   // Метод для получения помощи от ИИ
   fun askAssistant(userText: String) {
     if (userText.isBlank()) return
@@ -289,6 +629,7 @@ class ChatViewModel(
             Log.d("YkisLog", "$methodName: New msg in $chatId: ${message.text}")
           }
         }
+
         override fun onCancelled(error: DatabaseError) {}
       }
 
@@ -296,6 +637,7 @@ class ChatViewModel(
       lastMessageListeners[chatId] = listener
     }
   }
+
   fun markMessagesAsRead(chatId: String) {
     val methodName = "ChatViewModel.markMessagesAsRead()"
     val myUid = chatRepo.currentUid ?: ""
@@ -322,7 +664,10 @@ class ChatViewModel(
           if (msg.senderUid != myUid && !msg.read) {
             updates["$msgKey/read"] = true
             incomingCount++
-            Log.d("YkisLog", "$methodName: Найдено непрочитанное от ${msg.senderDisplayedName} (ID: $msgKey)")
+            Log.d(
+              "YkisLog",
+              "$methodName: Найдено непрочитанное от ${msg.senderDisplayedName} (ID: $msgKey)"
+            )
           }
         }
       }
@@ -330,7 +675,10 @@ class ChatViewModel(
       if (updates.isNotEmpty()) {
         Log.d("YkisLog", "$methodName: [PROCESS] Отправка обновлений в базу: $incomingCount шт.")
         ref.updateChildren(updates).addOnSuccessListener {
-          Log.d("YkisLog", "$methodName: [SUCCESS] Статус 'read' обновлен для $incomingCount сообщений")
+          Log.d(
+            "YkisLog",
+            "$methodName: [SUCCESS] Статус 'read' обновлен для $incomingCount сообщений"
+          )
 
           // Локально сбрасываем счетчик в UI сразу после успеха в базе
           _unreadCounts.update { it + (chatId to 0) }
@@ -361,27 +709,34 @@ class ChatViewModel(
 
   // Шаг 3: Физическое удаление
   fun confirmDeletion() {
-    val messageId = _messageToDelete.value?.id
+    // 1. Берем сообщение целиком, чтобы получить imageUrl
+    val message = _messageToDelete.value
     val chatId = currentChatPath
 
-    Log.d("YkisLog", "ChatViewModel.confirmDeletion(): [CHECK] Path: $chatId | MsgId: $messageId")
-
-    if (chatId == null || messageId == null) {
+    if (chatId == null || message == null) {
       Log.e("YkisLog", "ChatViewModel: [ERROR] Недостаточно данных для удаления")
       return
     }
 
     viewModelScope.launch(Dispatchers.IO) {
-      chatsReference.child(chatId).child(messageId).removeValue()
+      // 2. Если в сообщении была фотография — удаляем её из Storage
+      if (!message.imageUrl.isNullOrBlank()) {
+        Log.d("YkisLog", "ChatViewModel: [STORAGE] Удаление фото: ${message.imageUrl}")
+        chatRepo.deleteImageFromStorage(message.imageUrl)
+      }
+
+      // 3. Удаляем само сообщение из Realtime Database
+      chatsReference.child(chatId).child(message.id).removeValue()
         .addOnSuccessListener {
-          Log.d("YkisLog", "ChatViewModel: [SUCCESS] Сообщение $messageId удалено из Firebase")
+          Log.d("YkisLog", "ChatViewModel: [SUCCESS] Сообщение ${message.id} удалено")
           _messageToDelete.value = null // Закрываем диалог
         }
         .addOnFailureListener { e ->
-          Log.e("YkisLog", "ChatViewModel: [FAILED] Firebase Error: ${e.message}")
+          Log.e("YkisLog", "ChatViewModel: [FAILED] Ошибка: ${e.message}")
         }
     }
   }
+
 
 
   private fun analyzeIncomingMessage(message: MessageEntity, role: UserRole) {
@@ -475,11 +830,11 @@ class ChatViewModel(
    * Записывает сообщение в Realtime Database и отправляет Push-уведомление.
    */
   fun writeToDatabase(
-    chatUid: String,            // UID жильца (собеседника)
-    senderUid: String,          // Свой UID (админа или жильца)
-    senderDisplayedName: String, // Свой Nickname (из baseUIState)
+    chatUid: String,
+    senderUid: String,
+    senderDisplayedName: String,
     senderLogoUrl: String?,
-    senderAddress: String,      // Свой "Адрес | Фамилия" (для жильца)
+    senderAddress: String,
     addressId: Int,
     imageUrl: String?,
     osbbId: Int,
@@ -495,21 +850,20 @@ class ChatViewModel(
     }
     _isLoadingAfterSending.value = true
 
-    // 1. ФОРМИРОВАНИЕ ЕДИНОГО ПУТИ (Критично для нескольких админов)
-    // Если пишет админ, getChatPath должен вернуть путь на основе chatUid жильца
+    // 1. ФОРМИРОВАНИЕ ПУТИ И ЕГО ФИКСАЦИЯ
     val chatId = getChatPath(role, osbbId, addressId, if (role != UserRole.StandardUser) chatUid else null)
+
+    // КРИТИЧЕСКИ ВАЖНО: устанавливаем путь ПЕРЕД записью, чтобы слушатель не выдал REJECTED
+    currentChatPath = chatId
+
     val chatRef = chatsReference.child(chatId)
     val messageKey = chatRef.push().key ?: return
 
     // 2. ПОДГОТОВКА ДАННЫХ
-    // Имя отправителя (Фамилия для жильца / Nickname для админа)
     val cleanName = senderDisplayedName.substringAfter("|").trim()
-
-    // Контекст адреса (Чтобы у всех админов в списке карточка не менялась на "Служба")
     val contextAddress = if (role == UserRole.StandardUser) {
-      senderDisplayedName // Жилец пишет свой "Адрес | Фамилия"
+      senderDisplayedName
     } else {
-      // Админ записывает адрес жильца, которому отвечает
       selectedUser.value.displayName ?: "Служба"
     }
 
@@ -518,20 +872,27 @@ class ChatViewModel(
       senderUid = senderUid,
       text = messageText.value,
       senderLogoUrl = senderLogoUrl,
-      senderDisplayedName = cleanName,    // Личное имя (кто именно ответил)
-      senderAddress = contextAddress,      // Адрес квартиры (для стабильности списка)
+      senderDisplayedName = cleanName,
+      senderAddress = contextAddress,
       imageUrl = imageUrl,
       timestamp = System.currentTimeMillis(),
       read = false
     )
 
-    Log.d("YkisLog", "$methodName: [SENDING] Path: $chatId | From: $cleanName | Context: $contextAddress")
+    Log.d("YkisLog", "$methodName: [SENDING] Path: $chatId | MessageID: $messageKey")
 
     // 3. ЗАПИСЬ
     chatRef.child(messageKey).setValue(messageEntity).addOnCompleteListener { task ->
       _isLoadingAfterSending.value = false
       if (task.isSuccessful) {
         Log.d("YkisLog", "$methodName: [SUCCESS] Saved to $chatId")
+
+        // ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ UI (чтобы не ждать ответа от Firebase)
+        val currentList = _firebaseTest.value.toMutableList()
+        if (currentList.none { it.id == messageEntity.id }) {
+          currentList.add(messageEntity)
+          _firebaseTest.value = currentList.toList()
+        }
 
         sendPushNotification(
           SendNotificationArguments(
@@ -542,6 +903,9 @@ class ChatViewModel(
         )
 
         _messageText.value = ""
+        // Сбрасываем выбранное фото, если оно было
+        _selectedImageUri.value = android.net.Uri.EMPTY
+
         onComplete()
       } else {
         Log.e("YkisLog", "$methodName: [FAILED] ${task.exception?.message}")
@@ -549,14 +913,11 @@ class ChatViewModel(
     }
   }
 
+
   fun closeChat() {
     Log.d("YkisLog", "ChatViewModel: Закрытие чата. Был путь: $currentChatPath")
     currentChatPath = null
   }
-
-
-
-
 
 
   /**
@@ -569,80 +930,94 @@ class ChatViewModel(
 
   fun readFromDatabase(role: UserRole, senderUid: String, osbbId: Int, addressId: Int) {
     val methodName = "ChatViewModel.readFromDatabase()"
-    val chatId = getChatPath(role, osbbId, addressId, if (role != UserRole.StandardUser) senderUid else null)
-
-    Log.d("YkisLog", "$methodName: [START] Request for Path: $chatId")
-
-    // 1. ИСПРАВЛЕННЫЙ ПРЕДОХРАНИТЕЛЬ
-    if (currentChatPath == chatId) {
-      Log.d("YkisLog", "$methodName: [SKIP] Чат уже активен. Принудительно обновляем UI.")
-      markMessagesAsRead(chatId)
-
-      // Если список пуст (например, после рекомпозиции), запросим его один раз принудительно
-      if (_firebaseTest.value.isEmpty()) {
-        chatsReference.child(chatId).get().addOnSuccessListener { snapshot ->
-          val messages = snapshot.children.mapNotNull { it.getValue(MessageEntity::class.java) }
-          _firebaseTest.value = messages
-          Log.d("YkisLog", "$methodName: [RECOVERY] Данные восстановлены для $chatId")
-        }
-      }
+    // Генерируем путь один раз и используем его везде
+    val targetPath = getChatPath(role, osbbId, addressId, if (role != UserRole.StandardUser) senderUid else null)
+    val myUid = chatRepo.currentUid ?: ""
+    if (currentChatPath == targetPath && listeners.isNotEmpty()) {
+      Log.d("YkisLog", "$methodName: [SKIP] Мы уже слушаем $targetPath")
       return
     }
+    Log.d("YkisLog", "$methodName: [START] Инициализация чата: $targetPath")
 
-    // 2. ИНИЦИАЛИЗАЦИЯ НОВОГО ПУТИ
-    Log.d("YkisLog", "$methodName: [SWITCH] Переключение с $currentChatPath на $chatId")
-    currentChatPath = chatId
-    _firebaseTest.value = emptyList() // Очистка старого экрана
-    markMessagesAsRead(chatId)
+    // 1. КРИТИЧЕСКИЙ МОМЕНТ: Устанавливаем путь НЕМЕДЛЕННО
+    // Это лечит ошибку [REJECTED] ... (активен null)
+    currentChatPath = targetPath
 
-    val ref = chatsReference.child(chatId)
-
-    // 3. УДАЛЕНИЕ СТАРЫХ СЛУШАТЕЛЕЙ
-    listeners[ref]?.let {
-      Log.d("YkisLog", "$methodName: [CLEANUP] Удаление старого слушателя для $chatId")
-      ref.removeEventListener(it)
+    // 2. ПОЛНАЯ ОЧИСТКА ПРЕДЫДУЩИХ ПОДПИСОК
+    listeners.forEach { (reference, listener) ->
+      Log.d("YkisLog", "$methodName: [CLEANUP] Удаление слушателя из ветки: ${reference.key}")
+      reference.removeEventListener(listener)
     }
+    listeners.clear()
 
+    // 3. ПОДГОТОВКА UI
+    _firebaseTest.value = emptyList()
+    _isPartnerTyping.value = false
+    typingJob?.cancel()
+
+    // Запускаем процессы мониторинга
+    markMessagesAsRead(targetPath)
+    observeTypingStatus(targetPath)
+
+    val ref = chatsReference.child(targetPath)
+
+    // 4. СОЗДАНИЕ СЛУШАТЕЛЯ
     val listener = object : ValueEventListener {
       override fun onDataChange(dataSnapshot: DataSnapshot) {
-        val countInSnapshot = dataSnapshot.childrenCount
-        Log.d("YkisLog", "$methodName: [ON_DATA_CHANGE] Ветка: $chatId | Сообщений в базе: $countInSnapshot")
+        val count = dataSnapshot.childrenCount
 
-        // Проверка: тот ли это чат, который мы открыли?
-        if (chatId == currentChatPath) {
-          // Если есть новые сообщения — помечаем как прочитанные
-          if (countInSnapshot > 0) {
-            markMessagesAsRead(chatId)
-          }
+        // Сравниваем с локальной константой targetPath, а не с изменяемой currentChatPath
+        Log.d("YkisLog", "$methodName: [DATA_RECV] Путь: $targetPath | В базе: $count")
 
+        if (targetPath == currentChatPath) {
           viewModelScope.launch(Dispatchers.Default) {
-            val messageList = dataSnapshot.children.mapNotNull {
+            val messages = dataSnapshot.children.mapNotNull {
               it.getValue(MessageEntity::class.java)
-            }
+            }.filter { msg ->
+              msg.deletedFor == null || !msg.deletedFor.contains(myUid)
+            }.sortedBy { it.timestamp }
 
             withContext(Dispatchers.Main) {
-              Log.d("YkisLog", "$methodName: [UI_UPDATE] Публикуем ${messageList.size} сообщений в StateFlow")
-              _firebaseTest.value = messageList
+              // .toList() принуждает Compose обновить экран
+              _firebaseTest.value = messages.toList()
+
+              Log.d("YkisLog", "$methodName: [UI_READY] Отображено: ${messages.size} сообщ.")
+
+              if (messages.isNotEmpty()) {
+                markMessagesAsRead(targetPath)
+              }
             }
           }
         } else {
-          Log.w("YkisLog", "$methodName: [REJECTED] Данные пришли для $chatId, но текущий активный чат: $currentChatPath")
+          Log.w("YkisLog", "$methodName: [REJECTED] Данные для $targetPath проигнорированы (активен $currentChatPath)")
         }
       }
 
       override fun onCancelled(error: DatabaseError) {
-        Log.e("YkisLog", "$methodName: [DATABASE_ERROR] ${error.message}")
+        Log.e("YkisLog", "$methodName: [ERROR] Ошибка Firebase: ${error.message}")
       }
     }
 
-    Log.d("YkisLog", "$methodName: [LISTENER_ADD] Регистрация слушателя на path: chats/$chatId")
+    // 5. РЕГИСТРАЦИЯ
+    Log.d("YkisLog", "$methodName: [LISTENER_ACTIVE] Слушаем: chats/$targetPath")
     ref.addValueEventListener(listener)
     listeners[ref] = listener
   }
 
+
+
+
+
+
   fun clearCurrentChatPath() {
-    Log.d("YkisLog", "ChatViewModel: Сброс currentChatPath (был $currentChatPath)")
+    val chatId = currentChatPath // запоминаем текущий
     currentChatPath = null
+    _isPartnerTyping.value = false // Сбрасываем флаг для UI
+
+    // Убираем себя из списка печатающих при выходе
+    if (chatId != null) {
+      setTypingStatus(false)
+    }
   }
 
 
@@ -671,9 +1046,7 @@ class ChatViewModel(
   }
 
 
-  fun onMessageTextChanged(value: String) {
-    _messageText.value = value
-  }
+
 
   /**
    * Отслеживает список активных чатов (ID пользователей) для конкретной роли админа.
@@ -717,7 +1090,10 @@ class ChatViewModel(
           // 4. Извлекаем чистые UID для Firestore (часть после последнего "_")
           val uidsToFetch = chatKeys.map { it.substringAfterLast("_") }.distinct()
 
-          Log.d("YkisLog", "$methodName: [UPDATE] Найдено чатов: ${chatKeys.size}. Уникальных жильцов: ${uidsToFetch.size}")
+          Log.d(
+            "YkisLog",
+            "$methodName: [UPDATE] Найдено чатов: ${chatKeys.size}. Уникальных жильцов: ${uidsToFetch.size}"
+          )
           chatKeys.forEach { key -> Log.d("YkisLog", "$methodName: Активная ветка -> $key") }
 
           withContext(Dispatchers.Main) {
@@ -746,14 +1122,6 @@ class ChatViewModel(
   }
 
 
-
-
-
-
-
-
-
-
   fun getUsers() {
     val methodName = "ChatViewModel.getUsers()"
     val chatKeys = _userIdentifiersWithRole.value
@@ -780,7 +1148,10 @@ class ChatViewModel(
           .filter { it.userRole != UserRole.StandardUser }
           .flatMap { it.tokens ?: emptyList() }
         _recipientTokens.value = allAdminTokens
-        Log.d("YkisLog", "$methodName: [TOKENS] Подготовлено токенов админов: ${allAdminTokens.size}")
+        Log.d(
+          "YkisLog",
+          "$methodName: [TOKENS] Подготовлено токенов админов: ${allAdminTokens.size}"
+        )
 
         val finalUserList = withContext(Dispatchers.Default) {
           chatKeys.mapNotNull { key ->
@@ -826,7 +1197,10 @@ class ChatViewModel(
         val adminTokens = admins.flatMap { it.tokens }
 
         _recipientTokens.value = adminTokens
-        Log.d("YkisLog", "$methodName: [TOKENS] Найдено ${admins.size} админов. Токенов: ${adminTokens.size}")
+        Log.d(
+          "YkisLog",
+          "$methodName: [TOKENS] Найдено ${admins.size} админов. Токенов: ${adminTokens.size}"
+        )
       } catch (e: Exception) {
         Log.e("YkisLog", "$methodName: [ERROR] Не удалось собрать токены админов", e)
       }
@@ -835,13 +1209,6 @@ class ChatViewModel(
     // Запускаем слушатели Realtime Database для красных кружков
     subscribeToUnreadCount(chatKeys)
   }
-
-
-
-
-
-
-
 
 
   fun setSelectedUser(user: UserEntity) {
@@ -864,9 +1231,11 @@ class ChatViewModel(
       )
     }
 
-    Log.d("YkisLog", "$methodName: Установлена служба ${totalServiceDebt.name}, Code: ${totalServiceDebt.contentDetail.name}")
+    Log.d(
+      "YkisLog",
+      "$methodName: Установлена служба ${totalServiceDebt.name}, Code: ${totalServiceDebt.contentDetail.name}"
+    )
   }
-
 
 
   /**
@@ -879,7 +1248,10 @@ class ChatViewModel(
   ) {
     // Используем viewModelScope, чтобы подписка автоматически закрылась при уничтожении ViewModel
     viewModelScope.launch {
-      Log.d("YkisLog", "ApartmentViewModel addChatListener() Подписка на последнее сообщение в ветке: $chatUid")
+      Log.d(
+        "YkisLog",
+        "ApartmentViewModel addChatListener() Подписка на последнее сообщение в ветке: $chatUid"
+      )
 
       // 1. Получаем поток (Flow) из репозитория
       chatRepo.observeLastMessage(chatUid)
@@ -890,7 +1262,10 @@ class ChatViewModel(
           // Если в чате еще нет сообщений, создаем пустую сущность
           val message = latestMessage ?: MessageEntity(text = "Нет сообщений")
 
-          Log.d("YkisLog", "ApartmentViewModel addChatListener() Обновление чата $chatUid: ${message.text}")
+          Log.d(
+            "YkisLog",
+            "ApartmentViewModel addChatListener() Обновление чата $chatUid: ${message.text}"
+          )
 
           // 4. Передаем результат обратно в UI через callback
           // Колбэк выполнится в Main потоке, так как viewModelScope.launch по умолчанию в Main
@@ -906,31 +1281,49 @@ class ChatViewModel(
   fun uploadPhotoAndSendMessage(
     context: android.content.Context,
     chatUid: String,            // UID жильца
-    senderUid: String,          // Свой UID
+    senderUid: String,          // Свой UID (админа или жильца)
     senderDisplayedName: String,
     senderLogoUrl: String?,
     senderAddress: String,
-    addressId: Int,             // ДОБАВЛЕНО: ID квартиры
+    addressId: Int,
     osbbId: Int,
     role: UserRole,
-    onComplete: () -> Unit,
-    recipientTokens: List<String>
+    recipientTokens: List<String>,
+    onComplete: () -> Unit
   ) {
     viewModelScope.launch {
       _isLoadingAfterSending.value = true
+      val methodName = "ChatViewModel.uploadPhotoAndSendMessage()"
       try {
         val uri = _selectedImageUri.value
-        if (uri == Uri.EMPTY) {
+        if (uri == null || uri == Uri.EMPTY) {
+          Log.e("YkisLog", "$methodName: [ABORT] Uri пустой")
           _isLoadingAfterSending.value = false
           return@launch
         }
+
+        Log.d("YkisLog", "$methodName: [START] Role: $role, AddrID: $addressId, OsbbID: $osbbId")
 
         // --- ШАГ 1: СЖАТИЕ ---
         val imageData = withContext(Dispatchers.IO) {
           compressImage(context, uri)
         }
+        Log.d("YkisLog", "$methodName: [COMPRESSED] Размер: ${imageData.size / 1024} KB")
 
-        // --- ШАГ 2: ЛОГИКА ИДЕНТИФИКАТОРА ЧАТА (с учетом addressId) ---
+        // --- ШАГ 2: ГЕНЕРАЦИЯ ПУТИ ДЛЯ STORAGE ---
+        // ПРАВИЛЬНЫЙ ПУТЬ: chat_images / {osbbId} / {addressId} / {timestamp}.jpg
+        // Это соответствует правилам безопасности match /chat_images/{osbbId}/{addressId}/{file}
+        val storagePath = "chat_images/$osbbId/$addressId/${System.currentTimeMillis()}.jpg"
+        Log.d("YkisLog", "$methodName: [STORAGE_PATH] $storagePath")
+        currentChatPath = storagePath // <--- КРИТИЧЕСКИ ВАЖНО
+        // --- ШАГ 3: ЗАГРУЗКА В STORAGE ---
+        val imageUrl = withContext(Dispatchers.IO) {
+          // Передаем сформированный путь напрямую
+          chatRepo.uploadChatImage(imageData, storagePath)
+        }
+        Log.d("YkisLog", "$methodName: [URL_READY] $imageUrl")
+
+        // --- ШАГ 4: ГЕНЕРАЦИЯ CHAT_ID ДЛЯ DATABASE ---
         val chatId = if (role == UserRole.StandardUser) {
           val serviceCode = selectedService.value.codeName
           if (serviceCode == "OSBB") "OSBB_${osbbId}_${addressId}_$senderUid"
@@ -939,25 +1332,22 @@ class ChatViewModel(
           val prefix = if (role == UserRole.OsbbUser) "OSBB_$osbbId" else role.codeName.name
           "${prefix}_${addressId}_$chatUid"
         }
+        Log.d("YkisLog", "$methodName: [DATABASE_CHAT_ID] $chatId")
 
-        // --- ШАГ 3: ЗАГРУЗКА В STORAGE ---
-        val imageUrl = withContext(Dispatchers.IO) {
-          chatRepo.uploadChatImage(imageData, chatId)
-        }
-
-        // --- ШАГ 4: ЗАПИСЬ В DATABASE ---
+        // --- ШАГ 5: ЗАПИСЬ В DATABASE ---
         writeToDatabase(
           chatUid = chatUid,
           senderUid = senderUid,
           senderDisplayedName = senderDisplayedName,
           senderLogoUrl = senderLogoUrl,
           senderAddress = senderAddress,
-          addressId = addressId, // Передаем ID квартиры дальше
+          addressId = addressId,
           imageUrl = imageUrl,
           osbbId = osbbId,
           role = role,
           recipientTokens = recipientTokens,
           onComplete = {
+            Log.d("YkisLog", "$methodName: [FINISH] Процесс завершен")
             _selectedImageUri.value = Uri.EMPTY
             _messageText.value = ""
             clearAiSuggestion()
@@ -967,32 +1357,48 @@ class ChatViewModel(
         )
       } catch (e: Exception) {
         _isLoadingAfterSending.value = false
-        Log.e("YkisLog", "Ошибка загрузки фото: ${e.message}")
-        SnackbarManager.showMessage("Ошибка загрузки: ${e.localizedMessage}")
+        Log.e("YkisLog", "$methodName: [CRITICAL_ERROR] ${e.message}")
+        SnackbarManager.showMessage("Ошибка: ${e.localizedMessage}")
       }
     }
   }
 
 
+
+
   private suspend fun compressImage(context: android.content.Context, uri: Uri): ByteArray =
     withContext(Dispatchers.IO) {
       val inputStream = context.contentResolver.openInputStream(uri)
-      val originalBitmap = BitmapFactory.decodeStream(inputStream)
+      val originalBitmap = BitmapFactory.decodeStream(inputStream) ?: return@withContext byteArrayOf()
 
-      // Вычисляем масштаб, чтобы большая сторона была не более 1200px
+      // 1. Вычисляем масштаб (макс. сторона 1200px)
       val maxSize = 1200f
       val scale = (maxSize / maxOf(originalBitmap.width, originalBitmap.height)).coerceAtMost(1f)
 
       val width = (originalBitmap.width * scale).toInt()
       val height = (originalBitmap.height * scale).toInt()
 
+      // 2. Создаем уменьшенную копию
       val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, width, height, true)
+
+      // 3. ОСВОБОЖДАЕМ ПАМЯТЬ от оригинала (важно!)
+      if (originalBitmap != scaledBitmap) {
+        originalBitmap.recycle()
+      }
+
       val outputStream = java.io.ByteArrayOutputStream()
 
-      // Сжимаем в JPEG (80% качества — баланс веса и детализации)
+      // 4. Сжимаем (80% — идеальный баланс)
       scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-      outputStream.toByteArray()
+
+      val result = outputStream.toByteArray()
+
+      // 5. Освобождаем память от копии
+      scaledBitmap.recycle()
+
+      result
     }
+
 
 
   fun setSelectedImageUri(uri: Uri) {
@@ -1077,7 +1483,12 @@ class ChatViewModel(
   }
 
   // ChatViewModel.kt
-  private fun getChatPath(role: UserRole, osbbId: Int, addressId: Int, targetUserUid: String?): String {
+  private fun getChatPath(
+    role: UserRole,
+    osbbId: Int,
+    addressId: Int,
+    targetUserUid: String?
+  ): String {
     val myUid = chatRepo.currentUid ?: ""
     val residentUid = targetUserUid ?: myUid
 
@@ -1149,10 +1560,6 @@ class ChatViewModel(
   }
 
 
-
-
-
-
   override fun onCleared() {
     val methodName = "ChatViewModel.onCleared()"
     super.onCleared()
@@ -1183,7 +1590,6 @@ class ChatViewModel(
 
     Log.d("YkisLog", "$methodName: ViewModel очищена, утечки памяти предотвращены.")
   }
-
 
 
 }

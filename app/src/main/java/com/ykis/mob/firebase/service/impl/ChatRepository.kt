@@ -92,18 +92,37 @@ val currentUid: String?
       emptyList()
     }
   }
+  suspend fun getUserByUid(uid: String): UserEntity? {
+    return try {
+      // Имя коллекции должно совпадать с твоим в Firebase
+      val snapshot = firestore.collection("users").document(uid).get().await()
+      snapshot.toObject(UserEntity::class.java)
+    } catch (e: Exception) {
+      null
+    }
+  }
+  suspend fun deleteImageFromStorage(imageUrl: String) {
+    try {
+      // Создаем ссылку на файл из строки URL
+      val storageRef = FirebaseStorage.getInstance().getReferenceFromUrl(imageUrl)
+      storageRef.delete().await()
+      Log.d("YkisLog", "Storage: Файл успешно удален: $imageUrl")
+    } catch (e: Exception) {
+      Log.e("YkisLog", "Storage: Ошибка удаления файла: ${e.message}")
+    }
+  }
 
-  suspend fun uploadChatImage(imageData: ByteArray, chatId: String): String {
-    val fileName = "${System.currentTimeMillis()}_image.jpg"
-    val photoRef = storage.reference
-      .child("chat_images")
-      .child(chatId.replace("/", "_"))
-      .child(fileName)
+  suspend fun uploadChatImage(imageData: ByteArray, storagePath: String): String {
+    // Используем переданный полный путь (например, "chat_images/3/1336/123.jpg")
+    val photoRef = storage.reference.child(storagePath)
 
-    // Загрузка и получение URL в одном suspend-методе
+    // Загрузка
     photoRef.putBytes(imageData).await()
+
+    // Получение URL
     return photoRef.downloadUrl.await().toString()
   }
+
   suspend fun sendPushNotification(token: String, title: String, body: String) {
     val urlString = "https://sendnotification-ai2rm2uxna-uc.a.run.app"
 

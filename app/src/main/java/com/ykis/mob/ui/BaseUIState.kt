@@ -22,6 +22,7 @@ data class BaseUIState(
   val apartments: List<ApartmentEntity> = emptyList(),
   val addressId: Int = 0,
   val address: String = "",
+  val kod: String = "",
   val addressNumber: String? = null,
 
   // Данные для админов предприятий (OSBB/ОСМД)

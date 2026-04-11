@@ -7,17 +7,21 @@ fun NavHostController.cleanNavigateTo(route: String){
         popUpTo(0)
     }
 }
-fun NavHostController.navigateWithPopUp(route: String, popUp: String) {
-    this.navigate(route) {
-        restoreState = true
-        launchSingleTop = true
-        popUpTo(popUp) {
-            inclusive = false
-            saveState=true
+fun NavHostController.navigateWithPopUp(route: String, popUp: String?) {
+  this.navigate(route) {
+    launchSingleTop = true
+    restoreState = true
 
-        }
+    // Используем ?.let чтобы передать String вместо String?
+    popUp?.let { popRoute ->
+      popUpTo(popRoute) {
+        inclusive = false
+        saveState = true
+      }
     }
+  }
 }
+
 
 fun NavHostController.navigateToInfoApartment(){
     this.navigate("InfoApartmentScreen"){

@@ -27,21 +27,25 @@ fun ServiceDetailScreen(
     Column(
         modifier = modifier
     ){
-        DefaultAppBar(
-            navigationType = navigationType,
-            canNavigateBack = true,
-            onBackClick =  {
-                viewModel.closeContentDetail()
-            },
-            title = when(contentDetail){
-                ContentDetail.OSBB -> baseUIState.osbb
-                ContentDetail.WATER_SERVICE -> stringResource(id = R.string.vodokanal)
-                ContentDetail.WARM_SERVICE -> stringResource(id = R.string.ytke)
-                ContentDetail.GARBAGE_SERVICE -> stringResource(id = R.string.yzhtrans)
-                else -> stringResource(id = R.string.payment_list)
-            }
-        )
-        when(contentDetail){
+      DefaultAppBar(
+        navigationType = navigationType,
+        canNavigateBack = true,
+        onBackClick = {
+          viewModel.closeContentDetail()
+        },
+        // Основной заголовок (жирный)
+        title = when (contentDetail) {
+          ContentDetail.OSBB -> baseUIState.osbb ?: ""
+          ContentDetail.WATER_SERVICE -> stringResource(id = R.string.vodokanal)
+          ContentDetail.WARM_SERVICE -> stringResource(id = R.string.ytke)
+          ContentDetail.GARBAGE_SERVICE -> stringResource(id = R.string.yzhtrans)
+          else -> stringResource(id = R.string.payment_list)
+        },
+        // Добавляем адрес (меньшим шрифтом)
+        subtitle = baseUIState.address
+      )
+
+      when(contentDetail){
             ContentDetail.PAYMENT_LIST->{
                 PaymentListStateful(
                     serviceViewModel = viewModel,

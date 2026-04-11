@@ -124,14 +124,6 @@ get(){
             labelId = R.string.settings,
             alwaysVisible = true
         )
-//        TopLevelDestination(
-//            route = ProfileScreen.route,
-//            selectedIcon = Icons.Default.AccountCircle,
-//            unselectedIcon = Icons.Outlined.AccountCircle,
-//            labelId = R.string.profile,
-//            alwaysVisible = true
-//        ),
-
         )
     }
  
@@ -139,14 +131,5 @@ val NAV_RAIL_DESTINATIONS :List<TopLevelDestination>
 @Composable
 get(){
   return   NAV_BAR_DESTINATIONS
-//    + listOf(
-//      TopLevelDestination(
-//          route = SettingsScreen.route,
-//          selectedIcon = Icons.Default.Settings,
-//          unselectedIcon = Icons.Outlined.Settings,
-//          labelId = R.string.settings,
-//          alwaysVisible = true
-//      )
-//  )
 }
   

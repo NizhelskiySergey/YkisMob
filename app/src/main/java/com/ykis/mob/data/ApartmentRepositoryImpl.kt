@@ -1,5 +1,6 @@
 package com.ykis.mob.data
 
+import com.google.android.play.integrity.internal.u
 import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.appartment.ApartmentRemote
 import com.ykis.mob.data.remote.appartment.GetApartmentResponse
@@ -14,6 +15,9 @@ class ApartmentRepositoryImpl(
 
   override suspend fun getApartmentList(uid: String): GetApartmentsResponse {
     return apartmentRemote.getApartmentList(uid)
+  }
+  override suspend fun getOsbbApartmentsList(osbbId:Int): GetApartmentsResponse{
+    return apartmentRemote.getOsbbApartmentsList(osbbId)
   }
 
   override suspend fun updateBti(params: ApartmentEntity): BaseResponse {
@@ -56,4 +60,6 @@ class ApartmentRepositoryImpl(
   ): GetSimpleResponse {
     return apartmentRemote.deleteUserAccount(uid,email)
   }
+
+
 }

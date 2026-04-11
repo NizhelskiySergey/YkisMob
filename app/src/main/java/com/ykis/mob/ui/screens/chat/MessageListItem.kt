@@ -1,23 +1,21 @@
 
 import android.util.Log
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material3.Icon
@@ -29,28 +27,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.ykis.mob.R
 import com.ykis.mob.ui.components.UserImage
 import com.ykis.mob.ui.screens.chat.MessageEntity
 import com.ykis.mob.ui.screens.chat.formatTime24H
-import com.ykis.mob.ui.theme.YkisPAMTheme
-import kotlinx.coroutines.Dispatchers
-@OptIn(ExperimentalFoundationApi::class)
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun MessageListItem(
   modifier: Modifier = Modifier,
-  uid: String,               // Свой UID
-  isUserAdmin: Boolean,      // Флаг: является ли текущий пользователь админом
+  uid: String,
+  isUserAdmin: Boolean,
   messageEntity: MessageEntity,
   onLongClick: () -> Unit,
   onClick: () -> Unit
@@ -70,13 +67,13 @@ fun MessageListItem(
   Row(
     modifier = modifier
       .fillMaxWidth()
-      .padding(vertical = 4.dp, horizontal = 12.dp),
+      .padding(vertical = 2.dp, horizontal = 12.dp),
     horizontalArrangement = if (isFromMe) Arrangement.End else Arrangement.Start,
     verticalAlignment = Alignment.Bottom
   ) {
     if (!isFromMe) {
       UserImage(
-        modifier = Modifier.size(34.dp).padding(bottom = 2.dp),
+        modifier = Modifier.size(32.dp).padding(bottom = 2.dp),
         photoUrl = messageEntity.senderLogoUrl.toString()
       )
       Spacer(modifier = Modifier.width(8.dp))
@@ -90,41 +87,51 @@ fun MessageListItem(
         .background(containerColor)
         .combinedClickable(
           onClick = { if (messageEntity.imageUrl != null) onClick() },
-          // УДАЛЕНИЕ: разрешаем удалять только свои сообщения
-          onLongClick = {
-            if (isFromMe) {
-              Log.d("YkisLog", "MessageListItem: Long click detected on msg ${messageEntity.id}")
-              onLongClick()
-            }
-          }
+          onLongClick = { if (isFromMe) onLongClick() }
         )
-        .padding(8.dp)
+        .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
-      // ЛОГИКА ЗАГОЛОВКОВ
+      // 1. ПЕРЕСЛАНО
+      if (messageEntity.isForwarded) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+            imageVector = Icons.AutoMirrored.Filled.Reply,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp).graphicsLayer(scaleX = -1f),
+            tint = contentColor.copy(alpha = 0.6f)
+          )
+          Text(
+            text = stringResource(R.string.forwarded),
+            style = MaterialTheme.typography.labelSmall,
+            color = contentColor.copy(alpha = 0.6f),
+            modifier = Modifier.padding(start = 4.dp)
+          )
+        }
+      }
+
+      // 2. ЗАГОЛОВОК (Имя отправителя)
       if (!isFromMe) {
         Row(verticalAlignment = Alignment.CenterVertically) {
           Text(
-            text = messageEntity.senderDisplayedName, // Используем уже очищенное имя из БД
+            text = messageEntity.senderDisplayedName,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
           )
-
-          // Пометка "Диспетчер", если сообщение пришло не от жильца (в имени жильца всегда есть '|')
-          // Если мы пишем чистый Nickname админа, то разделителя там нет.
           if (!messageEntity.senderAddress.contains("|")) {
             Text(
-              text = " • Диспетчер",
+              text = " • ${stringResource(R.string.dispatcher)}",
               style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-              color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+              color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
               modifier = Modifier.padding(start = 4.dp)
             )
           }
         }
       }
 
+      // 3. ИЗОБРАЖЕНИЕ
       if (messageEntity.imageUrl != null) {
         AsyncImage(
           model = ImageRequest.Builder(LocalContext.current)
@@ -134,45 +141,58 @@ fun MessageListItem(
           contentDescription = null,
           modifier = Modifier
             .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
             .fillMaxWidth(),
           contentScale = ContentScale.FillWidth
         )
       }
 
-      if (messageEntity.text.isNotBlank()) {
-        Text(
-          text = messageEntity.text,
-          style = MaterialTheme.typography.bodyLarge,
-          color = contentColor,
-          modifier = Modifier.padding(vertical = 2.dp)
-        )
-      }
-
-      Row(
-        modifier = Modifier.align(Alignment.End),
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        Text(
-          text = formatTime24H(messageEntity.timestamp),
-          style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-          color = contentColor.copy(alpha = 0.7f),
-          modifier = Modifier.padding(top = 2.dp)
-        )
-
-        // Иконка "прочитано" для ваших сообщений
-        if (isFromMe) {
-          Icon(
-            imageVector = if (messageEntity.read) Icons.Default.DoneAll else Icons.Default.Done,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp).padding(start = 4.dp),
-            tint = if (messageEntity.read) MaterialTheme.colorScheme.primary else contentColor.copy(alpha = 0.5f)
+      // 4. ТЕКСТ И ПОДВАЛ (Время + Галочки)
+      // Используем Box или Column с выравниванием элементов подвала
+      Column(modifier = Modifier.fillMaxWidth()) {
+        if (messageEntity.text.isNotBlank()) {
+          Text(
+            text = messageEntity.text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = contentColor
           )
+        }
+
+        Row(
+          modifier = Modifier.align(Alignment.End),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          if (messageEntity.edited) {
+            Text(
+              text = stringResource(R.string.izm),
+              style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+              color = contentColor.copy(alpha = 0.5f),
+              modifier = Modifier.padding(end = 4.dp)
+            )
+          }
+
+          Text(
+            text = formatTime24H(messageEntity.timestamp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            color = contentColor.copy(alpha = 0.6f)
+          )
+
+          if (isFromMe) {
+            // ДВЕ СИНИЕ ГАЛОЧКИ
+            Icon(
+              imageVector = if (messageEntity.read) Icons.Default.DoneAll else Icons.Default.Done,
+              contentDescription = null,
+              modifier = Modifier.size(15.dp).padding(start = 4.dp),
+              // Если прочитано — ярко-синий (DodgerBlue), если нет — серый
+              tint = if (messageEntity.read) Color(0xFF02C1FF) else contentColor.copy(alpha = 0.4f)
+            )
+          }
         }
       }
     }
   }
 }
+
 
 
 

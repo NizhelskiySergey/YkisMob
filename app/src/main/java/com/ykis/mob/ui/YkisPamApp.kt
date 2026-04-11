@@ -21,41 +21,33 @@ import com.ykis.mob.ui.navigation.RootNavGraph
 import com.ykis.mob.ui.navigation.isBookPosture
 import com.ykis.mob.ui.navigation.isSeparating
 import kotlinx.coroutines.CoroutineScope
-
 /**
  * Основной входной компонент UI приложения.
- * Здесь происходит расчет адаптивной верстки (Adaptive UI).
+ * Добавлен параметр initialChatId для обработки переходов из Push-уведомлений.
  */
 @Composable
 fun YkisPamApp(
   windowSize: WindowSizeClass,
-  displayFeatures: List<DisplayFeature>
+  displayFeatures: List<DisplayFeature>,
+  initialChatId: String? = null // Получаем ID чата из MainActivity
 ) {
-  // Находим складную особенность экрана (если она есть)
+  // Находим складную особенность экрана
   val foldingFeature = displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull()
 
-  // Определяем физическую позу устройства (обычная, книжка или разделение)
+  // Определяем физическую позу устройства
   val foldingDevicePosture = when {
-    isBookPosture(foldingFeature) ->
-      DevicePosture.BookPosture(foldingFeature.bounds)
-
-    isSeparating(foldingFeature) ->
-      DevicePosture.Separating(foldingFeature.bounds, foldingFeature.orientation)
-
+    isBookPosture(foldingFeature) -> DevicePosture.BookPosture(foldingFeature.bounds)
+    isSeparating(foldingFeature) -> DevicePosture.Separating(foldingFeature.bounds, foldingFeature.orientation)
     else -> DevicePosture.NormalPosture
   }
 
-  // Решаем, какую навигацию и тип контента показать (Логика выбора)
+  // Решаем, какую навигацию и тип контента показать
   val (navigationType, contentType) = when (windowSize.widthSizeClass) {
-    // 1. Компактные устройства (Обычные телефоны)
     WindowWidthSizeClass.Compact -> {
       NavigationType.BOTTOM_NAVIGATION to ContentType.SINGLE_PANE
     }
-
-    // 2. Средние устройства (Складные телефоны в развернутом виде или маленькие планшеты)
     WindowWidthSizeClass.Medium -> {
       val nav = NavigationType.NAVIGATION_RAIL_COMPACT
-      // Если экран физически разделен (петлей или сгибом), показываем две колонки
       val content = if (foldingDevicePosture != DevicePosture.NormalPosture) {
         ContentType.DUAL_PANE
       } else {
@@ -63,36 +55,39 @@ fun YkisPamApp(
       }
       nav to content
     }
-
-    // 3. Большие устройства (Планшеты, Десктопы)
     WindowWidthSizeClass.Expanded -> {
       val nav = if (foldingDevicePosture is DevicePosture.BookPosture) {
-        // Если это большой Fold в режиме книги — используем компактную боковую панель
         NavigationType.NAVIGATION_RAIL_EXPANDED
       } else {
-        // На огромных экранах — постоянная широкая боковая панель
         NavigationType.PERMANENT_NAVIGATION_DRAWER
       }
-      // На больших экранах всегда две колонки (Dual Pane)
       nav to ContentType.DUAL_PANE
     }
-
     else -> NavigationType.BOTTOM_NAVIGATION to ContentType.SINGLE_PANE
   }
 
-  // Запускаем основной граф навигации с вычисленными параметрами
+  // Запускаем основной граф навигации
   RootNavGraph(
     modifier = Modifier,
     contentType = contentType,
     displayFeatures = displayFeatures,
     navigationType = navigationType,
+    initialChatId = initialChatId // Пробрасываем ID дальше в граф
   )
 }
 
 /**
- * Создает и запоминает состояние приложения (Snackbar, Coroutines и т.д.).
- * Помогает "вынести" логику состояния из UI-компонентов.
+ * В RootNavGraph (или там, где инициализируется NavHost),
+ * нужно добавить примерно такую логику:
+ *
+ * LaunchedEffect(initialChatId) {
+ *    if (initialChatId != null) {
+ *        // Логика перехода в конкретный чат
+ *        navController.navigate("chat_route/$initialChatId")
+ *    }
+ * }
  */
+
 @Composable
 fun rememberAppState(
   snackbarHostState: SnackbarHostState = SnackbarHostState(),
@@ -108,12 +103,10 @@ fun rememberAppState(
   )
 }
 
-/**
- * Удобный хелпер для получения ресурсов в Composable функциях.
- */
 @Composable
 @ReadOnlyComposable
 fun resources(): Resources {
-  LocalConfiguration.current // Подписка на изменения конфигурации (повороты, язык)
+  LocalConfiguration.current
   return LocalResources.current
 }
+

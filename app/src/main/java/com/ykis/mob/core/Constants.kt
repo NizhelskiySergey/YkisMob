@@ -7,17 +7,12 @@ object Constants {
     //Buttons
     const val SIGN_OUT = "Вийти з аккаунта"
 
-    //Screens
-//    const val SIGN_UP_SCREEN = "Sign up"
-//    const val VERIFY_EMAIL_SCREEN = "Verify email"
-
-    //Labels
-//Api
     const val PARAM_ADDRESS_ID = "address_id"
   const val UID = "uid"
   const val YEAR = "year"
   const val STREET_ID = "street_id"
   const val HOUSE_ID = "house_id"
+  const val OSBB_ID = "osbb_id"
   const val ADDRESS_ID = "address_id"
   const val VODOMER_ID = "vodomer_id"
   const val TEPLOMER_ID = "teplomer_id"
@@ -44,6 +39,7 @@ object Constants {
 
     //Error Messages
     const val SENSITIVE_OPERATION_MESSAGE = "This operation is sensitive and requires recent authentication. Log in again before retrying this request."
+    const val SUCCESS_SEND_MESSAGE = "Повідомлення успішно переслано"
 
 
 

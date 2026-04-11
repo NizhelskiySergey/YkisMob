@@ -47,14 +47,16 @@ fun MeterListScreen(
 
     Row(modifier.fillMaxSize()){
         Column(Modifier.weight(1f)) {
-            DefaultAppBar(
-                title = stringResource(id = R.string.meters),
-                onBackClick ={},
-                onDrawerClick = onDrawerClick,
-                canNavigateBack = false,
-                navigationType = navigationType
-            )
-            PrimaryTabRow(
+          DefaultAppBar(
+            title = stringResource(id = R.string.meters),
+            subtitle = baseUIState.address, // Добавили адрес текущей квартиры
+            onBackClick = {},
+            onDrawerClick = onDrawerClick,
+            canNavigateBack = false,
+            navigationType = navigationType
+          )
+
+          PrimaryTabRow(
                 selectedTabIndex = selectedTab ,
                 containerColor = MaterialTheme.colorScheme.background
             ) {

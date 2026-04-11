@@ -3,6 +3,7 @@ package com.ykis.mob.data.remote.appartment
 import com.ykis.mob.core.Constants.ADDRESS_ID
 import com.ykis.mob.core.Constants.CODE
 import com.ykis.mob.core.Constants.EMAIL
+import com.ykis.mob.core.Constants.OSBB_ID
 import com.ykis.mob.core.Constants.PARAM_ADDRESS_ID
 import com.ykis.mob.core.Constants.PHONE
 import com.ykis.mob.core.Constants.UID
@@ -10,6 +11,7 @@ import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.api.KtorApiService
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
+import com.ykis.mob.ui.navigation.ContentDetail
 
 class ApartmentRemoteImpl(
   private val ktorApiService: KtorApiService
@@ -19,6 +21,10 @@ class ApartmentRemoteImpl(
   override suspend fun getApartmentList(uid: String): GetApartmentsResponse {
     // Убрали .await(), Ktor сразу возвращает GetApartmentsResponse
     return ktorApiService.getApartmentList(createGetApartmentListMap(uid))
+  }
+  override suspend fun getOsbbApartmentsList(osbbId: Int): GetApartmentsResponse {
+    // Убрали .await(), Ktor сразу возвращает GetApartmentsResponse
+    return ktorApiService.getOsbbApartmentsList(createGetOsbbApartmentsListMap(osbbId))
   }
 
   override suspend fun updateBti(params: ApartmentEntity): BaseResponse {
@@ -100,6 +106,11 @@ class ApartmentRemoteImpl(
   private fun createGetApartmentListMap(uid: String): Map<String, String> {
     val map = HashMap<String, String>()
     map[UID] = uid
+    return map
+  }
+  private fun createGetOsbbApartmentsListMap(osbbId: Int): Map<String, String> {
+    val map = HashMap<String, String>()
+    map[OSBB_ID] = osbbId.toString()
     return map
   }
 

@@ -48,6 +48,8 @@ class KtorApiService(private val client: HttpClient) {
   suspend fun getApartmentList(params: Map<String, String>) =
     postForm<GetApartmentsResponse>("getApartmentsByUser.php", params)
 
+  suspend fun getOsbbApartmentsList(params: Map<String, String>) =
+    postForm<GetApartmentsResponse>("getOsbbApartmentsList.php", params)
 
 
   suspend fun getApartment(params: Map<String, String>) =

@@ -14,5 +14,7 @@ interface ApartmentRepository {
   suspend fun verifyAdminSecretWord(code: String, uid: String): GetSimpleResponse
   suspend fun saveUserUid(uid: String,email: String): GetSimpleResponse
   suspend fun deleteUserAccount(uid: String,email: String): GetSimpleResponse
+  // В ApartmentRepository
+  suspend fun getOsbbApartmentsList(osbbId: Int): GetApartmentsResponse // Твой формат ответа
 
 }

@@ -86,83 +86,84 @@ fun assembleServiceList(
 
 @Composable
 fun ServiceListScreen(
-    totalDebtState: TotalDebtState,
-    baseUIState: BaseUIState,
-    navigationType: NavigationType,
-    onDrawerClick : () -> Unit,
-    getTotalServiceDebt: (ServiceParams) -> Unit,
-    setContentDetail :(ContentDetail)->Unit,
+  totalDebtState: TotalDebtState,
+  baseUIState: BaseUIState,
+  navigationType: NavigationType,
+  onDrawerClick: () -> Unit,
+  getTotalServiceDebt: (ServiceParams) -> Unit,
+  setContentDetail: (ContentDetail) -> Unit,
 ) {
-    LaunchedEffect(key1 = baseUIState.addressId) {
-        getTotalServiceDebt(
-            ServiceParams(
-                uid = baseUIState.uid!!,
-                addressId = baseUIState.addressId,
-                houseId = baseUIState.houseId,
-                service = 0,
-                total = 1,
-                year = "2023"
-            )
+  LaunchedEffect(key1 = baseUIState.addressId) {
+    getTotalServiceDebt(
+      ServiceParams(
+        uid = baseUIState.uid!!,
+        addressId = baseUIState.addressId,
+        houseId = baseUIState.houseId,
+        service = 0,
+        total = 1,
+        year = "2023"
+      )
+    )
+  }
+  Column(
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center
+  ) {
+    DefaultAppBar(
+      title = stringResource(id = R.string.accrued),
+      subtitle = baseUIState.address, // Добавили адрес текущей квартиры
+      onDrawerClick = onDrawerClick,
+      canNavigateBack = false,
+      navigationType = navigationType
+    )
+    {
+      IconButton(
+        onClick = {
+          setContentDetail(ContentDetail.PAYMENT_LIST)
+        },
+      ) {
+        Icon(
+          imageVector = ImageVector.vectorResource(R.drawable.ic_history),
+          contentDescription = "Історія платіжок",
+          tint = MaterialTheme.colorScheme.onSurface
         )
+      }
     }
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        DefaultAppBar(
-            title = stringResource(id = R.string.accrued),
-            onDrawerClick = onDrawerClick,
-            canNavigateBack = false,
-            navigationType = navigationType
+
+    Crossfade(
+      modifier = Modifier.fillMaxSize(),
+      animationSpec = tween(delayMillis = 500),
+      targetState = totalDebtState.isLoading, label = ""
+    ) { isLoading ->
+      if (isLoading) {
+        Box(
+          modifier = Modifier.fillMaxSize(),
+          contentAlignment = Alignment.Center
         ) {
-
-            IconButton(
-                onClick = {
-                    setContentDetail(ContentDetail.PAYMENT_LIST)
-                },
-            ) {
-                Icon(
-                    imageVector = ImageVector.vectorResource(R.drawable.ic_history),
-                    contentDescription = "Історія платіжок",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
+          CircularProgressIndicator()
+        }
+      } else ServiceListStateless(
+        modifier = Modifier.fillMaxSize(),
+        items = assembleServiceList(
+          totalDebtState = totalDebtState,
+          baseUIState = baseUIState
+        ),
+        debts = { totalServiceDebtList -> totalServiceDebtList.debt },
+        colors = { totalServiceDebtList -> totalServiceDebtList.color },
+        total = totalDebtState.totalDebt.dolg!!,
+        circleLabel = stringResource(R.string.summary),
+        rows = {
+          ServiceRow(
+            color = it.color,
+            title = it.name,
+            debt = it.debt,
+            icon = it.icon,
+            onClick = {
+              setContentDetail(it.contentDetail)
             }
-        }
-
-        Crossfade(
-            modifier = Modifier.fillMaxSize(),
-            animationSpec = tween(delayMillis = 500),
-            targetState = totalDebtState.isLoading, label = ""
-        ) { isLoading ->
-            if (isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            } else ServiceListStateless(
-                modifier = Modifier.fillMaxSize(),
-                items = assembleServiceList(
-                    totalDebtState = totalDebtState,
-                    baseUIState = baseUIState
-                ),
-                debts = { totalServiceDebtList -> totalServiceDebtList.debt },
-                colors = { totalServiceDebtList -> totalServiceDebtList.color },
-                total = totalDebtState.totalDebt.dolg!!,
-                circleLabel = stringResource(R.string.summary),
-                rows = {
-                    ServiceRow(
-                        color = it.color,
-                        title = it.name,
-                        debt = it.debt,
-                        icon = it.icon,
-                        onClick = {
-                            setContentDetail(it.contentDetail)
-                        }
-                    )
-                },
-            )
-        }
+          )
+        },
+      )
     }
+  }
 }

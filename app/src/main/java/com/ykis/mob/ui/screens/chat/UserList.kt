@@ -22,15 +22,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.ui.BaseUIState
 
-
 data class UserWithLatestMessage(
   val user: UserEntity,
-  val latestMessage: MessageEntity
+  val latestMessage: MessageEntity,
+  val unreadCount: Int,
+  val chatId: String
 )
+
 @Composable
 fun UserList(
   modifier: Modifier = Modifier,
@@ -40,47 +43,50 @@ fun UserList(
   chatViewModel: ChatViewModel
 ) {
   val latestMessages by chatViewModel.lastMessages.collectAsStateWithLifecycle()
-  // 1. Подписываемся на счетчик непрочитанных сообщений
   val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
 
-  val userWithMessages = remember(userList, latestMessages) {
+  // Оптимизируем список: вычисляем всё один раз при изменении данных
+  val userWithMessages = remember(userList, latestMessages, unreadCounts) {
     userList.map { user ->
+      // Генерируем правильный ключ чата
       val chatId = if (baseUIState.userRole == UserRole.OsbbUser) {
         "OSBB_${baseUIState.osbbId}_${user.addressId}_${user.uid}"
       } else {
         "${baseUIState.userRole.codeName.name}_${user.addressId}_${user.uid}"
       }
 
-      val lastMsg = latestMessages[chatId] ?: MessageEntity(text = "Нет сообщений")
+      val lastMsg = latestMessages[chatId] ?: MessageEntity(text = "Нет сообщений", timestamp = 0L)
+      val unreadCount = unreadCounts[chatId] ?: 0
 
       val stableDisplayName = lastMsg.senderAddress.ifBlank {
-        user.displayName ?: ""
+        user.displayName ?: "Жилец"
       }
 
       UserWithLatestMessage(
         user = user.copy(displayName = stableDisplayName),
-        latestMessage = lastMsg
+        latestMessage = lastMsg,
+        unreadCount = unreadCount,
+        chatId = chatId
       )
-    }.sortedByDescending { it.latestMessage.timestamp }
+    }.sortedWith(
+      compareByDescending<UserWithLatestMessage> { it.unreadCount > 0 } // Сначала непрочитанные
+        .thenByDescending { it.latestMessage.timestamp }             // Затем по времени
+    )
   }
 
   LazyColumn(
     modifier = modifier.fillMaxSize(),
-    contentPadding = PaddingValues(bottom = 16.dp)
+    contentPadding = PaddingValues(vertical = 8.dp)
   ) {
     items(
       items = userWithMessages,
-      key = { "${it.user.uid}_${it.user.addressId}" }
+      key = { it.chatId } // Используем уникальный chatId как ключ для стабильности списка
     ) { item ->
-      // 2. Вычисляем ключ чата для поиска кол-ва сообщений
-      val chatId = if (baseUIState.userRole == UserRole.OsbbUser) {
-        "OSBB_${baseUIState.osbbId}_${item.user.addressId}_${item.user.uid}"
-      } else {
-        "${baseUIState.userRole.codeName.name}_${item.user.addressId}_${item.user.uid}"
-      }
-      val count = unreadCounts[chatId] ?: 0
-
-      Box(modifier = Modifier.fillMaxWidth()) {
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 8.dp, vertical = 2.dp)
+      ) {
         UserListItem(
           it = item.user,
           onUserClick = onUserClick,
@@ -88,22 +94,23 @@ fun UserList(
           currentUid = baseUIState.uid.toString()
         )
 
-        // 3. Отрисовка красного индикатора (Badge)
-        if (count > 0) {
+        // Красивый индикатор (Badge)
+        if (item.unreadCount > 0) {
           Surface(
             modifier = Modifier
               .align(Alignment.CenterEnd)
-              .padding(end = 24.dp),
+              .padding(end = 16.dp),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.error, // Красный цвет
-            tonalElevation = 4.dp
+            color = MaterialTheme.colorScheme.error,
+            tonalElevation = 6.dp,
+            shadowElevation = 2.dp
           ) {
             Text(
-              text = if (count > 99) "99+" else count.toString(),
-              modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-              style = MaterialTheme.typography.labelSmall,
+              text = if (item.unreadCount > 99) "99+" else item.unreadCount.toString(),
+              modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+              style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
               color = MaterialTheme.colorScheme.onError,
-              fontWeight = FontWeight.Bold
+              fontWeight = FontWeight.ExtraBold
             )
           }
         }
@@ -111,5 +118,9 @@ fun UserList(
     }
   }
 }
+
+// Дополнительный вспомогательный класс для чистоты кода
+
+
 
 

@@ -6,6 +6,7 @@ import com.ykis.mob.domain.apartment.ApartmentEntity
 
 interface ApartmentRemote {
     suspend fun getApartmentList(uid:String) : GetApartmentsResponse
+    suspend fun getOsbbApartmentsList(osbbId:Int) : GetApartmentsResponse
     suspend fun updateBti(params : ApartmentEntity) : BaseResponse
     suspend fun getApartment(addressId: Int , uid:String) : GetApartmentResponse
     suspend fun deleteApartment(addressId :Int , uid:String) : BaseResponse

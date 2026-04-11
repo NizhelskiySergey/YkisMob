@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -144,7 +145,17 @@ fun BtiContent(
           checked = baseUIState.apartment.lift.isTrue()
         )
       }
+      HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), thickness = 0.5.dp)
 
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        LabelTextWithText(
+          labelText = stringResource(id = R.string.secret_сode),
+          valueText = baseUIState.apartment.kod
+        )
+      }
       // Ордер выносим как отдельные строки с иконкой документа
       Column(modifier = Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         LabelTextWithText(
@@ -157,6 +168,7 @@ fun BtiContent(
         )
       }
     }
+    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), thickness = 0.5.dp)
 
     ContactsCard(
       baseUIState = baseUIState,

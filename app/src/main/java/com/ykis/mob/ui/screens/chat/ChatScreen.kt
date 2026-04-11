@@ -27,9 +27,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +50,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +64,7 @@ import com.ykis.mob.ui.components.appbars.DefaultAppBar
 import com.ykis.mob.ui.navigation.CameraScreenDest
 import com.ykis.mob.ui.navigation.ContentDetail
 import com.ykis.mob.ui.navigation.ImageDetailScreenDest
+import com.ykis.mob.ui.navigation.NavigationType
 import com.ykis.mob.ui.navigation.SendImageScreenDest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -72,11 +80,13 @@ sealed class ChatItem {
   data class MessageItem(val message: MessageEntity) : ChatItem()
 
 }
+
 @Composable
 fun ChatScreenStateful(
   chatViewModel: ChatViewModel,
   baseUIState: BaseUIState,
   navController: NavHostController,
+  navigationType: NavigationType
 ) {
   val selectedUser by chatViewModel.selectedUser.collectAsStateWithLifecycle()
   val selectedService by chatViewModel.selectedService.collectAsStateWithLifecycle()
@@ -98,7 +108,8 @@ fun ChatScreenStateful(
     modifier = Modifier,                         // 0. Modifier (если он первый в функции)
     userEntity = selectedUser ?: UserEntity(),   // 1. userEntity
     chatViewModel = chatViewModel,               // 2. chatViewModel
-    baseUIState = baseUIState,                   // 3. baseUIState
+    baseUIState = baseUIState,
+    navigationType = navigationType,// 3. baseUIState
     navigateBack = { navController.popBackStack() }, // 4. navigateBack
     navigateToSendImageScreen = { navController.navigate(SendImageScreenDest.route) }, // 5
     chatUid = chatUid,                           // 6. chatUid
@@ -116,6 +127,7 @@ fun ChatScreenContent(
   userEntity: UserEntity,
   chatViewModel: ChatViewModel,
   baseUIState: BaseUIState,
+  navigationType: NavigationType, // ДОБАВИТЬ ЭТО
   navigateBack: () -> Unit,
   navigateToSendImageScreen: () -> Unit,
   chatUid: String,
@@ -128,13 +140,20 @@ fun ChatScreenContent(
   val isLoadingAfterSending by chatViewModel.isLoadingAfterSending.collectAsStateWithLifecycle()
   val aiAssistantResponse by chatViewModel.assistantResponse.collectAsStateWithLifecycle()
   val aiQuickHint by chatViewModel.quickHint.collectAsStateWithLifecycle()
+  val isPartnerTyping by chatViewModel.isPartnerTyping.collectAsStateWithLifecycle()
+  val focusManager = LocalFocusManager.current
+  val keyboardController = LocalSoftwareKeyboardController.current
+  val isForwardingMode by chatViewModel.isForwardingMode.collectAsStateWithLifecycle()
 
-  // Подписываемся на состояние удаления
+
+  // Редактирование и удаление
   val messageToDelete by chatViewModel.messageToDelete.collectAsStateWithLifecycle()
+  val editingMessage by chatViewModel.editingMessage.collectAsStateWithLifecycle()
 
   val listState = rememberLazyListState()
+  val lastMessageId = remember(messageList) { messageList.lastOrNull()?.id }
 
-  // 1. Определение эффективного OSBB ID
+  // 1. Конфигурация чата
   val currentChatOsbbId = remember(baseUIState.userRole, baseUIState.osbbId) {
     when (baseUIState.userRole) {
       UserRole.YtkeUser -> 9997
@@ -144,16 +163,27 @@ fun ChatScreenContent(
       else -> baseUIState.osmdId
     }
   }
+// В ChatScreenContent.kt
+  val myUid = baseUIState.uid.toString() // Берем ваш текущий UID
 
-  // 2. СБРОС ПУТИ ПРИ ВЫХОДЕ
-  DisposableEffect(Unit) {
-    onDispose {
-      Log.d("YkisLog", "ChatScreen: [DISPOSE] Сброс currentChatPath")
-      chatViewModel.clearCurrentChatPath()
-    }
+  val chatItems = remember(messageList) {
+    messageList
+      // 1. Сначала фильтруем: убираем сообщения, где ваш UID есть в списке удаленных
+      .filter { msg ->
+        msg.deletedFor == null || !msg.deletedFor.contains(myUid)
+      }
+      // 2. Группируем по датам только оставшиеся сообщения
+      .groupBy { formatDate(it.timestamp) }
+      .flatMap { (date, messages) ->
+        listOf(ChatItem.DateHeader(date)) + messages.map { ChatItem.MessageItem(it) }
+      }
   }
 
-  // 3. ПЕРВИЧНАЯ ПОДГРУЗКА (только жилец)
+
+  DisposableEffect(Unit) {
+    onDispose { chatViewModel.clearCurrentChatPath() }
+  }
+
   LaunchedEffect(key1 = chatUid) {
     if (chatUid.isNotEmpty() && baseUIState.userRole == UserRole.StandardUser) {
       chatViewModel.readFromDatabase(
@@ -165,18 +195,92 @@ fun ChatScreenContent(
     }
   }
 
-  // 4. ДИАЛОГ УДАЛЕНИЯ
+  // 2. Диалог действий (Удалить/Редактировать)
   if (messageToDelete != null) {
     AlertDialog(
       onDismissRequest = { chatViewModel.dismissDeleteDialog() },
-      title = { Text(text = "Удалить сообщение?") },
-      text = { Text(text = "Это сообщение исчезнет у всех участников чата. Это действие нельзя отменить.") },
-      confirmButton = {
-        TextButton(onClick = { chatViewModel.confirmDeletion() }) {
-          Text("Удалить", color = MaterialTheme.colorScheme.error)
+      title = {
+        Text(
+          text = "Действия с сообщением",
+          style = MaterialTheme.typography.titleMedium
+        )
+      },
+      text = {
+        Column(
+          modifier = Modifier.fillMaxWidth(),
+          verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          // 1. РЕДАКТИРОВАТЬ (Только свои)
+          val isMyMessage = messageToDelete?.senderUid == baseUIState.uid.toString()
+
+
+          if (isMyMessage && messageToDelete?.imageUrl == null) {
+            TextButton(
+              onClick = {
+                chatViewModel.startEditing(messageToDelete!!)
+                chatViewModel.dismissDeleteDialog()
+              },
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Icon(Icons.Default.Edit, contentDescription = null)
+              Spacer(Modifier.width(12.dp))
+              Text("Редактировать", modifier = Modifier.weight(1f))
+            }
+          }
+
+          // 2. ПЕРЕСЛАТЬ (Любое сообщение)
+          // В блоке AlertDialog для пересылки
+          TextButton(
+            onClick = {
+              // 1. Запоминаем сообщение
+              chatViewModel.startForwarding(messageToDelete!!)
+
+              // 2. Закрываем диалог
+              chatViewModel.dismissDeleteDialog()
+
+              // 3. УХОДИМ ИЗ ЧАТА (чтобы попасть в список пользователей)
+              Log.d("YkisLog", "UI: Сообщение выбрано, переход к списку получателей")
+              navigateBack() // Или navController.popBackStack()
+            },
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Icon(Icons.AutoMirrored.Filled.Reply, modifier = Modifier.graphicsLayer(scaleX = -1f), contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Text("Переслать", modifier = Modifier.weight(1f))
+          }
+
+
+          HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+          // 3. УДАЛИТЬ У МЕНЯ
+          TextButton(
+            onClick = {
+              chatViewModel.deleteForMe(messageToDelete!!.id)
+              chatViewModel.dismissDeleteDialog()
+            },
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Icon(Icons.Default.DeleteOutline, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Text("Удалить у себя", modifier = Modifier.weight(1f))
+          }
+
+          // 4. УДАЛИТЬ ДЛЯ ВСЕХ (Только свои)
+          if (isMyMessage) {
+            TextButton(
+              onClick = {
+                chatViewModel.confirmDeletion()
+              },
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+              Spacer(Modifier.width(12.dp))
+              Text("Удалить для всех", color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+            }
+          }
         }
       },
-      dismissButton = {
+      confirmButton = {
         TextButton(onClick = { chatViewModel.dismissDeleteDialog() }) {
           Text("Отмена")
         }
@@ -184,18 +288,16 @@ fun ChatScreenContent(
     )
   }
 
-  val chatItems = remember(messageList) {
-    messageList.groupBy { formatDate(it.timestamp) }
-      .flatMap { (date, messages) ->
-        listOf(ChatItem.DateHeader(date)) + messages.map { ChatItem.MessageItem(it) }
-      }
-  }
 
-  LaunchedEffect(key1 = chatItems.size) {
-    if (chatItems.isNotEmpty()) {
+
+
+  LaunchedEffect(key1 = lastMessageId) {
+    if (lastMessageId != null && chatItems.isNotEmpty()) {
       listState.animateScrollToItem(chatItems.size - 1)
     }
   }
+
+
 
   Surface(
     modifier = modifier.fillMaxSize(),
@@ -203,14 +305,13 @@ fun ChatScreenContent(
   ) {
     Column(modifier = Modifier.fillMaxSize()) {
 
-      // ЛОГИКА ЗАГОЛОВКА
-      val appBarTitle = remember(baseUIState, selectedService, userEntity) {
-        if (baseUIState.userRole == UserRole.StandardUser) {
-          if (selectedService.name == ContentDetail.OSBB.name) {
-            "Чат ${baseUIState.address}"
-          } else {
-            selectedService.name
-          }
+      // --- ШАПКА ---
+      val appBarTitle = remember(baseUIState, selectedService, userEntity, isForwardingMode) {
+        if (isForwardingMode) {
+          "Переслать сообщение" // Явный заголовок для режима пересылки
+        } else if (baseUIState.userRole == UserRole.StandardUser) {
+          if (selectedService.name == ContentDetail.OSBB.name) "Чат ${baseUIState.address}"
+          else selectedService.name
         } else {
           val parts = userEntity.displayName?.split("|") ?: emptyList()
           val addr = parts.getOrNull(0)?.trim() ?: userEntity.displayName ?: "Чат"
@@ -221,47 +322,101 @@ fun ChatScreenContent(
 
       DefaultAppBar(
         title = appBarTitle,
+        subtitle = if (isPartnerTyping) "печатает..." else null,
         canNavigateBack = true,
-        onBackClick = navigateBack,
+        onBackClick = {
+          // КРИТИЧЕСКИ ВАЖНО: Прячем клавиатуру и сбрасываем фокус перед уходом
+          keyboardController?.hide()
+          focusManager.clearFocus()
+
+          if (isForwardingMode) {
+            chatViewModel.cancelForwarding()
+          } else {
+            navigateBack()
+          }
+        },
+        navigationType = navigationType
       )
 
+      HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
+      // --- СПИСОК СООБЩЕНИЙ ---
+      val listState = rememberLazyListState()
+
+      // Авто-скролл при появлении новых сообщений
+      LaunchedEffect(chatItems.size) {
+        if (chatItems.isNotEmpty()) {
+          listState.animateScrollToItem(chatItems.size - 1)
+        }
+      }
+
       LazyColumn(
-        modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+        modifier = Modifier.weight(1f).fillMaxWidth(),
         state = listState,
-        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp, start = 8.dp, end = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
       ) {
         chatItems.forEach { chatItem ->
           when (chatItem) {
-            is ChatItem.DateHeader -> stickyHeader(key = chatItem.date) {
-              DateChip(date = chatItem.date)
+            is ChatItem.DateHeader -> {
+              stickyHeader(key = chatItem.date) {
+                DateChip(date = chatItem.date)
+              }
             }
-            is ChatItem.MessageItem -> item(key = chatItem.message.id) {
-              MessageListItem(
-                uid = baseUIState.uid.toString(),
-                isUserAdmin = baseUIState.userRole != UserRole.StandardUser,
-                messageEntity = chatItem.message,
-                onLongClick = {
-                  Log.d("YkisLog", "ChatScreen: Запрос диалога удаления для ${chatItem.message.id}")
-                  chatViewModel.showDeleteConfirmation(chatItem.message)
-                },
-                onClick = { navigateToImageDetailScreen(chatItem.message) },
-              )
+            is ChatItem.MessageItem -> {
+              item(key = chatItem.message.id) {
+                MessageListItem(
+                  uid = baseUIState.uid.toString(),
+                  isUserAdmin = baseUIState.userRole != UserRole.StandardUser,
+                  messageEntity = chatItem.message,
+                  onLongClick = { chatViewModel.showDeleteConfirmation(chatItem.message) },
+                  onClick = {
+                    // Прячем клавиатуру при клике на фото для полноэкранного режима
+                    keyboardController?.hide()
+                    navigateToImageDetailScreen(chatItem.message)
+                  }
+                )
+              }
             }
           }
         }
       }
 
-      // ПАНЕЛЬ ВВОДА
+      // --- ПОДВАЛ (Ввод + Редактирование) ---
       Column(
         modifier = Modifier
           .fillMaxWidth()
           .background(MaterialTheme.colorScheme.surface)
           .navigationBarsPadding()
-          .imePadding()
+          .imePadding() // Клавиатура будет плавно поднимать подвал
       ) {
-        val activeAiText = if (baseUIState.userRole != UserRole.StandardUser) aiQuickHint else aiAssistantResponse
+        // Плашка редактирования
+        AnimatedVisibility(visible = editingMessage != null) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 16.dp, vertical = 8.dp)
+              .background(
+                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                RoundedCornerShape(8.dp)
+              )
+              .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+            Text(
+              text = "Редактирование",
+              modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
+              style = MaterialTheme.typography.labelMedium
+            )
+            IconButton(onClick = { chatViewModel.cancelEditing() }, modifier = Modifier.size(24.dp)) {
+              Icon(Icons.Default.Close, contentDescription = null)
+            }
+          }
+        }
 
+        // ИИ Помощник
+        val activeAiText = if (baseUIState.userRole != UserRole.StandardUser) aiQuickHint else aiAssistantResponse
         AnimatedVisibility(visible = !activeAiText.isNullOrBlank()) {
           AiHintCard(
             text = activeAiText ?: "",
@@ -271,37 +426,35 @@ fun ChatScreenContent(
           )
         }
 
+        // Поле ввода
         Surface(tonalElevation = 6.dp, shadowElevation = 8.dp) {
           ComposeMessageBox(
             text = messageText,
             onTextChanged = { chatViewModel.onMessageTextChanged(it) },
             onSent = {
-              val currentAddressId = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.addressId else userEntity.addressId
+              if (editingMessage != null) {
+                chatViewModel.updateMessage(messageText)
+              } else {
+                val currentAddressId = if (baseUIState.userRole == UserRole.StandardUser)
+                  baseUIState.addressId else userEntity.addressId
 
-              Log.d("YkisLog", "ChatScreen: [SEND] Recipient tokens: ${userEntity.tokens.size}")
-
-              chatViewModel.writeToDatabase(
-                chatUid = chatUid,
-                senderUid = baseUIState.uid.toString(),
-                senderDisplayedName = baseUIState.displayName ?: "Диспетчер",
-                senderLogoUrl = baseUIState.photoUrl,
-                role = baseUIState.userRole,
-                senderAddress = if (baseUIState.userRole == UserRole.StandardUser) {
-                  baseUIState.displayName ?: ""
-                } else {
-                  userEntity.displayName ?: "Служба"
-                },
-                addressId = currentAddressId,
-                imageUrl = null,
-                osbbId = currentChatOsbbId,
-                recipientTokens = userEntity.tokens,
-                onComplete = { chatViewModel.clearAiSuggestion() }
-              )
+                chatViewModel.writeToDatabase(
+                  chatUid = chatUid,
+                  senderUid = baseUIState.uid.toString(),
+                  senderDisplayedName = baseUIState.displayName ?: "Диспетчер",
+                  senderLogoUrl = baseUIState.photoUrl,
+                  role = baseUIState.userRole,
+                  senderAddress = if (baseUIState.userRole == UserRole.StandardUser)
+                    baseUIState.displayName ?: "" else userEntity.displayName ?: "Служба",
+                  addressId = currentAddressId,
+                  imageUrl = null,
+                  osbbId = currentChatOsbbId,
+                  recipientTokens = userEntity.tokens,
+                  onComplete = { chatViewModel.clearAiSuggestion() }
+                )
+              }
             },
-            onImageSent = {
-              chatViewModel.setSelectedImageUri(it)
-              navigateToSendImageScreen()
-            },
+            onImageSent = { chatViewModel.setSelectedImageUri(it); navigateToSendImageScreen() },
             onAiClick = { if (messageText.isNotBlank()) chatViewModel.askAssistant(messageText) },
             onCameraClick = navigateToCameraScreen,
             isLoading = isLoadingAfterSending,
@@ -311,8 +464,8 @@ fun ChatScreenContent(
       }
     }
   }
-}
 
+}
 
 
 @Composable

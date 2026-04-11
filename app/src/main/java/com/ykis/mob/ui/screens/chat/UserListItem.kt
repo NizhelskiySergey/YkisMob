@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -58,34 +59,37 @@ fun formatTime24H(timestamp: Long): String {
 @Composable
 fun UserListItem(
   modifier: Modifier = Modifier,
-  it: UserEntity,           // Объект жильца (с уникальным addressId)
+  it: UserEntity,
   onUserClick: (UserEntity) -> Unit,
-  lastMessage: MessageEntity, // Последнее сообщение именно из этой ветки
-  currentUid: String = ""    // UID админа для отображения "Вы: ..."
+  lastMessage: MessageEntity,
+  currentUid: String = ""
 ) {
   // Разрезаем строку "Адрес | Фамилия"
   val parts = remember(it.displayName) { it.displayName?.split("|") ?: emptyList() }
   val displayAddress = parts.getOrNull(0)?.trim() ?: it.displayName ?: "Нет адреса"
+  val residentName = parts.getOrNull(1)?.trim() ?: ""
 
   Column(
     modifier = modifier
       .fillMaxWidth()
       .clickable { onUserClick(it) }
-      .padding(horizontal = 12.dp)
   ) {
     Row(
-      modifier = Modifier.padding(vertical = 12.dp),
+      modifier = Modifier.padding(12.dp),
       verticalAlignment = Alignment.CenterVertically
     ) {
-      UserImage(photoUrl = it.photoUrl.toString())
+      UserImage(
+        modifier = Modifier.size(52.dp),
+        photoUrl = it.photoUrl.toString()
+      )
 
       Column(
         modifier = Modifier
           .weight(1f)
-          .padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+          .padding(start = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
       ) {
-        // ПЕРВАЯ СТРОКА: АДРЕС
+        // 1. ПЕРВАЯ СТРОКА: АДРЕС И ВРЕМЯ
         Row(
           modifier = Modifier.fillMaxWidth(),
           verticalAlignment = Alignment.CenterVertically,
@@ -94,41 +98,44 @@ fun UserListItem(
           Text(
             modifier = Modifier.weight(1f),
             text = displayAddress,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
           )
 
           if (lastMessage.timestamp > 0) {
             Text(
-              text = historyFormatTime(lastMessage.timestamp),
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
+              text = formatTime24H(lastMessage.timestamp), // Используем твой формат
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
           }
         }
 
-        // ВТОРАЯ СТРОКА: EMAIL
-        Text(
-          text = it.email ?: "Нет email",
-          style = MaterialTheme.typography.labelMedium,
-          color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), // Чуть выделим цветом
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis
-        )
+        // 2. ВТОРАЯ СТРОКА: ФИО ЖИЛЬЦА
+        if (residentName.isNotEmpty()) {
+          Text(
+            text = residentName,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+          )
+        }
 
-        // ТРЕТЬЯ СТРОКА: ТЕКСТ СООБЩЕНИЯ
+        // 3. ТРЕТЬЯ СТРОКА: ПОСЛЕДНЕЕ СООБЩЕНИЕ
         val prefix = if (lastMessage.senderUid == currentUid) "Вы: " else ""
         val displayText = when {
           lastMessage.text.isNotBlank() -> "$prefix${lastMessage.text}"
           lastMessage.imageUrl != null -> "$prefix📷 Фотография"
-          else -> "Сообщений пока нет"
+          else -> "Нет сообщений"
         }
 
         Text(
           text = displayText,
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
           maxLines = 1,
           overflow = TextOverflow.Ellipsis
         )
@@ -136,12 +143,13 @@ fun UserListItem(
     }
 
     HorizontalDivider(
-      modifier = Modifier.padding(start = 56.dp),
+      modifier = Modifier.padding(start = 76.dp, end = 16.dp),
       thickness = 0.5.dp,
       color = MaterialTheme.colorScheme.outlineVariant
     )
   }
 }
+
 
 
 

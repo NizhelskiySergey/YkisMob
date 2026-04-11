@@ -18,6 +18,7 @@ data class ApartmentEntity(
 
   val address: String = "",
   val email: String = "example@email.com",
+  val kod: String = "1111111111",
   val phone: String = "+38111111111",
   val nanim: String = "Иванов Иван Иванович",
   val order: String = "65-2020",

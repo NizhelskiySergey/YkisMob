@@ -56,7 +56,6 @@ import com.ykis.mob.ui.screens.appartment.InfoApartmentScreen
 import com.ykis.mob.ui.screens.chat.ChatScreenStateful
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import com.ykis.mob.ui.screens.chat.UserListScreen
-import com.ykis.mob.ui.screens.family.FamilyListViewModel
 import com.ykis.mob.ui.screens.meter.MainMeterScreen
 import com.ykis.mob.ui.screens.meter.MeterViewModel
 import com.ykis.mob.ui.screens.profile.ProfileScreen
@@ -66,7 +65,6 @@ import com.ykis.mob.ui.screens.service.list.TotalServiceDebt
 import com.ykis.mob.ui.screens.settings.SettingsScreenStateful
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
-
 @Composable
 fun MainApartmentScreen(
   contentType: ContentType,
@@ -81,8 +79,8 @@ fun MainApartmentScreen(
   appState: YkisPamAppState,
   onLaunch: () -> Unit,
   onDispose: () -> Unit,
-  isRailExpanded: Boolean, // Состояние, управляемое бургером
-  onMenuClick: () -> Unit, // Колбэк, который инвертирует isRailExpanded
+  isRailExpanded: Boolean,
+  onMenuClick: () -> Unit,
   navigateToWebView: (String) -> Unit,
 ) {
   val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -91,31 +89,37 @@ fun MainApartmentScreen(
   val selectedDestination = navBackStackEntry?.destination?.route ?: InfoApartmentScreenDest.route
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
 
-  // Анимация ширины теперь напрямую зависит от isRailExpanded
-  // Это позволит бургеру сворачивать и разворачивать панель
   val railWidth by animateDpAsState(
     targetValue = if (isRailExpanded) 280.dp else 80.dp,
     animationSpec = tween(400),
     label = "RailWidth"
   )
-// Внутри MainApartmentScreen
-  val firstDestination = remember(baseUIState.userRole, baseUIState.apartments) {
+
+  // Определение стартового экрана в зависимости от роли
+  val firstDestination = remember(baseUIState.userRole, baseUIState.apartments, baseUIState.mainLoading) {
+    // 1. Пока идет загрузка, возвращаем временный маршрут, чтобы не дергать логику
+    if (baseUIState.mainLoading) return@remember "loading"
+
+    val hasApartments = baseUIState.apartments.isNotEmpty()
+
     when (baseUIState.userRole) {
-      // Сервисные админы (используем имена из твоего Enum UserRole)
       UserRole.VodokanalUser,
       UserRole.YtkeUser,
-      UserRole.TboUser,
-      UserRole.OsbbUser -> UserListScreen.route // Или ChatScreen, если решили сразу в чат
+      UserRole.TboUser -> UserListScreen.route
+
+      UserRole.OsbbUser -> {
+        // Если админ ввел код и выбрал квартиру (hasApartments) — идем в Инфо
+        if (hasApartments) InfoApartmentScreenDest.route else UserListScreen.route
+      }
 
       UserRole.StandardUser -> {
-        if (baseUIState.apartments.isEmpty()) AddApartmentScreen.route
-        else InfoApartmentScreenDest.route
+        // Если у жильца нет квартир — строго на добавление, иначе на Инфо
+        if (!hasApartments) AddApartmentScreen.route else InfoApartmentScreenDest.route
       }
 
       else -> InfoApartmentScreenDest.route
     }
-  }
-
+  } ?: InfoApartmentScreenDest.route // 2. Гарантируем тип String (фикс ошибки компиляции)
 
 
 
@@ -125,7 +129,7 @@ fun MainApartmentScreen(
     onDispose { onDispose() }
   }
 
-  val movableApartmentNavGraph = remember(baseUIState, contentType, navigationType) {
+  val movableApartmentNavGraph = remember(baseUIState, contentType, navigationType, firstDestination) {
     movableContentOf {
       ApartmentNavGraph(
         modifier = Modifier.fillMaxSize(),
@@ -137,7 +141,6 @@ fun MainApartmentScreen(
         onDrawerClicked = { coroutineScope.launch { drawerState.open() } },
         apartmentViewModel = apartmentViewModel,
         rootNavController = rootNavController,
-//        firstDestination = if (baseUIState.apartments.isNotEmpty()) InfoApartmentScreen.route else AddApartmentScreen.route,
         firstDestination = firstDestination,
         meterViewModel = meterViewModel,
         serviceViewModel = serviceViewModel,
@@ -152,27 +155,30 @@ fun MainApartmentScreen(
   }
 
   if (navigationType == NavigationType.BOTTOM_NAVIGATION) {
-    // --- ТЕЛЕФОН (Drawer + BottomBar) ---
+    // --- ТЕЛЕФОН (Шторка с поиском + Нижняя панель) ---
     ModalNavigationDrawer(
       drawerState = drawerState,
       drawerContent = {
         ModalNavigationDrawerContent(
           baseUIState = baseUIState,
           selectedDestination = selectedDestination,
-          chatViewModel = chatViewModel, // Передаем для Badge в Drawer
+          chatViewModel = chatViewModel,
+          apartmentViewModel = apartmentViewModel, // Для поиска и списка всех квартир
           navigateToDestination = { dest ->
             coroutineScope.launch {
               drawerState.close()
-              navController.navigateWithPopUp(dest, InfoApartmentScreenDest.route)
+              navController.navigateWithPopUp(dest, firstDestination)
             }
           },
           onMenuClick = { coroutineScope.launch { drawerState.close() } },
           navigateToApartment = { id ->
             apartmentViewModel.setAddressId(id)
-            coroutineScope.launch { drawerState.close() }
-            navController.navigate(InfoApartmentScreenDest.route) {
-              popUpTo(0) { inclusive = true }
-              launchSingleTop = true
+            coroutineScope.launch {
+              drawerState.close()
+              // После выбора квартиры админом - перекидываем его на экран этой квартиры
+              navController.navigate(InfoApartmentScreenDest.route) {
+                popUpTo(0) { inclusive = true }
+              }
             }
           },
           isApartmentsEmpty = baseUIState.apartments.isEmpty()
@@ -181,12 +187,13 @@ fun MainApartmentScreen(
     ) {
       Scaffold(
         bottomBar = {
-          if (baseUIState.apartments.isNotEmpty()) {
+          // Нижняя панель только если есть квартиры или если мы админ
+          if (baseUIState.apartments.isNotEmpty() || baseUIState.userRole != UserRole.StandardUser) {
             BottomNavigationBar(
               selectedDestination = selectedDestination,
-              chatViewModel = chatViewModel, // ИСПРАВЛЕНО: Передаем для Badge в BottomBar
+              chatViewModel = chatViewModel,
               onClick = { dest ->
-                navController.navigateWithPopUp(dest, InfoApartmentScreenDest.route)
+                navController.navigateWithPopUp(dest, firstDestination)
               }
             )
           }
@@ -198,29 +205,29 @@ fun MainApartmentScreen(
       }
     }
   } else {
-    // --- ПЛАНШЕТ (Navigation Rail) ---
+    // --- ПЛАНШЕТ (Боковая панель с поиском) ---
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
       Row(modifier = Modifier.fillMaxSize()) {
         ApartmentNavigationRail(
           modifier = Modifier.width(railWidth),
           baseUIState = baseUIState,
           selectedDestination = selectedDestination,
-          chatViewModel = chatViewModel, // Передаем для Badge в Rail
+          chatViewModel = chatViewModel,
+          apartmentViewModel = apartmentViewModel, // Передаем для поиска на планшете
           isRailExpanded = isRailExpanded,
           onMenuClick = onMenuClick,
           navigateToDestination = { dest ->
-            navController.navigateWithPopUp(dest, InfoApartmentScreenDest.route)
+            navController.navigateWithPopUp(dest, firstDestination)
           },
           navigateToApartment = { id ->
             apartmentViewModel.setAddressId(id)
-            // Для планшета (Rail) обычно шторку закрывать не нужно, но логику сохраняем
+            // На планшете просто обновляем текущий контент
             navController.navigate(InfoApartmentScreenDest.route) {
               popUpTo(InfoApartmentScreenDest.route) { inclusive = true }
             }
           },
           isApartmentsEmpty = baseUIState.apartments.isEmpty(),
-          railWidth = railWidth,
-          maxApartmentListHeight = 220.dp,
+          railWidth = railWidth
         )
 
         VerticalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
@@ -231,8 +238,8 @@ fun MainApartmentScreen(
       }
     }
   }
-
 }
+
 
 @Composable
 fun ApartmentNavGraph(
@@ -466,6 +473,7 @@ fun ApartmentNavGraph(
           ChatScreenStateful(
             chatViewModel = chatViewModel,
             baseUIState = baseUIState,
+            navigationType = navigationType,
             navController = navController,
 
             )
