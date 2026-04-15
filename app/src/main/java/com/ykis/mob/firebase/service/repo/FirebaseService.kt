@@ -40,6 +40,7 @@ interface FirebaseService {
   suspend fun linkAccount(email: String, password: String)
 
   suspend fun deleteAccount()
+  suspend fun logoutDirectly()
 
   fun signOut(): Flow<Resource<Boolean>>
 //    fun signOut()

@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -59,9 +60,11 @@ import com.ykis.mob.ui.screens.chat.UserListScreen
 import com.ykis.mob.ui.screens.meter.MainMeterScreen
 import com.ykis.mob.ui.screens.meter.MeterViewModel
 import com.ykis.mob.ui.screens.profile.ProfileScreen
+import com.ykis.mob.ui.screens.profile.ProfileViewModel
 import com.ykis.mob.ui.screens.service.MainServiceScreen
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.service.list.TotalServiceDebt
+import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
 import com.ykis.mob.ui.screens.settings.SettingsScreenStateful
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
@@ -75,6 +78,7 @@ fun MainApartmentScreen(
   meterViewModel: MeterViewModel = koinViewModel(),
   serviceViewModel: ServiceViewModel = koinViewModel(),
   chatViewModel: ChatViewModel = koinViewModel(),
+  newSettingsViewModel: NewSettingsViewModel =koinViewModel (),
   rootNavController: NavHostController,
   appState: YkisPamAppState,
   onLaunch: () -> Unit,
@@ -145,11 +149,13 @@ fun MainApartmentScreen(
         meterViewModel = meterViewModel,
         serviceViewModel = serviceViewModel,
         chatViewModel = chatViewModel,
+        newSettingsViewModel = newSettingsViewModel,
         closeContentDetail = {
           meterViewModel.closeContentDetail()
           serviceViewModel.closeContentDetail()
         },
-        navigateToWebView = navigateToWebView
+        navigateToWebView = navigateToWebView,
+
       )
     }
   }
@@ -256,6 +262,7 @@ fun ApartmentNavGraph(
   meterViewModel: MeterViewModel,
   serviceViewModel: ServiceViewModel,
   chatViewModel: ChatViewModel,
+  newSettingsViewModel: NewSettingsViewModel,
   closeContentDetail: () -> Unit,
   navigateToWebView: (String) -> Unit,
 ) {
@@ -281,16 +288,22 @@ fun ApartmentNavGraph(
         route = Graph.APARTMENT,
         startDestination = firstDestination
       ) {
-        composable(ProfileScreenDest.route) {
-
-          ProfileScreen(
-            navigationType = navigationType,
-            onDrawerClicked = onDrawerClicked,
-            navigateToSettings = {
-              navController.navigate(SettingsScreenDest.route)
-            }
-          )
-        }
+//        composable(ProfileScreenDest.route) {
+//
+//          ProfileScreen(
+//            viewModel=profileViewModel,
+//            navigationType = navigationType,
+//            onDrawerClicked = onDrawerClicked,
+//            navigateToSettings = {
+//              navController.navigate(SettingsScreenDest.route)
+//            },
+//            restartApp = { route ->
+//              rootNavController.navigate(route) {
+//                popUpTo(0) // Полная очистка стека при выходе/удалении
+//              }
+//            }
+//          )
+//        }
         composable(UserListScreen.route) {
           // 1. Автоматический запуск отслеживания чатов для админа при входе на экран
           LaunchedEffect(baseUIState.userRole, baseUIState.osbbId) {
@@ -360,6 +373,7 @@ fun ApartmentNavGraph(
         composable(SettingsScreenDest.route) {
           SettingsScreenStateful(
             navigationType = navigationType,
+            newSettingsViewModel = newSettingsViewModel,
             navigateToAuthGraph = {
               rootNavController.cleanNavigateTo(Graph.AUTHENTICATION)
             },
@@ -456,12 +470,10 @@ fun ApartmentNavGraph(
 
               // Админ ОСББ
               UserRole.OsbbUser -> {
-                if (baseUIState.osbbId != null) {
-                  chatViewModel.trackUserIdentifiersWithRole(
-                    baseUIState.userRole,
-                    baseUIState.osbbId
-                  )
-                }
+                chatViewModel.trackUserIdentifiersWithRole(
+                  baseUIState.userRole,
+                  baseUIState.osbbId
+                )
               }
 
               else -> { /* Для StandardUser выборка уже сделана при клике */

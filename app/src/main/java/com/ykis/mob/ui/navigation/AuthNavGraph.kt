@@ -34,16 +34,18 @@ fun NavGraphBuilder.authNavGraph(
     }
 
     composable(VerifyEmailScreen.route) {
-      // Если VerifyEmailScreen должен делить данные с SignUp,
-      // используйте koinViewModel(viewModelStoreOwner = NavBackStackEntry)
       val viewModel: SignUpViewModel = koinViewModel()
       VerifyEmailScreen(
-        restartApp = { route -> navController.navigate(route) {
-          popUpTo(Graph.AUTHENTICATION) { inclusive = true }
-        }},
+        restartApp = { route ->
+          navController.navigate(route) {
+            // Очищаем ВООБЩЕ всё под ноль
+            popUpTo(0) { inclusive = true }
+          }
+        },
         viewModel = viewModel,
         navController = navController
       )
     }
+
   }
 }

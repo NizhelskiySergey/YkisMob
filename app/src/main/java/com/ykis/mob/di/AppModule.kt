@@ -1,4 +1,3 @@
-
 package com.ykis.mob.di
 
 
@@ -161,7 +160,6 @@ val appModule = module {
   }
 
 
-
   // 2. ЕДИНЫЙ KtorApiService
   single(createdAtStart = true) { KtorApiService(get()) }
 
@@ -171,7 +169,7 @@ val appModule = module {
   // 4. ОСТАЛЬНЫЕ системные зависимости
   single { NetworkHandler(androidContext()) }
 
-  single (createdAtStart = true){
+  single(createdAtStart = true) {
     Room.databaseBuilder(
       androidContext(),
       AppDatabase::class.java,
@@ -242,7 +240,6 @@ val domainModule = module {
 }
 
 
-
 val dataModule = module {
   // 1. Scope
   single { CoroutineScope(SupervisorJob()) }
@@ -303,16 +300,17 @@ val firebaseModule = module {
   // обычно используют "gemini-1.5-flash" или актуальную превью-версию.
   single {
     Firebase.ai.generativeModel(
-      modelName = "gemini-1.5-flash",
+      modelName = "gemini-1.5-flash-latest",
       systemInstruction = content {
         text(
           """
-                    You are the official AI assistant for a residential complex.
-                    Your knowledge base is limited to the following rules:
-                    1. Answer only questions about housing and utilities, tariffs, and life in the building.
-                    2. If you are asked about something unrelated (politics, games, personal advice), politely answer that you only help with housing association issues.
-                    3. Tone of communication: polite, official, but brief.
-                    4. If you do not know the exact answer (for example, there is no water), advise you to contact the dispatcher at +380000000000.
+              Ви є офіційним помічником ШІ для житлового комплексу.
+              Ваша база знань обмежена такими правилами: 
+              1. Відповідайте лише на запитання про житлово-комунальні послуги, тарифи та життя в будинку. 
+              2. Якщо вас запитують про щось не пов'язане (політика, ігри, особисті поради), 
+              чемно дайте відповідь, що ви допомагаєте лише з питаннями житлово-будівельного товариства. 
+              3. Тон спілкування: чемний, офіційний, але короткий. 
+              4. Якщо ви не знаєте точної відповіді (наприклад, немає води), порадьте звернутися до диспетчера за номером +380000000000.
                     """.trimIndent()
         )
       }
@@ -337,7 +335,7 @@ val firebaseModule = module {
       auth = get<FirebaseAuth>(), // Explicitly specify FirebaseAuth
       db = get<FirebaseFirestore>(),
       apartmentService = get<ApartmentService>(),
-      chatRepo=get<ChatRepository>()// Explicitly specify Firestore
+      chatRepo = get<ChatRepository>()// Explicitly specify Firestore
     )
   }
 
@@ -347,12 +345,13 @@ val viewModelsModule = module {
   single { androidApplication() as MainApplication }
 
 
-  single (createdAtStart = true){
+  single(createdAtStart = true) {
     NewSettingsViewModel(
       dataStore = get(),
       application = get(), // Теперь get() сам найдет MainApplication, зарегистрированный строкой выше
       clearDatabase = get(),
-      firebaseService = get()
+      firebaseService = get(),
+      chatViewModel = get()
     )
   }
 

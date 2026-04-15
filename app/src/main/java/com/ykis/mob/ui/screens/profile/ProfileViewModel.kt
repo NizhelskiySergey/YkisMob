@@ -1,5 +1,6 @@
 package com.ykis.mob.ui.screens.profile
 
+import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.ykis.mob.core.Resource
 import com.ykis.mob.domain.ClearDatabase
@@ -10,24 +11,50 @@ import com.ykis.mob.firebase.service.repo.SignOutResponse
 import com.ykis.mob.ui.BaseViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-
-class ProfileViewModel (
-    private val clearDatabase: ClearDatabase,
-    private val firebaseService: FirebaseService,
-    private val logService: LogService
+class ProfileViewModel(
+  private val clearDatabase: ClearDatabase,
+  private val firebaseService: FirebaseService,
+  logService: LogService
 ) : BaseViewModel(logService) {
 
-    val uid get() = firebaseService.uid
-    val displayName get() = firebaseService.displayName
-    val photoUrl get() = firebaseService.photoUrl
-    val email get() = firebaseService.email
-    val providerId get() = firebaseService.getProvider(viewModelScope)
+  // Стейты ответов
+  private val _deleteAccountResponse = MutableStateFlow<Resource<Boolean>>(Resource.Success(false))
+  val deleteAccountResponse = _deleteAccountResponse.asStateFlow()
 
-    private val _signOutResponse = MutableStateFlow<SignOutResponse>(Resource.Success(false))
-    val signOutResponse = _signOutResponse.asStateFlow()
+  // Данные профиля (уже были у тебя)
+  val uid get() = firebaseService.uid
+  val displayName get() = firebaseService.displayName
+  val photoUrl get() = firebaseService.photoUrl
+  val email get() = firebaseService.email
+  val providerId get() = firebaseService.getProvider(viewModelScope)
 
-    private val _revokeAccessResponse = MutableStateFlow<RevokeAccessResponse>(Resource.Success(false))
-    val revokeAccessResponse = _revokeAccessResponse.asStateFlow()
+  // Метод удаления для UI
+  fun deleteAccount(onSuccess: () -> Unit) {
+    val methodName = "ProfileViewModel.deleteAccount()"
 
+    launchCatching {
+      _deleteAccountResponse.value = Resource.Loading()
+      Log.d("YkisLog", "$methodName: [START] Запуск полной очистки")
+
+      // 1. Вызываем тяжелую логику в сервисе
+      firebaseService.deleteAccount()
+
+      // 2. Чистим локальную БД Room
+      Log.d("YkisLog", "$methodName: [LOCAL] Очистка Room Database")
+      clearDatabase()
+
+      _deleteAccountResponse.value = Resource.Success(true)
+      Log.d("YkisLog", "$methodName: [FINISH] Успех, переход на Auth")
+      onSuccess()
+    }
+  }
+
+  fun signOut(onSuccess: () -> Unit) {
+    launchCatching {
+      firebaseService.signOut()
+      clearDatabase()
+      onSuccess()
+    }
+  }
 }
+

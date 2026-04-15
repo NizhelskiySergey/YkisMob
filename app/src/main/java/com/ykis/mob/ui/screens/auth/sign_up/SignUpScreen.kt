@@ -206,35 +206,43 @@ fun SignUpScreenStateless(
 }
 @Composable
 fun SignUpScreen(
-    modifier: Modifier = Modifier,
-    viewModel: SignUpViewModel,
-    navController: NavController
+  modifier: Modifier = Modifier,
+  viewModel: SignUpViewModel,
+  navController: NavController
 ) {
-    val keyboard = LocalSoftwareKeyboardController.current
-    val signUpUiState by viewModel.signUpUiState
-    val signUpResponse by viewModel.signUpResponse.collectAsStateWithLifecycle()
-    LaunchedEffect(signUpResponse) {
-        Log.d("response_test" , signUpResponse.toString())
+  val keyboard = LocalSoftwareKeyboardController.current
+  val signUpUiState by viewModel.signUpUiState
+  val signUpResponse by viewModel.signUpResponse.collectAsStateWithLifecycle()
+
+  // Слушаем ответ от сервера
+  LaunchedEffect(signUpResponse) {
+    if (signUpResponse is Resource.Success) {
+      // Переходим только если регистрация реально прошла успешно
+      navController.navigate(VerifyEmailScreen.route) {
+        popUpTo(com.ykis.mob.ui.navigation.SignUpScreen.route) {
+          inclusive = true
+        }
+      }
     }
-    SignUpScreenStateless(
-        signUpUiState = signUpUiState,
-        navigateBack = { navController.navigateUp()},
-        onEmailChange = { viewModel.onEmailChange(it) },
-        onPasswordChange = { viewModel.onPasswordChange(it) },
-        onRepeatPasswordChange = { viewModel.onRepeatPasswordChange(it) },
-        onSignUpClick = {
-            keyboard?.hide()
-            viewModel.sendEmailVerification {
-                navController.navigate(VerifyEmailScreen.route){
-                    popUpTo(com.ykis.mob.ui.navigation.SignUpScreen.route){
-                        inclusive = true
-                    }
-                }
-            }
-        },
-        isLoading = signUpResponse is Resource.Loading
-    )
+  }
+
+  SignUpScreenStateless(
+    signUpUiState = signUpUiState,
+    navigateBack = { navController.navigateUp() },
+    onEmailChange = viewModel::onEmailChange,
+    onPasswordChange = viewModel::onPasswordChange,
+    onRepeatPasswordChange = viewModel::onRepeatPasswordChange,
+    onSignUpClick = {
+      keyboard?.hide()
+      // Вызываем один метод, который отвечает за ВСЮ процедуру регистрации
+      viewModel.signUpWithEmailAndPassword {
+        // Здесь можно ничего не делать, так как LaunchedEffect выше обработает переход
+      }
+    },
+    isLoading = signUpResponse is Resource.Loading
+  )
 }
+
 
 @Preview
 @Composable

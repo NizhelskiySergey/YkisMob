@@ -36,98 +36,97 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.ykis.mob.R.string as AppText
 
-
-class SignUpViewModel (
-    private val firebaseService: FirebaseService,
-    private val configurationService: ConfigurationService,
-    logService: LogService
+class SignUpViewModel(
+  private val firebaseService: FirebaseService,
+  private val configurationService: ConfigurationService,
+  logService: LogService
 ) : BaseViewModel(logService) {
 
-    private val _reloadUserResponse = MutableStateFlow<ReloadUserResponse>(Resource.Success(false))
-    val reloadUserResponse = _reloadUserResponse.asStateFlow()
+  private val _reloadUserResponse = MutableStateFlow<ReloadUserResponse>(Resource.Success(false))
+  val reloadUserResponse = _reloadUserResponse.asStateFlow()
 
-    private val _signUpResponse = MutableStateFlow<SignUpResponse>(Resource.Success(false))
-    val signUpResponse = _signUpResponse.asStateFlow()
+  private val _signUpResponse = MutableStateFlow<SignUpResponse>(Resource.Success(false))
+  val signUpResponse = _signUpResponse.asStateFlow()
 
-    private val _sendEmailVerificationResponse = MutableStateFlow<SendEmailVerificationResponse>(Resource.Loading())
+  // Стейт для верификации почты
+  private val _sendEmailVerificationResponse = MutableStateFlow<SendEmailVerificationResponse>(Resource.Success(false))
 
-    var signUpUiState = mutableStateOf(SignUpUiState())
-        private set
+  var signUpUiState = mutableStateOf(SignUpUiState())
+    private set
 
-    val email
-        get() = signUpUiState.value.email
-    private val password
-        get() = signUpUiState.value.password
+  val email get() = signUpUiState.value.email
+  private val password get() = signUpUiState.value.password
+  private val repeatPassword get() = signUpUiState.value.repeatPassword
 
+  val isEmailVerified get() = firebaseService.currentUser?.isEmailVerified ?: false
 
+  init {
+    launchCatching { configurationService.fetchConfiguration() }
+  }
 
-    val isEmailVerified get() = firebaseService.currentUser?.isEmailVerified ?: false
-
-    init{
-        launchCatching { configurationService.fetchConfiguration() }
+  // --- ВАЛИДАЦИЯ (Вынесена отдельно) ---
+  private fun isInputValid(): Boolean {
+    if (!email.isValidEmail()) {
+      SnackbarManager.showMessage(AppText.email_error)
+      return false
     }
-
-    fun repeatEmailVerified() {
-        launchCatching {
-            _sendEmailVerificationResponse.value = Resource.Loading()
-            val result = firebaseService.sendEmailVerification()
-            _sendEmailVerificationResponse.value = result
-            SnackbarManager.showMessage(R.string.verify_email_message)
-        }
+    if (!password.isValidPassword()) {
+      SnackbarManager.showMessage(AppText.password_error)
+      return false
     }
-    fun onEmailChange(newValue: String) {
-        signUpUiState.value = signUpUiState.value.copy(email = newValue)
+    if (!password.passwordMatches(repeatPassword)) {
+      SnackbarManager.showMessage(AppText.password_match_error)
+      return false
     }
+    return true
+  }
 
-    fun onPasswordChange(newValue: String) {
-        signUpUiState.value = signUpUiState.value.copy(password = newValue)
+  // --- РЕГИСТРАЦИЯ ---
+  fun signUpWithEmailAndPassword(onSuccess: () -> Unit) {
+    if (!isInputValid()) return
+
+    launchCatching {
+      _signUpResponse.value = Resource.Loading()
+
+      // 1. Регистрируем пользователя
+      val result = firebaseService.firebaseSignUpWithEmailAndPassword(email, password)
+      _signUpResponse.value = result
+
+      if (result is Resource.Success) {
+        // 2. Сразу отправляем письмо верификации
+        firebaseService.sendEmailVerification()
+
+        // 3. Обновляем токен пушей, чтобы пользователь был на связи
+        addFcmToken()
+
+        onSuccess()
+      }
     }
+  }
 
-    fun onRepeatPasswordChange(newValue: String) {
-        signUpUiState.value = signUpUiState.value.copy(repeatPassword = newValue)
+  // Повторная отправка письма (если первое не дошло)
+  fun repeatEmailVerified() {
+    launchCatching {
+      _sendEmailVerificationResponse.value = Resource.Loading()
+      _sendEmailVerificationResponse.value = firebaseService.sendEmailVerification()
+      SnackbarManager.showMessage(R.string.verify_email_message)
     }
+  }
 
-    fun signUpWithEmailAndPassword(onSuccess:()->Unit) {
+  fun onEmailChange(newValue: String) { signUpUiState.value = signUpUiState.value.copy(email = newValue) }
+  fun onPasswordChange(newValue: String) { signUpUiState.value = signUpUiState.value.copy(password = newValue) }
+  fun onRepeatPasswordChange(newValue: String) { signUpUiState.value = signUpUiState.value.copy(repeatPassword = newValue) }
 
-        launchCatching {
-            _signUpResponse.value = Resource.Loading()
-            _signUpResponse.value = firebaseService.firebaseSignUpWithEmailAndPassword(email, password)
-            sendEmailVerification{
-                onSuccess()
-            }
-        }
+  fun reloadUser(onSuccess: () -> Unit) {
+    launchCatching {
+      _reloadUserResponse.value = Resource.Loading()
+      val result = firebaseService.reloadFirebaseUser()
+      _reloadUserResponse.value = result
+
+      if (result is Resource.Success && isEmailVerified) {
+        addFcmToken() // Обновляем токен при успешном подтверждении
+        onSuccess()
+      }
     }
-
-    fun sendEmailVerification(openScreen: () -> Unit) {
-        if (!email.isValidEmail()) {
-            SnackbarManager.showMessage(AppText.email_error)
-            return
-        }
-
-        if (!password.isValidPassword()) {
-            SnackbarManager.showMessage(AppText.password_error)
-            return
-        }
-
-        if (!password.passwordMatches(signUpUiState.value.repeatPassword)) {
-            SnackbarManager.showMessage(AppText.password_match_error)
-            return
-        }
-        launchCatching {
-            _signUpResponse.value = Resource.Loading()
-            _signUpResponse.value = firebaseService.firebaseSignUpWithEmailAndPassword(email, password)
-            _sendEmailVerificationResponse.value = Resource.Loading()
-            _sendEmailVerificationResponse.value = firebaseService.sendEmailVerification()
-            openScreen()
-        }
-
-    }
-    fun reloadUser(onSuccess: () -> Unit) {
-        launchCatching {
-            _reloadUserResponse.value = Resource.Loading()
-            _reloadUserResponse.value = firebaseService.reloadFirebaseUser()
-            addFcmToken()
-            onSuccess()
-        }
-    }
+  }
 }

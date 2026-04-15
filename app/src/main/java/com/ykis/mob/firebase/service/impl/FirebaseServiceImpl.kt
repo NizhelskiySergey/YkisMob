@@ -164,94 +164,90 @@ class FirebaseServiceImpl(
 
 
   override fun revokeAccess(): Flow<Resource<Boolean>> = flow {
+    val methodName = "FirebaseServiceImpl.revokeAccess()"
     emit(Resource.Loading())
+
     try {
       val user = auth.currentUser
       val currentUid = user?.uid
       val userEmail = user?.email ?: ""
 
       if (currentUid == null) {
+        Log.e("YkisLog", "$methodName: [ERROR] Пользователь null")
         emit(Resource.Error(message = "Користувач не авторизований"))
         return@flow
       }
 
-      // 1. Удаляем из вашей внешней БД (MySQL) через ApartmentService
-      // Делаем это первым, так как если ваш сервер упадет, мы не удалим Firebase-аккаунт
+      Log.d("YkisLog", "$methodName: [START] Удаление аккаунта для UID: $currentUid")
+
+      // 1. MySQL (Внешняя БД)
       val mysqlResult = apartmentService.deleteUserAccount(currentUid, userEmail)
         .filter { it !is Resource.Loading }
         .first()
 
       if (mysqlResult is Resource.Error) {
-        emit(
-          Resource.Error(
-            resourceMessage = mysqlResult.resourceMessage ?: R.string.error_delete_account,
-            message = mysqlResult.message
-          )
-        )
+        Log.e("YkisLog", "$methodName: [STEP 1 FAILED] MySQL Error")
+        emit(Resource.Error(
+          resourceMessage = mysqlResult.resourceMessage ?: R.string.error_delete_account,
+          message = mysqlResult.message
+        ))
         return@flow
       }
-      Log.d("YkisLog", "FirebaseServiceImpl.revokeAccess() 1. MySQL: User deleted successfully")
+      Log.d("YkisLog", "$methodName: [STEP 1 SUCCESS] MySQL: Данные удалены")
 
-      // 2. Удаляем фото из Storage (игнорируем ошибку 404, если фото нет)
+      // 2. Storage (Аватарка)
       try {
         chatRepo.storage.reference.child("avatars/$currentUid").delete().await()
-        Log.d("YkisLog", "FirebaseServiceImpl.revokeAccess() 2. Storage: Photo deleted")
+        Log.d("YkisLog", "$methodName: [STEP 2 SUCCESS] Storage: Фото удалено")
       } catch (e: Exception) {
-        if (e is StorageException && e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) {
-          Log.d(
-            "YkisLog",
-            "FirebaseServiceImpl.revokeAccess() 2. Storage: No photo found (skipping)"
-          )
+        val is404 = e is StorageException && e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND
+        if (is404) {
+          Log.d("YkisLog", "$methodName: [STEP 2 SKIP] Storage: Файл не найден")
         } else {
-          Log.e(
-            "YkisLog",
-            "FirebaseServiceImpl.revokeAccess() 2. Storage: Other error: ${e.message}"
-          )
+          Log.e("YkisLog", "$methodName: [STEP 2 ERROR] Storage: ${e.message}")
         }
       }
 
-      // 3. Удаляем данные из Realtime Database (ветка /users/$uid)
+      // 3. Realtime Database (Ветка пользователя)
       try {
         chatRepo.realtime.getReference("users").child(currentUid).removeValue().await()
-        Log.d("YkisLog", "FirebaseServiceImpl.revokeAccess() 3. Realtime DB: Data deleted")
+        Log.d("YkisLog", "$methodName: [STEP 3 SUCCESS] RTDB: Ветка удалена")
       } catch (e: Exception) {
-        Log.e("YkisLog", "FirebaseServiceImpl.revokeAccess() 3. Realtime DB Error: ${e.message}")
+        Log.e("YkisLog", "$methodName: [STEP 3 ERROR] RTDB: ${e.message}")
+        // Важно: даже если тут ошибка 403, идем дальше, чтобы удалить Auth
       }
 
-      // 4. Удаляем профиль из Firestore
+      // 4. Firestore (Профиль)
       db.collection("users").document(currentUid).delete().await()
-      Log.d("YkisLog", "FirebaseServiceImpl.revokeAccess() 4. Firestore: Document deleted")
+      Log.d("YkisLog", "$methodName: [STEP 4 SUCCESS] Firestore: Документ удален")
 
-      // 5. Удаляем самого пользователя из Firebase Auth
-      // Это ОБЯЗАТЕЛЬНО последний шаг, пока UID еще валиден для правил доступа
+      // 5. Firebase Auth (САМЫЙ ВАЖНЫЙ МОМЕНТ)
+      Log.d("YkisLog", "$methodName: [STEP 5] Удаление из Firebase Auth...")
       user.delete().await()
-      Log.d(
-        "YkisLog",
-        "FirebaseServiceImpl.revokeAccess() 5. Auth: User account deleted from Firebase"
-      )
+      Log.d("YkisLog", "$methodName: [STEP 5 SUCCESS] Auth: Аккаунт стерт")
 
-      // 6. Очищаем состояние Google Sign-In
+      // 6. Credential Manager
       credentialManager.clearCredentialState(ClearCredentialStateRequest())
 
+      Log.d("YkisLog", "$methodName: [FINISH] Полный успех")
       emit(Resource.Success(true))
 
     } catch (e: FirebaseAuthRecentLoginRequiredException) {
-      Log.e(
-        "YkisLog",
-        "FirebaseServiceImpl.revokeAccess() Auth: Re-authentication required. Force signing out..."
-      )
-
-      // Автоматически выходим, так как сессия устарела для удаления
+      Log.w("YkisLog", "$methodName: [RE-AUTH REQUIRED] Срок сессии истек")
       auth.signOut()
       credentialManager.clearCredentialState(ClearCredentialStateRequest())
-
-      emit(Resource.Error(message = "Для видалення акаунту потрібно заново увійти в систему"))
+      emit(Resource.Error(message = "Для видалення потрібно заново увійти в систему"))
 
     } catch (e: Exception) {
-      Log.e("YkisLog", "FirebaseServiceImpl.revokeAccess() Global Error: ${e.message}")
-      emit(Resource.Error(message = e.localizedMessage ?: "Помилка видалення аккаунту"))
+      Log.e("YkisLog", "$methodName: [CRITICAL ERROR] ${e.message}")
+      emit(Resource.Error(message = e.localizedMessage ?: "Помилка видалення"))
     }
   }.flowOn(Dispatchers.IO)
+
+  // В FirebaseService интерфейс и FirebaseServiceImpl
+  override suspend fun logoutDirectly() {
+    auth.signOut() // Стандартный метод Firebase, который срабатывает мгновенно
+  }
 
 
   override fun revokeAccessEmail(): Flow<Resource<Boolean>> = revokeAccess()
@@ -472,8 +468,42 @@ class FirebaseServiceImpl(
 
   //  override suspend fun linkAccount(email: String, password: String) {}
   override suspend fun deleteAccount() {
-    auth.currentUser?.delete()?.await()
+    val methodName = "FirebaseService.deleteAccount()"
+    val user = auth.currentUser
+    val uid = user?.uid
+
+    if (uid == null) {
+      Log.e("YkisLog", "$methodName: [ERROR] Пользователь не авторизован")
+      return
+    }
+
+    // 1. Сначала внешняя база (MySQL) - уже работает у тебя
+    Log.d("YkisLog", "$methodName: [STEP 1] Удаление из MySQL...")
+    // Твой вызов API deleteUserAccount.php
+
+    // 2. Удаляем данные из Firestore (профиль)
+    Log.d("YkisLog", "$methodName: [STEP 2] Удаление из Firestore (users/$uid)")
+    db.collection("users").document(uid).delete().await()
+
+    // 3. Удаляем данные из Realtime Database
+    Log.d("YkisLog", "$methodName: [STEP 3] Удаление из RTDB (users/$uid)")
+    chatRepo.realtime.reference.child("users").child(uid).removeValue().await()
+
+    // 4. Удаление из Auth (САМЫЙ ПОСЛЕДНИЙ ШАГ)
+    Log.d("YkisLog", "$methodName: [STEP 4] Удаление из Firebase Auth")
+    try {
+      user.delete().await()
+      Log.d("YkisLog", "$methodName: [SUCCESS] Аккаунт полностью удален")
+    } catch (e: Exception) {
+      if (e.message?.contains("recent-login") == true) {
+        Log.w("YkisLog", "$methodName: [WARNING] Требуется свежий логин. Выход...")
+        auth.signOut()
+      }
+      throw e
+    }
   }
+
+
 
   override suspend fun firebaseSignUpWithGoogle2(googleCredential: AuthCredential) {
     firebaseSignInWithGoogle(googleCredential)

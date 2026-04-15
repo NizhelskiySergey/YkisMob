@@ -3,10 +3,11 @@ package com.ykis.mob.ui.navigation
 import androidx.navigation.NavHostController
 
 fun NavHostController.cleanNavigateTo(route: String){
-    this.navigate(route) {
-        popUpTo(0)
-    }
+  this.navigate(route) {
+    popUpTo(0) { inclusive = true }
+  }
 }
+
 fun NavHostController.navigateWithPopUp(route: String, popUp: String?) {
   this.navigate(route) {
     launchSingleTop = true

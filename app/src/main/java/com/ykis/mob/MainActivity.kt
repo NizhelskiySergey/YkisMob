@@ -32,6 +32,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.runtime.getValue
 class MainActivity : ComponentActivity() {
 
   private var pressBackExitJob: Job? = null

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material3.Icon
@@ -32,6 +33,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,9 +52,11 @@ fun MessageListItem(
   isUserAdmin: Boolean,
   messageEntity: MessageEntity,
   onLongClick: () -> Unit,
-  onClick: () -> Unit
+  onClick: () -> Unit,
+  onFileClick: (String) -> Unit // Добавлено: действие при клике на файл (открытие ссылки)
 ) {
   val isFromMe = remember(uid, messageEntity.senderUid) { uid == messageEntity.senderUid }
+  val context = LocalContext.current
 
   val shape = RoundedCornerShape(
     topStart = 16.dp,
@@ -86,7 +90,13 @@ fun MessageListItem(
         .clip(shape)
         .background(containerColor)
         .combinedClickable(
-          onClick = { if (messageEntity.imageUrl != null) onClick() },
+          onClick = {
+            // Логика клика: если картинка - зум, если файл - открытие
+            when {
+              messageEntity.imageUrl != null -> onClick()
+              messageEntity.fileUrl != null -> onFileClick(messageEntity.fileUrl)
+            }
+          },
           onLongClick = { if (isFromMe) onLongClick() }
         )
         .padding(horizontal = 8.dp, vertical = 6.dp)
@@ -109,89 +119,97 @@ fun MessageListItem(
         }
       }
 
-      // 2. ЗАГОЛОВОК (Имя отправителя)
+      // 2. ИМЯ ОТПРАВИТЕЛЯ (Только для входящих)
       if (!isFromMe) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          Text(
-            text = messageEntity.senderDisplayedName,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-          )
-          if (!messageEntity.senderAddress.contains("|")) {
-            Text(
-              text = " • ${stringResource(R.string.dispatcher)}",
-              style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-              color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-              modifier = Modifier.padding(start = 4.dp)
-            )
-          }
-        }
+        Text(
+          text = messageEntity.senderDisplayedName,
+          style = MaterialTheme.typography.labelMedium,
+          fontWeight = FontWeight.Bold,
+          color = MaterialTheme.colorScheme.primary,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis
+        )
       }
 
       // 3. ИЗОБРАЖЕНИЕ
       if (messageEntity.imageUrl != null) {
         AsyncImage(
-          model = ImageRequest.Builder(LocalContext.current)
-            .data(messageEntity.imageUrl)
-            .crossfade(true)
-            .build(),
+          model = ImageRequest.Builder(context).data(messageEntity.imageUrl).crossfade(true).build(),
           contentDescription = null,
-          modifier = Modifier
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .fillMaxWidth(),
+          modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).fillMaxWidth(),
           contentScale = ContentScale.FillWidth
         )
       }
 
-      // 4. ТЕКСТ И ПОДВАЛ (Время + Галочки)
-      // Используем Box или Column с выравниванием элементов подвала
-      Column(modifier = Modifier.fillMaxWidth()) {
-        if (messageEntity.text.isNotBlank()) {
-          Text(
-            text = messageEntity.text,
-            style = MaterialTheme.typography.bodyLarge,
-            color = contentColor
-          )
-        }
-
+      // 4. НОВОЕ: ОТОБРАЖЕНИЕ ДОКУМЕНТА (ФАЙЛА)
+      if (messageEntity.fileUrl != null) {
+        Log.d("YkisLog", "Rendering FILE bubble: ${messageEntity.fileUrl}")
         Row(
-          modifier = Modifier.align(Alignment.End),
+          modifier = Modifier
+            .padding(vertical = 4.dp)
+            .fillMaxWidth()
+            .background(contentColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+            .padding(8.dp),
           verticalAlignment = Alignment.CenterVertically
         ) {
-          if (messageEntity.edited) {
-            Text(
-              text = stringResource(R.string.izm),
-              style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-              color = contentColor.copy(alpha = 0.5f),
-              modifier = Modifier.padding(end = 4.dp)
-            )
-          }
-
-          Text(
-            text = formatTime24H(messageEntity.timestamp),
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-            color = contentColor.copy(alpha = 0.6f)
+          Icon(
+            imageVector = Icons.Default.Description,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(28.dp)
           )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+            // ОТОБРАЖАЕМ ИМЯ ИЗ БАЗЫ, если его нет - старая заглушка
+            text = messageEntity.fileName ?: "Документ",
+            style = MaterialTheme.typography.bodyMedium,
+            textDecoration = TextDecoration.Underline,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+          )
+        }
+      }
 
-          if (isFromMe) {
-            // ДВЕ СИНИЕ ГАЛОЧКИ
-            Icon(
-              imageVector = if (messageEntity.read) Icons.Default.DoneAll else Icons.Default.Done,
-              contentDescription = null,
-              modifier = Modifier.size(15.dp).padding(start = 4.dp),
-              // Если прочитано — ярко-синий (DodgerBlue), если нет — серый
-              tint = if (messageEntity.read) Color(0xFF02C1FF) else contentColor.copy(alpha = 0.4f)
-            )
-          }
+      // 5. ТЕКСТ СООБЩЕНИЯ
+      if (messageEntity.text.isNotBlank() && messageEntity.text != "[Файл]") {
+        Text(
+          text = messageEntity.text,
+          style = MaterialTheme.typography.bodyLarge,
+          color = contentColor
+        )
+      }
+
+      // 6. ПОДВАЛ (Время + Статус)
+      Row(
+        modifier = Modifier.align(Alignment.End),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        if (messageEntity.edited) {
+          Text(
+            text = stringResource(R.string.izm),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            color = contentColor.copy(alpha = 0.5f),
+            modifier = Modifier.padding(end = 4.dp)
+          )
+        }
+        Text(
+          text = formatTime24H(messageEntity.timestamp),
+          style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+          color = contentColor.copy(alpha = 0.6f)
+        )
+        if (isFromMe) {
+          Icon(
+            imageVector = if (messageEntity.read) Icons.Default.DoneAll else Icons.Default.Done,
+            contentDescription = null,
+            modifier = Modifier.size(15.dp).padding(start = 4.dp),
+            tint = if (messageEntity.read) Color(0xFF02C1FF) else contentColor.copy(alpha = 0.4f)
+          )
         }
       }
     }
   }
 }
+
 
 
 

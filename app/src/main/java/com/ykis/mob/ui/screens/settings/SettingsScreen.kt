@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.google.firebase.auth.FirebaseAuth
@@ -67,12 +68,12 @@ import org.koin.compose.viewmodel.koinViewModel
 fun SettingsScreenStateful(
     modifier: Modifier = Modifier,
     navigationType: NavigationType,
-    viewModel: NewSettingsViewModel = koinViewModel(),
+    newSettingsViewModel: NewSettingsViewModel,
     navigateToAuthGraph : () -> Unit,
     onDrawerClick: () -> Unit,
     ) {
-    val theme by viewModel.theme.collectAsStateWithLifecycle()
-    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val theme by newSettingsViewModel.theme.collectAsStateWithLifecycle()
+    val loading by newSettingsViewModel.loading.collectAsStateWithLifecycle()
     var themeLocation by remember {
         mutableIntStateOf(0)
     }
@@ -95,30 +96,33 @@ fun SettingsScreenStateful(
             },
             getThemeValues =
             {
-                viewModel.getThemeValue()
+              newSettingsViewModel.getThemeValue()
             },
             setThemeValues = {
-                viewModel.setThemeValue(it)
+              newSettingsViewModel.setThemeValue(it)
             },
             revokeAccess = {
-                viewModel.revokeAccess(
+                newSettingsViewModel.revokeAccess(
                     navigateToAuthGraph
                 )
             },
-            signOut = {
-                val previousUid = FirebaseAuth.getInstance().currentUser?.uid
-                Log.d("FCM", "pr : ${previousUid}")
-                viewModel.signOut {
-                    navigateToAuthGraph()
-                    Log.d("FCM", "successful sign out")
-                    removeFcmTokenOnLogout(previousUid)
-                }
-            },
-            onDrawerClick = {
+          signOut = {
+            // 1. Сначала вызываем метод вьюмодели
+            newSettingsViewModel.signOut {
+              // 2. Внутри колбэка onSuccess (который сработает после всего)
+              // делаем переход на авторизацию
+              navigateToAuthGraph()
+
+              // Лог для проверки
+              Log.d("YkisLog", "Navigation to Auth completed successfully")
+            }
+          },
+
+          onDrawerClick = {
                 onDrawerClick()
             },
-            photoUrl =viewModel.photoUrl,
-            email = viewModel.email
+            photoUrl =newSettingsViewModel.photoUrl,
+            email = newSettingsViewModel.email
         )
     }
 
@@ -145,10 +149,10 @@ fun SettingsScreenStateless(
     var showLogOutDialog by rememberSaveable { mutableStateOf(false) }
     var showDeleteAccountDialog by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(theme) {
-        getThemeValues()
-        onThemeChange()
-    }
+//    LaunchedEffect(theme) {
+//        getThemeValues()
+//        onThemeChange()
+//    }
 
     Column(
         modifier = modifier.fillMaxSize(),

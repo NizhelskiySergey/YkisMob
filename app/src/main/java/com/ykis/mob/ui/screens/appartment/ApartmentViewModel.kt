@@ -63,6 +63,7 @@ class ApartmentViewModel(
   private val displayName get() = firebaseService.displayName
   val email get() = firebaseService.email
 
+  private var lastLoadedAddressId: Int = -1
 
   private val _apartment = MutableStateFlow(ApartmentEntity())
   val apartment: StateFlow<ApartmentEntity> get() = _apartment.asStateFlow()
@@ -121,26 +122,45 @@ class ApartmentViewModel(
   fun observeUserProfile() {
     viewModelScope.launch {
       val methodName = "ApartmentViewModel.observeUserProfile()"
-      Log.d("YkisLog", "$methodName: [START] Загрузка профиля...")
+
+      // 1. ПРОВЕРКА АВТОРИЗАЦИИ (Критично для фикса выхода)
+      val currentUser = firebaseService.currentUser
+      if (currentUser == null) {
+        Log.d("YkisLog", "$methodName: [STOP] Пользователь не авторизован. Выход.")
+        _uiState.update { it.copy(mainLoading = false) }
+        return@launch
+      }
+
+      Log.d("YkisLog", "$methodName: [START] Запуск для UID: ${currentUser.uid}")
+      _uiState.update { it.copy(mainLoading = true) }
 
       val user = withContext(Dispatchers.IO) { firebaseService.getUserProfile() }
-      val currentUserRole = fromString(user.userRole)
+
+      // Дополнительная проверка: не вышел ли юзер, пока мы ходили в сеть
+      if (firebaseService.currentUser == null) {
+        Log.d("YkisLog", "$methodName: [ABORT] Сессия закрыта во время запроса")
+        _uiState.update { it.copy(mainLoading = false) }
+        return@launch
+      }
+
+      val currentUserRole = UserRole.fromString(user.userRole)
+      Log.d("YkisLog", "$methodName: [PROFILE] Role: $currentUserRole, OSBB: ${user.osbbId}")
 
       _uiState.update { it.copy(
         uid = user.uid,
         userRole = currentUserRole,
         osbbId = user.osbbId,
         displayName = user.name ?: "",
-        mainLoading = true
       )}
 
       if (currentUserRole == UserRole.StandardUser) {
-        // --- ЛОГИКА ЖИЛЬЦА ---
         apartmentService.getApartmentList(user.uid).collect { result ->
+          if (firebaseService.currentUser == null) return@collect // Защита внутри Flow
+
           when (result) {
             is Resource.Success -> {
               val apartments = result.data ?: emptyList()
-              Log.d("YkisLog", "$methodName: [SUCCESS] Получено ${apartments.size} квартир")
+              Log.d("YkisLog", "$methodName: [FETCH] Квартир: ${apartments.size}")
 
               if (apartments.isNotEmpty()) {
                 val first = apartments.first()
@@ -152,7 +172,7 @@ class ApartmentViewModel(
                   osbbId = first.osmdId,
                   address = first.address,
                   displayName = combinedName,
-                  mainLoading = false // ГАСИМ ЛОАДЕР (есть квартиры)
+                  mainLoading = false
                 )}
 
                 firebaseService.updateUserRoleAndPermissions(
@@ -164,52 +184,44 @@ class ApartmentViewModel(
                 )
                 chatViewModel.subscribeToResidentCounters(user.uid, first.osmdId, first.addressId)
               } else {
-                // !!! ИСПРАВЛЕНО: Если квартир нет, ОБЯЗАТЕЛЬНО гасим лоадер,
-                // чтобы приложение показало экран "Добавить квартиру"
-                _uiState.update { it.copy(mainLoading = false, apartments = emptyList()) }
-                Log.d("YkisLog", "$methodName: Список пуст, переход к добавлению")
+                Log.d("YkisLog", "$methodName: [EMPTY] Квартир нет")
+                _uiState.update { it.copy(apartments = emptyList(), mainLoading = false) }
               }
             }
             is Resource.Error -> {
-              Log.e("YkisLog", "$methodName: Ошибка: ${result.message}")
+              Log.e("YkisLog", "$methodName: [ERROR] ${result.message}")
               _uiState.update { it.copy(mainLoading = false) }
             }
             is Resource.Loading -> {
-              _uiState.update { it.copy(mainLoading = true) }
+              Log.d("YkisLog", "$methodName: [LOADING]...")
             }
           }
         }
       } else {
         // --- ЛОГИКА АДМИНА ---
         apartmentService.getOsbbApartmentsList(user.osbbId).collect { result ->
+          if (firebaseService.currentUser == null) return@collect
+
           when (result) {
             is Resource.Success -> {
+              Log.d("YkisLog", "$methodName: [ADMIN] Загружено ${result.data?.size} квартир")
               _uiState.update { it.copy(
                 apartments = result.data ?: emptyList(),
-                mainLoading = false // ГАСИМ ЛОАДЕР
+                mainLoading = false
               )}
 
-              firebaseService.updateUserRoleAndPermissions(
-                uid = user.uid,
-                addressId = 0,
-                userRole = currentUserRole,
-                osbbId = user.osbbId,
-                displayName = user.name ?: "Администратор"
-              )
-
+              firebaseService.updateUserRoleAndPermissions(user.uid, 0, currentUserRole, user.osbbId, user.name ?: "Адмін")
               chatViewModel.trackUserIdentifiersWithRole(currentUserRole, user.osbbId)
             }
-            is Resource.Error -> {
-              _uiState.update { it.copy(mainLoading = false) }
-            }
-            is Resource.Loading -> {
-              _uiState.update { it.copy(mainLoading = true) }
-            }
+            is Resource.Error -> { _uiState.update { it.copy(mainLoading = false) } }
+            is Resource.Loading -> {}
           }
         }
       }
     }
   }
+
+
 
   fun resetToAdminMode() {
     val methodName = "ApartmentViewModel.resetToAdminMode()"
@@ -515,13 +527,26 @@ class ApartmentViewModel(
       }
     }.launchIn(viewModelScope)
   }
+  // [СТАБИЛЬНАЯ ВЕРСИЯ]
+  // [СТАБИЛЬНАЯ ВЕРСИЯ]
+  // В начале ApartmentViewModel добавь:
+  private var lastProcessingAddressId: Int = -1
+
   fun getApartment(addressId: Int = uiState.value.addressId) {
-    // 1. ПРОВЕРКА: Если мы уже загрузили этот ID и не находимся в процессе загрузки - выходим
-    if (addressId == uiState.value.apartment.addressId && !uiState.value.apartmentLoading) {
+    val methodName = "ApartmentViewModel.getApartment($addressId)"
+
+    // 1. АТОМАРНЫЙ БАРЬЕР (Предотвращает гонку состояний)
+    if (addressId <= 0) return
+
+    // Если мы УЖЕ в процессе загрузки этого ID или он УЖЕ загружен — выходим мгновенно
+    if (addressId == lastProcessingAddressId ||
+      (addressId == uiState.value.apartment.addressId && !uiState.value.apartmentLoading)) {
+      Log.d("YkisLog", "$methodName -> ATOMIC SKIP")
       return
     }
 
-    if (addressId <= 0) return
+    // Фиксируем намерение загрузить этот ID
+    lastProcessingAddressId = addressId
 
     val currentUid = uid ?: ""
 
@@ -529,23 +554,25 @@ class ApartmentViewModel(
       when (result) {
         is Resource.Success -> {
           val data = result.data ?: ApartmentEntity()
-          Log.d("YkisLog", "ApartmentViewModel.getApartment($addressId) -> SUCCESS")
+          Log.d("YkisLog", "$methodName -> SUCCESS (Final)")
 
-          // 2. АТОМАРНОЕ ОБНОВЛЕНИЕ ЧЕРЕЗ update
+          // [СТАБИЛЬНАЯ ВЕРСИЯ - ИСПРАВЛЕНИЕ НАЗВАНИЯ]
           _uiState.update { currentState ->
             currentState.copy(
               apartment = data,
               addressId = data.addressId,
               address = data.address,
-              houseId = data.houseId,
+              osbbId = data.osmdId,
               osmdId = data.osmdId,
-              osbbId = data.osmdId, // Синхронизируем наш новый ключ
-              osbb = data.osbb.toString(),
+              // ИСПРАВЛЕНИЕ ТУТ:
+              // Если data.osbb содержит нормальное название, оставляем его.
+              // Если там пусто или "0", можно выводить "Мой ОСББ" как запасной вариант.
+              osbb = if (data.osbb.isNullOrBlank() || data.osbb == "0") "Мой ОСББ" else data.osbb,
               apartmentLoading = false,
             )
           }
 
-          // Синхронизируем стейт контактов
+
           _contactUiState.update { currentContact ->
             currentContact.copy(
               addressId = data.addressId,
@@ -554,23 +581,32 @@ class ApartmentViewModel(
               address = data.address
             )
           }
+
+          // Сбрасываем флаг только после ПОЛНОЙ обработки данных
+          // Можно добавить небольшую задержку, чтобы UI успел "успокоиться"
+          delay(200)
+          if (lastProcessingAddressId == addressId) {
+            // Разблокируем только если за это время не начали грузить другой ID
+          }
         }
 
         is Resource.Error -> {
-          Log.e("YkisLog", "ApartmentViewModel.getApartment($addressId) -> ERROR: ${result.message}")
-          _uiState.update { it.copy(
-            error = result.message ?: "Unexpected error!",
-            apartmentLoading = false
-          )}
+          Log.e("YkisLog", "$methodName -> ERROR: ${result.message}")
+          lastProcessingAddressId = -1 // Разблокируем при ошибке
+          _uiState.update { it.copy(apartmentLoading = false) }
         }
 
         is Resource.Loading -> {
-          Log.d("YkisLog", "ApartmentViewModel.getApartment($addressId) -> LOADING")
+          Log.d("YkisLog", "$methodName -> LOADING")
           _uiState.update { it.copy(apartmentLoading = true) }
         }
       }
     }.launchIn(this.viewModelScope)
   }
+
+
+
+
 
 
   fun getApartmentList(onSuccess: () -> Unit = {}) {

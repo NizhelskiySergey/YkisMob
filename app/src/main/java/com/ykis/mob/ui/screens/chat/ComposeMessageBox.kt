@@ -1,6 +1,7 @@
 package com.ykis.mob.ui.screens.chat
 
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
@@ -39,7 +40,7 @@ internal fun ComposeMessageBox(
   onSent: () -> Unit,
   onImageSent: (Uri) -> Unit,
   onCameraClick: () -> Unit,
-  onAiClick: () -> Unit, // ДОБАВЛЕНО: действие для ИИ
+  onAiClick: () -> Unit,
   text: String,
   onTextChanged: (String) -> Unit,
   showAttachIcon: Boolean = true,
@@ -49,9 +50,17 @@ internal fun ComposeMessageBox(
   val keyboardController = LocalSoftwareKeyboardController.current
   val textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface)
 
+  // Расширяем лаунчер и добавляем логирование
   val openDocumentLauncher = rememberLauncherForActivityResult(
     ActivityResultContracts.OpenDocument()
-  ) { uri -> uri?.let { onImageSent(it) } }
+  ) { uri ->
+    if (uri != null) {
+      Log.d("YkisLog", "ComposeMessageBox: [FILE_SELECTED] Uri: $uri")
+      onImageSent(uri) // Это вызывает setSelectedImageUri во ViewModel и навигацию
+    } else {
+      Log.d("YkisLog", "ComposeMessageBox: [CANCELLED] Выбор файла отменен пользователем")
+    }
+  }
 
   Row(
     modifier = Modifier
@@ -62,53 +71,49 @@ internal fun ComposeMessageBox(
     horizontalArrangement = Arrangement.Center
   ) {
     if (showAttachIcon) {
-      // КНОПКА ИИ (Робот)
-      IconButton(
-        onClick = onAiClick,
-        enabled = !isLoading
-      ) {
-        Icon(
-          imageVector = Icons.Default.SmartToy, // Иконка робота
-          contentDescription = "AI Assistant",
-          tint = MaterialTheme.colorScheme.primary // Выделим цветом бренда
-        )
+      IconButton(onClick = onAiClick, enabled = !isLoading) {
+        Icon(Icons.Default.SmartToy, null, tint = MaterialTheme.colorScheme.primary)
       }
 
-      IconButton(onClick = { openDocumentLauncher.launch(arrayOf("image/*")) }) {
-        Icon(imageVector = Icons.Default.AttachFile, contentDescription = null)
+      IconButton(onClick = {
+        Log.d("YkisLog", "ComposeMessageBox: [CLICK] Нажата кнопка прикрепить")
+        openDocumentLauncher.launch(
+          arrayOf(
+            "image/*",
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/plain"
+          )
+        )
+      }) {
+        Icon(imageVector = Icons.Default.AttachFile, contentDescription = "Прикріпити")
       }
-      IconButton(onClick = onCameraClick) {
-        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null)
+
+      IconButton(onClick = {
+        Log.d("YkisLog", "ComposeMessageBox: [CLICK] Нажата кнопка камеры")
+        onCameraClick()
+      }) {
+        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = "Камера")
       }
     }
 
     BasicTextField(
       value = text,
-      onValueChange = { onTextChanged(it) },
-      keyboardOptions = KeyboardOptions(
-        keyboardType = KeyboardType.Text,
-        imeAction = ImeAction.Default
-      ),
+      onValueChange = onTextChanged,
       modifier = Modifier.weight(1f),
       textStyle = textStyle,
-      cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
       decorationBox = { innerTextField ->
         Box(
           modifier = Modifier
             .fillMaxWidth()
-            .border(
-              width = 1.dp, // Сделал чуть тоньше (M3 стиль)
-              color = MaterialTheme.colorScheme.outlineVariant,
-              shape = RoundedCornerShape(size = 24.dp) // Более округлое
-            )
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
           if (text.isEmpty()) {
-            Text(
-              text = "Повідомлення",
-              style = textStyle,
-              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-            )
+            Text("Повідомлення", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
           }
           innerTextField()
         }
@@ -117,13 +122,11 @@ internal fun ComposeMessageBox(
 
     Crossfade(isLoading, label = "send_state") { loading ->
       if (loading) {
-        CircularProgressIndicator(
-          modifier = Modifier.size(32.dp).padding(6.dp),
-          strokeWidth = 3.dp
-        )
+        CircularProgressIndicator(modifier = Modifier.size(48.dp).padding(12.dp))
       } else {
         IconButton(
           onClick = {
+            Log.d("YkisLog", "ComposeMessageBox: [CLICK] Нажата кнопка ОТПРАВИТЬ")
             onSent()
             keyboardController?.hide()
           },
@@ -132,11 +135,12 @@ internal fun ComposeMessageBox(
           Icon(
             imageVector = Icons.AutoMirrored.Filled.Send,
             contentDescription = "Відправити",
-            tint = if (canSend) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.outlineVariant
+            tint = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
           )
         }
       }
     }
   }
 }
+
+

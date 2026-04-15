@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -69,41 +70,52 @@ fun RootNavGraph(
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
   val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
 
-  // 1. ЛОГИКА ПЕРЕХОДА ИЗ PUSH
-  LaunchedEffect(initialChatId, baseUIState.uid, baseUIState.userRole) {
+  // --- [СТАБИЛЬНАЯ ВЕРСИЯ] ЛОГИКИ ПЕРЕХОДОВ ---
+  LaunchedEffect(initialChatId, baseUIState.uid, baseUIState.mainLoading) {
     val currentRoute = navController.currentDestination?.route
+    val isUserLoggedIn = baseUIState.uid != null
 
-    // 1. Обработка PUSH
-    if (!initialChatId.isNullOrEmpty() && baseUIState.uid != null) {
+    // 1. Если пользователь ВЫШЕЛ (uid == null) и мы не загружаемся
+    if (!isUserLoggedIn && !baseUIState.mainLoading) {
+      // Если мы не в графе авторизации — принудительно уходим туда
+      if (currentRoute != null && !currentRoute.contains(Graph.AUTHENTICATION)) {
+        navController.navigate(Graph.AUTHENTICATION) {
+          popUpTo(0) { inclusive = true }
+        }
+      }
+      return@LaunchedEffect
+    }
+
+    // 2. Обработка PUSH (только для авторизованных)
+    if (isUserLoggedIn && !initialChatId.isNullOrEmpty()) {
       if (currentRoute != ChatScreenDest.route) {
         if (baseUIState.userRole != UserRole.StandardUser) {
           chatViewModel.fetchAndSelectUser(initialChatId) {
-            navController.navigate(ChatScreenDest.route) {
-              launchSingleTop = true
-            }
+            navController.navigate(ChatScreenDest.route) { launchSingleTop = true }
           }
         } else {
-          navController.navigate(ChatScreenDest.route) {
-            launchSingleTop = true
-          }
+          navController.navigate(ChatScreenDest.route) { launchSingleTop = true }
         }
       }
-      return@LaunchedEffect // Выходим, чтобы не срабатывала логика ниже
+      return@LaunchedEffect
     }
 
-    // 2. Исправление двойного экрана при входе в Graph.APARTMENT
-    // Если мы авторизованы и находимся на старте (или в процессе лоадинга),
-    // проверяем, не нужно ли перенаправить на основной граф один раз.
-    if (baseUIState.uid != null && currentRoute == null) {
-      navController.navigate(Graph.APARTMENT) {
-        popUpTo(0) { inclusive = true }
-        launchSingleTop = true
+    // 3. Автоматический вход в приложение (Graph.APARTMENT)
+    // Срабатывает только если: Юзер есть, Мы не в процессе загрузки профиля,
+    // и мы либо на старте, либо еще в графе авторизации
+    if (isUserLoggedIn && !baseUIState.mainLoading) {
+      if (currentRoute == null || currentRoute.contains(Graph.AUTHENTICATION)) {
+        navController.navigate(Graph.APARTMENT) {
+          popUpTo(0) { inclusive = true }
+          launchSingleTop = true
+        }
       }
     }
   }
 
   // Универсальное вычисление chatUid
-  val chatUid = remember(baseUIState.userRole, baseUIState.osbbId, selectedUser) {
+  val chatUid = remember(baseUIState.userRole, baseUIState.osbbId, selectedUser, baseUIState.uid) {
+    if (baseUIState.uid == null) return@remember "" // Защита от NPE при выходе
     when (baseUIState.userRole) {
       UserRole.YtkeUser -> "9997"
       UserRole.VodokanalUser -> "9998"
@@ -113,6 +125,7 @@ fun RootNavGraph(
       else -> selectedUser?.uid ?: ""
     }
   }
+
 
   Scaffold(
     containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -224,7 +237,7 @@ fun RootNavGraph(
             onMessageTextChanged = { chatViewModel.onMessageTextChanged(it) },
             navigateBack = { navController.navigateUp() },
             onSent = {
-              chatViewModel.uploadPhotoAndSendMessage(
+              chatViewModel.uploadFileAndSendMessage(
                 context = context,
                 chatUid = chatUid,
                 senderUid = baseUIState.uid.toString(),
@@ -246,11 +259,23 @@ fun RootNavGraph(
         }
 
         composable(CameraScreenDest.route) {
+          val context = LocalContext.current // Берем контекст
           CameraScreen(
             navController = navController,
-            setImageUri = { chatViewModel.setSelectedImageUri(it) }
+            setImageUri = { uri ->
+              // 1. Сохраняем фото во вьюмодели
+              chatViewModel.setSelectedImageUri(uri)
+
+              // 2. ЗАПУСКАЕМ AI АВТОМАТИЧЕСКИ
+              Log.d("YkisLog", "Camera: Авто-запуск AI для сделанного фото")
+              chatViewModel.analyzePhotoWithGemini(uri, context)
+
+              // 3. Навигация на экран подтверждения уже обычно зашита в CameraScreen,
+              // но если нет — добавь navController.navigate(SendImageScreenDest.route)
+            }
           )
         }
+
 
         composable(ImageDetailScreenDest.route) {
           val selectedMessage by chatViewModel.selectedMessage.collectAsStateWithLifecycle()

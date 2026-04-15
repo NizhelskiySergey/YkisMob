@@ -1,6 +1,7 @@
 package com.ykis.mob.ui.screens.chat
 
 import MessageListItem
+import android.R.attr.mimeType
 import android.R.attr.onClick
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
@@ -50,6 +51,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -144,7 +146,8 @@ fun ChatScreenContent(
   val focusManager = LocalFocusManager.current
   val keyboardController = LocalSoftwareKeyboardController.current
   val isForwardingMode by chatViewModel.isForwardingMode.collectAsStateWithLifecycle()
-
+  val context = LocalContext.current // Получаем контекст
+  val quickHint by chatViewModel.quickHint.collectAsStateWithLifecycle()
 
   // Редактирование и удаление
   val messageToDelete by chatViewModel.messageToDelete.collectAsStateWithLifecycle()
@@ -288,17 +291,11 @@ fun ChatScreenContent(
     )
   }
 
-
-
-
   LaunchedEffect(key1 = lastMessageId) {
     if (lastMessageId != null && chatItems.isNotEmpty()) {
       listState.animateScrollToItem(chatItems.size - 1)
     }
   }
-
-
-
   Surface(
     modifier = modifier.fillMaxSize(),
     color = MaterialTheme.colorScheme.surfaceContainer
@@ -350,6 +347,9 @@ fun ChatScreenContent(
         }
       }
 
+      // Получаем URI-handler для открытия ссылок в браузере
+      val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+
       LazyColumn(
         modifier = Modifier.weight(1f).fillMaxWidth(),
         state = listState,
@@ -371,9 +371,17 @@ fun ChatScreenContent(
                   messageEntity = chatItem.message,
                   onLongClick = { chatViewModel.showDeleteConfirmation(chatItem.message) },
                   onClick = {
-                    // Прячем клавиатуру при клике на фото для полноэкранного режима
                     keyboardController?.hide()
                     navigateToImageDetailScreen(chatItem.message)
+                  },
+                  // ДОБАВЛЕНО: Логика открытия файла
+                  onFileClick = { fileUrl ->
+                    try {
+                      Log.d("YkisLog", "Opening file URL: $fileUrl")
+                      uriHandler.openUri(fileUrl)
+                    } catch (e: Exception) {
+                      Log.e("YkisLog", "Failed to open URI: ${e.message}")
+                    }
                   }
                 )
               }
@@ -381,6 +389,7 @@ fun ChatScreenContent(
           }
         }
       }
+
 
       // --- ПОДВАЛ (Ввод + Редактирование) ---
       Column(
@@ -433,10 +442,17 @@ fun ChatScreenContent(
             onTextChanged = { chatViewModel.onMessageTextChanged(it) },
             onSent = {
               if (editingMessage != null) {
+                Log.d("YkisLog", "Chat: [EDIT] Отправка измененного текста")
                 chatViewModel.updateMessage(messageText)
               } else {
+                // Берем актуальные данные квартиры из стейта
                 val currentAddressId = if (baseUIState.userRole == UserRole.StandardUser)
                   baseUIState.addressId else userEntity.addressId
+
+                val currentAddress = if (baseUIState.userRole == UserRole.StandardUser)
+                  baseUIState.address else userEntity.address ?: "Служба"
+
+                Log.d("YkisLog", "Chat: [SEND] Text: $messageText | AddrID: $currentAddressId")
 
                 chatViewModel.writeToDatabase(
                   chatUid = chatUid,
@@ -444,22 +460,48 @@ fun ChatScreenContent(
                   senderDisplayedName = baseUIState.displayName ?: "Диспетчер",
                   senderLogoUrl = baseUIState.photoUrl,
                   role = baseUIState.userRole,
-                  senderAddress = if (baseUIState.userRole == UserRole.StandardUser)
-                    baseUIState.displayName ?: "" else userEntity.displayName ?: "Служба",
+                  senderAddress = currentAddress,
                   addressId = currentAddressId,
                   imageUrl = null,
+                  fileUrl = null, // Для текста всегда null
+                  fileName = null,
                   osbbId = currentChatOsbbId,
                   recipientTokens = userEntity.tokens,
                   onComplete = { chatViewModel.clearAiSuggestion() }
                 )
               }
             },
-            onImageSent = { chatViewModel.setSelectedImageUri(it); navigateToSendImageScreen() },
-            onAiClick = { if (messageText.isNotBlank()) chatViewModel.askAssistant(messageText) },
-            onCameraClick = navigateToCameraScreen,
+            onImageSent = { uri ->
+              // 1. Сохраняем Uri
+              chatViewModel.setSelectedImageUri(uri)
+
+              // 2. Безопасно получаем MIME-тип
+              val mimeType: String = context.contentResolver.getType(uri) ?: ""
+
+              // 3. Если это картинка — запускаем AI автоматически
+              if (mimeType.contains("image", ignoreCase = true)) {
+                Log.d("YkisLog", "Chat: Авто-запуск AI анализа для фото")
+                chatViewModel.analyzePhotoWithGemini(uri, context)
+              }
+
+              // 4. Переходим на экран предпросмотра
+              navigateToSendImageScreen()
+            },
+
+              onAiClick = {
+              if (messageText.isNotBlank()) {
+                Log.d("YkisLog", "Chat: [AI] Запрос помощнику")
+                chatViewModel.askAssistant(messageText)
+              }
+            },
+            onCameraClick = {
+              Log.d("YkisLog", "Chat: [CAMERA] Открытие камеры")
+              navigateToCameraScreen()
+            },
             isLoading = isLoadingAfterSending,
             canSend = messageText.isNotBlank()
           )
+
         }
       }
     }
@@ -479,6 +521,7 @@ fun AiHintCard(
     modifier = Modifier
       .fillMaxWidth()
       .padding(horizontal = 12.dp, vertical = 6.dp),
+
     color = MaterialTheme.colorScheme.primaryContainer,
     shape = RoundedCornerShape(16.dp),
     tonalElevation = 4.dp,
