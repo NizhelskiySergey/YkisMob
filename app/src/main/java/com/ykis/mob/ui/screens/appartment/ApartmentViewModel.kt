@@ -181,6 +181,7 @@ class ApartmentViewModel(
                   addressId = target.addressId,
                   osbbId = target.osmdId,
                   address = target.address,
+                  houseId = target.houseId,
                   displayName = combinedName,
                   mainLoading = false // ВЫКЛЮЧАЕМ лоадер
                 )}

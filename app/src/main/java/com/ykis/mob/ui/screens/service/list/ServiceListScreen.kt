@@ -1,5 +1,6 @@
 package com.ykis.mob.ui.screens.service.list
 
+import android.util.Log
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
@@ -93,35 +94,39 @@ fun ServiceListScreen(
   getTotalServiceDebt: (ServiceParams) -> Unit,
   setContentDetail: (ContentDetail) -> Unit,
 ) {
+  // 1. ТРИГГЕР ЗАГРУЗКИ С ЛОГАМИ
   LaunchedEffect(key1 = baseUIState.addressId) {
-    getTotalServiceDebt(
-      ServiceParams(
-        uid = baseUIState.uid!!,
-        addressId = baseUIState.addressId,
-        houseId = baseUIState.houseId,
-        service = 0,
-        total = 1,
-        year = "2023"
+    if (baseUIState.addressId > 0) {
+      Log.d("YkisLog", "ServiceListScreen: [LAUNCH] Вызов запроса для ID: ${baseUIState.addressId}")
+      Log.d("YkisLog", "ServiceListScreen: [PARAMS] HouseID: ${baseUIState.houseId}, OSBB: ${baseUIState.osmdId}")
+
+      getTotalServiceDebt(
+        ServiceParams(
+          uid = baseUIState.uid ?: "",
+          addressId = baseUIState.addressId,
+          houseId = baseUIState.houseId, // ПРОВЕРЬ: если тут 0, данные не придут
+          service = 0,
+          total = 1,
+          year = "2023"
+        )
       )
-    )
+    } else {
+      Log.w("YkisLog", "ServiceListScreen: [ABORT] AddressId равен 0")
+    }
   }
+
   Column(
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.Center
   ) {
     DefaultAppBar(
       title = stringResource(id = R.string.accrued),
-      subtitle = baseUIState.address, // Добавили адрес текущей квартиры
+      subtitle = baseUIState.address, // Адрес в шапке (уже закрепили)
       onDrawerClick = onDrawerClick,
       canNavigateBack = false,
       navigationType = navigationType
-    )
-    {
-      IconButton(
-        onClick = {
-          setContentDetail(ContentDetail.PAYMENT_LIST)
-        },
-      ) {
+    ) {
+      IconButton(onClick = { setContentDetail(ContentDetail.PAYMENT_LIST) }) {
         Icon(
           imageVector = ImageVector.vectorResource(R.drawable.ic_history),
           contentDescription = "Історія платіжок",
@@ -133,37 +138,35 @@ fun ServiceListScreen(
     Crossfade(
       modifier = Modifier.fillMaxSize(),
       animationSpec = tween(delayMillis = 500),
-      targetState = totalDebtState.isLoading, label = ""
+      targetState = totalDebtState.isLoading, label = "finance_loading"
     ) { isLoading ->
       if (isLoading) {
-        Box(
-          modifier = Modifier.fillMaxSize(),
-          contentAlignment = Alignment.Center
-        ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
           CircularProgressIndicator()
         }
-      } else ServiceListStateless(
-        modifier = Modifier.fillMaxSize(),
-        items = assembleServiceList(
-          totalDebtState = totalDebtState,
-          baseUIState = baseUIState
-        ),
-        debts = { totalServiceDebtList -> totalServiceDebtList.debt },
-        colors = { totalServiceDebtList -> totalServiceDebtList.color },
-        total = totalDebtState.totalDebt.dolg!!,
-        circleLabel = stringResource(R.string.summary),
-        rows = {
-          ServiceRow(
-            color = it.color,
-            title = it.name,
-            debt = it.debt,
-            icon = it.icon,
-            onClick = {
-              setContentDetail(it.contentDetail)
-            }
-          )
-        },
-      )
+      } else {
+        Log.d("YkisLog", "ServiceListScreen: [DISPLAY] Отрисовка списка. Долг: ${totalDebtState.totalDebt.dolg}")
+        ServiceListStateless(
+          modifier = Modifier.fillMaxSize(),
+          items = assembleServiceList(
+            totalDebtState = totalDebtState,
+            baseUIState = baseUIState
+          ),
+          debts = { it.debt },
+          colors = { it.color },
+          total = totalDebtState.totalDebt.dolg ?: 0.0,
+          circleLabel = stringResource(R.string.summary),
+          rows = { item ->
+            ServiceRow(
+              color = item.color,
+              title = item.name,
+              debt = item.debt,
+              icon = item.icon,
+              onClick = { setContentDetail(item.contentDetail) }
+            )
+          },
+        )
+      }
     }
   }
 }
