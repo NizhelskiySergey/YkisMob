@@ -39,6 +39,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -129,13 +130,14 @@ fun ChatScreenContent(
   userEntity: UserEntity,
   chatViewModel: ChatViewModel,
   baseUIState: BaseUIState,
-  navigationType: NavigationType, // ДОБАВИТЬ ЭТО
+  navigationType: NavigationType,
   navigateBack: () -> Unit,
   navigateToSendImageScreen: () -> Unit,
   chatUid: String,
   navigateToCameraScreen: () -> Unit,
   navigateToImageDetailScreen: (MessageEntity) -> Unit
 ) {
+  // --- ПОЛУЧЕНИЕ СОСТОЯНИЙ ---
   val messageText by chatViewModel.messageText.collectAsStateWithLifecycle()
   val messageList by chatViewModel.firebaseTest.collectAsStateWithLifecycle()
   val selectedService by chatViewModel.selectedService.collectAsStateWithLifecycle()
@@ -143,20 +145,18 @@ fun ChatScreenContent(
   val aiAssistantResponse by chatViewModel.assistantResponse.collectAsStateWithLifecycle()
   val aiQuickHint by chatViewModel.quickHint.collectAsStateWithLifecycle()
   val isPartnerTyping by chatViewModel.isPartnerTyping.collectAsStateWithLifecycle()
-  val focusManager = LocalFocusManager.current
-  val keyboardController = LocalSoftwareKeyboardController.current
   val isForwardingMode by chatViewModel.isForwardingMode.collectAsStateWithLifecycle()
-  val context = LocalContext.current // Получаем контекст
-  val quickHint by chatViewModel.quickHint.collectAsStateWithLifecycle()
-
-  // Редактирование и удаление
   val messageToDelete by chatViewModel.messageToDelete.collectAsStateWithLifecycle()
   val editingMessage by chatViewModel.editingMessage.collectAsStateWithLifecycle()
 
+  val context = LocalContext.current
+  val focusManager = LocalFocusManager.current
+  val keyboardController = LocalSoftwareKeyboardController.current
   val listState = rememberLazyListState()
-  val lastMessageId = remember(messageList) { messageList.lastOrNull()?.id }
 
-  // 1. Конфигурация чата
+  val myUid = baseUIState.uid.toString()
+
+  // --- 1. ЛОГИКА ФОРМИРОВАНИЯ КОНТЕНТА ---
   val currentChatOsbbId = remember(baseUIState.userRole, baseUIState.osbbId) {
     when (baseUIState.userRole) {
       UserRole.YtkeUser -> 9997
@@ -166,29 +166,27 @@ fun ChatScreenContent(
       else -> baseUIState.osmdId
     }
   }
-// В ChatScreenContent.kt
-  val myUid = baseUIState.uid.toString() // Берем ваш текущий UID
 
   val chatItems = remember(messageList) {
     messageList
-      // 1. Сначала фильтруем: убираем сообщения, где ваш UID есть в списке удаленных
-      .filter { msg ->
-        msg.deletedFor == null || !msg.deletedFor.contains(myUid)
-      }
-      // 2. Группируем по датам только оставшиеся сообщения
+      .filter { msg -> msg.deletedFor == null || !msg.deletedFor.contains(myUid) }
       .groupBy { formatDate(it.timestamp) }
       .flatMap { (date, messages) ->
         listOf(ChatItem.DateHeader(date)) + messages.map { ChatItem.MessageItem(it) }
       }
   }
 
-
+  // --- 2. ЭФФЕКТЫ ---
   DisposableEffect(Unit) {
-    onDispose { chatViewModel.clearCurrentChatPath() }
+    onDispose {
+      Log.d("YkisLog", "Chat: [DISPOSE] Очистка пути чата")
+      chatViewModel.clearCurrentChatPath()
+    }
   }
 
-  LaunchedEffect(key1 = chatUid) {
+  LaunchedEffect(chatUid) {
     if (chatUid.isNotEmpty() && baseUIState.userRole == UserRole.StandardUser) {
+      Log.d("YkisLog", "Chat: [INIT] Загрузка сообщений для AddressID: ${baseUIState.addressId}")
       chatViewModel.readFromDatabase(
         role = baseUIState.userRole,
         senderUid = chatUid,
@@ -198,7 +196,175 @@ fun ChatScreenContent(
     }
   }
 
-  // 2. Диалог действий (Удалить/Редактировать)
+  LaunchedEffect(chatItems.size) {
+    if (chatItems.isNotEmpty()) {
+      listState.animateScrollToItem(chatItems.size - 1)
+    }
+  }
+  // --- ЛОГИКА ЗАГОЛОВКА ---
+  val appBarTitle = remember(baseUIState, selectedService, isForwardingMode) {
+    if (isForwardingMode) "Переслати повідомлення"
+    else if (baseUIState.userRole == UserRole.StandardUser) {
+      if (selectedService.codeName == "OSBB") baseUIState.osbb ?: "ОСББ"
+      else selectedService.name
+    } else {
+      // Для админа заголовок — это адрес жильца
+      userEntity.displayName?.substringBefore("|")?.trim() ?: "Чат"
+    }
+  }
+
+  val appBarSubtitle = remember(baseUIState, userEntity, isPartnerTyping) {
+    if (isPartnerTyping) "друкує..."
+    else if (baseUIState.userRole == UserRole.StandardUser) {
+      baseUIState.address // Адрес как подзаголовок для жильца
+    } else {
+      // Имя жильца как подзаголовок для админа
+      userEntity.displayName?.substringAfter("|")?.trim()
+    }
+  }
+
+
+  // --- 3. UI СТРУКТУРА ---
+  Scaffold(
+    modifier = modifier.fillMaxSize(),
+    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    topBar = {
+      Column {
+        DefaultAppBar(
+          title = appBarTitle,
+          subtitle = appBarSubtitle, // <--- ПЕРЕДАЕМ АДРЕС СЮДА
+          canNavigateBack = true,
+          onBackClick = {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            if (isForwardingMode) chatViewModel.cancelForwarding() else navigateBack()
+          },
+          navigationType = navigationType
+        )
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+      }
+    }
+    ,
+    bottomBar = {
+      // Подвал вынесен в bottomBar для правильной работы с клавиатурой
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .background(MaterialTheme.colorScheme.surface)
+          .navigationBarsPadding()
+          .imePadding()
+      ) {
+        // Подсказки ИИ
+        val activeAiText = if (baseUIState.userRole != UserRole.StandardUser) aiQuickHint else aiAssistantResponse
+        AnimatedVisibility(visible = !activeAiText.isNullOrBlank()) {
+          AiHintCard(
+            text = activeAiText ?: "",
+            title = if (baseUIState.userRole != UserRole.StandardUser) "Порада диспетчеру" else "Помічник",
+            onClose = { chatViewModel.clearAiSuggestion() },
+            onApply = {
+              Log.d("YkisLog", "Chat: [AI_APPLY] Подсказка вставлена")
+              chatViewModel.applyAiHint()
+            }
+          )
+        }
+
+        Surface(tonalElevation = 6.dp) {
+          ComposeMessageBox(
+            text = messageText,
+            onTextChanged = { chatViewModel.onMessageTextChanged(it) },
+            onSent = {
+              if (editingMessage != null) {
+                Log.d("YkisLog", "Chat: [EDIT_SUBMIT] $messageText")
+                chatViewModel.updateMessage(messageText)
+              } else {
+                val curAddrId = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.addressId else userEntity.addressId
+                val curAddr = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address ?: "" else userEntity.displayName ?: ""
+
+                Log.d("YkisLog", "Chat: [MSG_SEND] Addr: $curAddr, ID: $curAddrId")
+
+                chatViewModel.writeToDatabase(
+                  chatUid = chatUid,
+                  senderUid = myUid,
+                  senderDisplayedName = baseUIState.displayName ?: "Користувач",
+                  senderLogoUrl = baseUIState.photoUrl,
+                  senderAddress = curAddr,
+                  addressId = curAddrId,
+                  imageUrl = null,
+                  fileUrl = null,
+                  fileName = null,
+                  osbbId = currentChatOsbbId,
+                  role = baseUIState.userRole,
+                  onComplete = {
+                    Log.d("YkisLog", "Chat: [SEND_COMPLETE] Поле очищено")
+                    chatViewModel.clearAiSuggestion()
+                  },
+                  recipientTokens = userEntity.tokens
+                )
+              }
+            },
+            onImageSent = { uri ->
+              val mime = context.contentResolver.getType(uri) ?: ""
+              Log.d("YkisLog", "Chat: [ATTACH] Uri: $uri, Mime: $mime")
+              chatViewModel.setSelectedImageUri(uri)
+              if (mime.contains("image")) {
+                Log.d("YkisLog", "Chat: [AI_START] Авто-анализ фото")
+                chatViewModel.analyzePhotoWithGemini(uri, context, baseUIState.address ?: "")
+              }
+              navigateToSendImageScreen()
+            },
+            onAiClick = {
+              Log.d("YkisLog", "Chat: [AI_CLICK] Текстовый помощник")
+              if (messageText.isNotBlank()) chatViewModel.askAssistant(messageText)
+            },
+            onCameraClick = {
+              Log.d("YkisLog", "Chat: [CAMERA_CLICK]")
+              navigateToCameraScreen()
+            },
+            isLoading = isLoadingAfterSending,
+            canSend = messageText.isNotBlank() || editingMessage != null
+          )
+        }
+      }
+    }
+  ) { innerPadding ->
+    // Контент чата (Список сообщений)
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+
+    LazyColumn(
+      modifier = Modifier
+        .fillMaxSize()
+        .padding(innerPadding), // Scaffold сам даст отступ сверху и снизу
+      state = listState,
+      contentPadding = PaddingValues(8.dp, 8.dp, 8.dp, 8.dp),
+      verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+      chatItems.forEach { chatItem ->
+        when (chatItem) {
+          is ChatItem.DateHeader -> stickyHeader { DateChip(date = chatItem.date) }
+          is ChatItem.MessageItem -> item(key = chatItem.message.id) {
+            MessageListItem(
+              uid = myUid,
+              isUserAdmin = baseUIState.userRole != UserRole.StandardUser,
+              messageEntity = chatItem.message,
+              onLongClick = { chatViewModel.showDeleteConfirmation(chatItem.message) },
+              onClick = {
+                Log.d("YkisLog", "Chat: [IMAGE_CLICK] Открытие детального просмотра")
+                keyboardController?.hide()
+                navigateToImageDetailScreen(chatItem.message)
+              },
+              onFileClick = { fileUrl ->
+                Log.d("YkisLog", "Chat: [FILE_OPEN] URL: $fileUrl")
+                try { uriHandler.openUri(fileUrl) } catch (e: Exception) { Log.e("YkisLog", "Uri error: ${e.message}") }
+              }
+            )
+          }
+        }
+      }
+    }
+  }
+
+
+
   if (messageToDelete != null) {
     AlertDialog(
       onDismissRequest = { chatViewModel.dismissDeleteDialog() },
@@ -290,223 +456,6 @@ fun ChatScreenContent(
       }
     )
   }
-
-  LaunchedEffect(key1 = lastMessageId) {
-    if (lastMessageId != null && chatItems.isNotEmpty()) {
-      listState.animateScrollToItem(chatItems.size - 1)
-    }
-  }
-  Surface(
-    modifier = modifier.fillMaxSize(),
-    color = MaterialTheme.colorScheme.surfaceContainer
-  ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-
-      // --- ШАПКА ---
-      val appBarTitle = remember(baseUIState, selectedService, userEntity, isForwardingMode) {
-        if (isForwardingMode) {
-          "Переслать сообщение" // Явный заголовок для режима пересылки
-        } else if (baseUIState.userRole == UserRole.StandardUser) {
-          if (selectedService.name == ContentDetail.OSBB.name) "Чат ${baseUIState.address}"
-          else selectedService.name
-        } else {
-          val parts = userEntity.displayName?.split("|") ?: emptyList()
-          val addr = parts.getOrNull(0)?.trim() ?: userEntity.displayName ?: "Чат"
-          val name = parts.getOrNull(1)?.trim() ?: ""
-          if (name.isNotEmpty()) "$addr\n$name" else addr
-        }
-      }
-
-      DefaultAppBar(
-        title = appBarTitle,
-        subtitle = if (isPartnerTyping) "печатает..." else null,
-        canNavigateBack = true,
-        onBackClick = {
-          // КРИТИЧЕСКИ ВАЖНО: Прячем клавиатуру и сбрасываем фокус перед уходом
-          keyboardController?.hide()
-          focusManager.clearFocus()
-
-          if (isForwardingMode) {
-            chatViewModel.cancelForwarding()
-          } else {
-            navigateBack()
-          }
-        },
-        navigationType = navigationType
-      )
-
-      HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-
-      // --- СПИСОК СООБЩЕНИЙ ---
-      val listState = rememberLazyListState()
-
-      // Авто-скролл при появлении новых сообщений
-      LaunchedEffect(chatItems.size) {
-        if (chatItems.isNotEmpty()) {
-          listState.animateScrollToItem(chatItems.size - 1)
-        }
-      }
-
-      // Получаем URI-handler для открытия ссылок в браузере
-      val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-
-      LazyColumn(
-        modifier = Modifier.weight(1f).fillMaxWidth(),
-        state = listState,
-        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp, start = 8.dp, end = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-      ) {
-        chatItems.forEach { chatItem ->
-          when (chatItem) {
-            is ChatItem.DateHeader -> {
-              stickyHeader(key = chatItem.date) {
-                DateChip(date = chatItem.date)
-              }
-            }
-            is ChatItem.MessageItem -> {
-              item(key = chatItem.message.id) {
-                MessageListItem(
-                  uid = baseUIState.uid.toString(),
-                  isUserAdmin = baseUIState.userRole != UserRole.StandardUser,
-                  messageEntity = chatItem.message,
-                  onLongClick = { chatViewModel.showDeleteConfirmation(chatItem.message) },
-                  onClick = {
-                    keyboardController?.hide()
-                    navigateToImageDetailScreen(chatItem.message)
-                  },
-                  // ДОБАВЛЕНО: Логика открытия файла
-                  onFileClick = { fileUrl ->
-                    try {
-                      Log.d("YkisLog", "Opening file URL: $fileUrl")
-                      uriHandler.openUri(fileUrl)
-                    } catch (e: Exception) {
-                      Log.e("YkisLog", "Failed to open URI: ${e.message}")
-                    }
-                  }
-                )
-              }
-            }
-          }
-        }
-      }
-
-
-      // --- ПОДВАЛ (Ввод + Редактирование) ---
-      Column(
-        modifier = Modifier
-          .fillMaxWidth()
-          .background(MaterialTheme.colorScheme.surface)
-          .navigationBarsPadding()
-          .imePadding() // Клавиатура будет плавно поднимать подвал
-      ) {
-        // Плашка редактирования
-        AnimatedVisibility(visible = editingMessage != null) {
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(horizontal = 16.dp, vertical = 8.dp)
-              .background(
-                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                RoundedCornerShape(8.dp)
-              )
-              .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-          ) {
-            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-            Text(
-              text = "Редактирование",
-              modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
-              style = MaterialTheme.typography.labelMedium
-            )
-            IconButton(onClick = { chatViewModel.cancelEditing() }, modifier = Modifier.size(24.dp)) {
-              Icon(Icons.Default.Close, contentDescription = null)
-            }
-          }
-        }
-
-        // ИИ Помощник
-        val activeAiText = if (baseUIState.userRole != UserRole.StandardUser) aiQuickHint else aiAssistantResponse
-        AnimatedVisibility(visible = !activeAiText.isNullOrBlank()) {
-          AiHintCard(
-            text = activeAiText ?: "",
-            title = if (baseUIState.userRole != UserRole.StandardUser) "Совет диспетчеру" else "Помощник",
-            onClose = { chatViewModel.clearAiSuggestion() },
-            onApply = { chatViewModel.applyAiHint() }
-          )
-        }
-
-        // Поле ввода
-        Surface(tonalElevation = 6.dp, shadowElevation = 8.dp) {
-          ComposeMessageBox(
-            text = messageText,
-            onTextChanged = { chatViewModel.onMessageTextChanged(it) },
-            onSent = {
-              if (editingMessage != null) {
-                Log.d("YkisLog", "Chat: [EDIT] Отправка измененного текста")
-                chatViewModel.updateMessage(messageText)
-              } else {
-                // Берем актуальные данные квартиры из стейта
-                val currentAddressId = if (baseUIState.userRole == UserRole.StandardUser)
-                  baseUIState.addressId else userEntity.addressId
-
-                val currentAddress = if (baseUIState.userRole == UserRole.StandardUser)
-                  baseUIState.address else userEntity.address ?: "Служба"
-
-                Log.d("YkisLog", "Chat: [SEND] Text: $messageText | AddrID: $currentAddressId")
-
-                chatViewModel.writeToDatabase(
-                  chatUid = chatUid,
-                  senderUid = baseUIState.uid.toString(),
-                  senderDisplayedName = baseUIState.displayName ?: "Диспетчер",
-                  senderLogoUrl = baseUIState.photoUrl,
-                  role = baseUIState.userRole,
-                  senderAddress = currentAddress,
-                  addressId = currentAddressId,
-                  imageUrl = null,
-                  fileUrl = null, // Для текста всегда null
-                  fileName = null,
-                  osbbId = currentChatOsbbId,
-                  recipientTokens = userEntity.tokens,
-                  onComplete = { chatViewModel.clearAiSuggestion() }
-                )
-              }
-            },
-            onImageSent = { uri ->
-              // 1. Сохраняем Uri
-              chatViewModel.setSelectedImageUri(uri)
-
-              // 2. Безопасно получаем MIME-тип
-              val mimeType: String = context.contentResolver.getType(uri) ?: ""
-
-              // 3. Если это картинка — запускаем AI автоматически
-              if (mimeType.contains("image", ignoreCase = true)) {
-                Log.d("YkisLog", "Chat: Авто-запуск AI анализа для фото")
-                chatViewModel.analyzePhotoWithGemini(uri, context)
-              }
-
-              // 4. Переходим на экран предпросмотра
-              navigateToSendImageScreen()
-            },
-
-              onAiClick = {
-              if (messageText.isNotBlank()) {
-                Log.d("YkisLog", "Chat: [AI] Запрос помощнику")
-                chatViewModel.askAssistant(messageText)
-              }
-            },
-            onCameraClick = {
-              Log.d("YkisLog", "Chat: [CAMERA] Открытие камеры")
-              navigateToCameraScreen()
-            },
-            isLoading = isLoadingAfterSending,
-            canSend = messageText.isNotBlank()
-          )
-
-        }
-      }
-    }
-  }
-
 }
 
 

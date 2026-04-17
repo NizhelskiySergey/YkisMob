@@ -824,7 +824,7 @@ class ChatViewModel(
           val analysisPrompt = """
                     Проанализируй сообщение жильца: "${message.text}". 
                     1. Определи категорию (Авария, Жалоба, Вопрос).
-                    2. Предложи краткий вариант ответа для диспетчера.
+                    2. Предложи краткий вариант ответа для диспетчера .
                 """.trimIndent()
 
           val result = generativeModel.generateContent(analysisPrompt)
@@ -837,32 +837,37 @@ class ChatViewModel(
   }
 
 
-  fun analyzePhotoWithGemini(uri: Uri, context: android.content.Context) {
+  // Добавь параметр address
+  fun analyzePhotoWithGemini(uri: Uri, context: android.content.Context, address: String) {
     val methodName = "ChatViewModel.analyzeAI"
-    Log.d("YkisLog", "$methodName: [START] Начало анализа фото...")
+    Log.d("YkisLog", "$methodName: [START] Анализ фото для адреса: $address")
     _isLoadingAfterSending.value = true
+
     viewModelScope.launch(Dispatchers.IO) {
       try {
         val imageData = compressImage(context, uri)
         val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
-        Log.d("YkisLog", "$methodName: [IMAGE] Фото сжато и декодировано (${imageData.size / 1024} KB)")
+
         val inputContent = content {
           image(bitmap)
-          text(
-            """
-                    Ты — помощник ЖКХ. На фото счетчик воды. 
-                    Найди его серийный номер и текущие показания (черные цифры на табло). 
-                    Выведи в формате: Счетчик № [число]. Показания: [число].
-                    Если на фото не счетчик, кратко опиши проблему.
-                    """.trimIndent()
-          )
+          text("""
+                    Ты — помощник ЖКХ. На фото счетчик воды по адресу: $address. 
+                    Найди его серийный номер и текущие показания (только черные цифры на табло). 
+                    Выведи в формате: Адрес: $address. Счетчик № [число]. Показания: [число].
+                    Если на фото не счетчик, кратко опиши что видишь.
+                """.trimIndent())
         }
-        Log.d("YkisLog", "$methodName: [REQUEST] Отправка запроса в Gemini...")
+
+        Log.d("YkisLog", "$methodName: [REQUEST] Отправка в Gemini...")
         val response = generativeModel.generateContent(inputContent)
         val generatedText = response.text ?: ""
+
         withContext(Dispatchers.Main) {
-          Log.d("YkisLog", "$methodName: [SUCCESS] Получен ответ: $generatedText")
+          Log.d("YkisLog", "$methodName: [SUCCESS] Ответ: $generatedText")
+
           _assistantResponse.value = generatedText
+
+          // Если поле пустое, сразу вставляем текст с адресом
           if (_messageText.value.isBlank()) {
             _messageText.value = generatedText
           }
@@ -870,9 +875,9 @@ class ChatViewModel(
         }
       } catch (e: Exception) {
         withContext(Dispatchers.Main) {
-          Log.e("YkisLog", "$methodName: [ERROR] Ошибка Gemini: ${e.message}")
+          Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
           _isLoadingAfterSending.value = false
-          SnackbarManager.showMessage("Не вдалося розпізнати дані з фото")
+          SnackbarManager.showMessage("Не вдалося розпізнати дані")
         }
       }
     }
@@ -948,14 +953,25 @@ class ChatViewModel(
       read = false
     )
 
+    // Внутри ChatViewModel
     chatRef.child(messageKey).setValue(messageEntity).addOnCompleteListener { task ->
       if (task.isSuccessful) {
-        Log.d("YkisLog", "$methodName: [SUCCESS] Записано в $chatId")
+        Log.d("YkisLog", "Chat: [SUCCESS] Записано")
+
+        // ПРИНУДИТЕЛЬНО очищаем на главном потоке
+        _messageText.value = ""
+        _selectedImageUri.value = Uri.EMPTY
+
+        // Очищаем подсказки ИИ, если они были
+        clearAiSuggestion()
+
+        _isLoadingAfterSending.value = false
         onComplete()
       } else {
-        Log.e("YkisLog", "$methodName: [FAILED] ${task.exception?.message}")
+        _isLoadingAfterSending.value = false
       }
     }
+
   }
 
 

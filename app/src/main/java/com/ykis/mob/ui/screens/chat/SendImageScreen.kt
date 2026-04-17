@@ -37,12 +37,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ykis.mob.ui.components.ZoomableImage
 import com.ykis.mob.ui.theme.YkisPAMTheme
+import okhttp3.Address
 
 @Composable
 fun SendImageScreen(
   modifier: Modifier = Modifier,
   imageUri: Uri,
   navigateBack: () -> Unit,
+  address: String,
   messageText: String,
   onMessageTextChanged: (String) -> Unit,
   onSent: () -> Unit,
@@ -143,7 +145,7 @@ fun SendImageScreen(
       onImageSent = {},
       // ИИ работает только с фото
       onAiClick = {
-        if (isImage) chatViewModel.analyzePhotoWithGemini(imageUri, context)
+        if (isImage) chatViewModel.analyzePhotoWithGemini(imageUri, context,address)
         else Log.d("YkisLog", "Gemini: [SKIP] AI only works with images")
       },
       showAttachIcon = false,
@@ -164,6 +166,7 @@ private fun PreviewSendImageScreen() {
       messageText = "",
       onMessageTextChanged = {},
       navigateBack = {},
+      address = "",
       onSent = {},
       isLoadingAfterSending = false,
       chatViewModel = viewModel()

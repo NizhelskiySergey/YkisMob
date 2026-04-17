@@ -129,9 +129,19 @@ fun MainApartmentScreen(
 
   DisposableEffect(Unit) {
     onLaunch()
-    apartmentViewModel.observeUserProfile()
+
+    // ПРОВЕРКА: Если список квартир уже загружен, не вызываем observeUserProfile заново.
+    // Это предотвратит сброс выбранной квартиры на первую при возврате из чата.
+    if (apartmentViewModel.uiState.value.apartments.isEmpty()) {
+      Log.d("YkisLog", "MainScreen: [INIT] Данных нет, запускаем загрузку")
+      apartmentViewModel.observeUserProfile()
+    } else {
+      Log.d("YkisLog", "MainScreen: [SKIP] Данные уже в памяти, сохраняем текущий адрес")
+    }
+
     onDispose { onDispose() }
   }
+
 
   val movableApartmentNavGraph = remember(baseUIState, contentType, navigationType, firstDestination) {
     movableContentOf {

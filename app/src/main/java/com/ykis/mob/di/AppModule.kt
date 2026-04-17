@@ -300,7 +300,7 @@ val firebaseModule = module {
   // обычно используют "gemini-1.5-flash" или актуальную превью-версию.
   single {
     Firebase.ai.generativeModel(
-      modelName = "gemini-1.5-flash-latest",
+      modelName = "gemini-2.5-flash-lite",
       systemInstruction = content {
         text(
           """

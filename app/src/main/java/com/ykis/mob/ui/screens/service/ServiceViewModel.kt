@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.update
 
 class ServiceViewModel (
     private val getFlatService: GetFlatServices,
@@ -53,75 +54,86 @@ class ServiceViewModel (
         )
     }
 
-    fun getTotalServiceDebt(params: ServiceParams){
-        this.getTotalDebtServices(
-            params = params
-        ).onEach {
-            result ->
-            when(result){
-                is Resource.Success -> {
-                    this._totalDebtState.value = this._totalDebtState.value.copy(
-                       totalDebt = result.data!! , isLoading = false
-                    )
-                }
-                is Resource.Error -> {
+  fun getTotalServiceDebt(params: ServiceParams) {
+    val methodName = "ServiceVM.getTotalServiceDebt"
 
-                }
-                is Resource.Loading -> {
-                    this._totalDebtState.value = this._totalDebtState.value.copy(isLoading = true)
-                }
-            }
-        }.launchIn(this.viewModelScope)
-    }
-     fun getDetailService(params: ServiceParams){
-        this.getFlatService(
-            params = params
-        ).onEach {
-            result->
-            when(result){
-                is Resource.Success -> {
-                    this._detailState.value = detailState.value.copy(services = result.data ?: emptyList(), isLoading = false)
-                }
-                is Resource.Error -> {
-                    this._detailState.value = detailState.value.copy(error = result.message ?: "Unexpected error!")
-                }
-                is Resource.Loading -> {
-                    this._detailState.value = detailState.value.copy(isLoading = true)
-                }
-            }
-        }.launchIn(this.viewModelScope)
+    // ПРЕДОХРАНИТЕЛЬ: Если ID квартиры или UID невалидны - выходим
+    if (params.addressId <= 0 || params.uid.isBlank()) {
+      Log.w("YkisLog", "$methodName: [CANCEL] Невалидные параметры: ID=${params.addressId}")
+      return
     }
 
-    fun getPaymentList(
-        addressId : Int,
-        year:String,
-        uid:String
-    ) {
-        this.getPaymentListRepo(
-            addressId, year, uid
-        ).onEach { result ->
-            when (result) {
-                is Resource.Success -> {
-                    this._paymentState.value = paymentState.value.copy(
-                        paymentList = result.data ?: emptyList(),
-                        isLoading = false
-                    )
-                }
+    this.getTotalDebtServices(params = params).onEach { result ->
+      when (result) {
+        is Resource.Success -> {
+          Log.d("YkisLog", "$methodName: [SUCCESS]")
+          this._totalDebtState.value = this._totalDebtState.value.copy(
+            totalDebt = result.data!!,
+            isLoading = false
+          )
+        }
+        is Resource.Error -> {
+          Log.e("YkisLog", "$methodName: [ERROR] ${result.message}")
+          this._totalDebtState.value = this._totalDebtState.value.copy(isLoading = false)
+        }
+        is Resource.Loading -> {
+          Log.d("YkisLog", "$methodName: [LOADING]...")
+          this._totalDebtState.value = this._totalDebtState.value.copy(isLoading = true)
+        }
+      }
+    }.launchIn(this.viewModelScope)
+  }
 
-                is Resource.Error -> {
-                    this._paymentState.value = paymentState.value.copy(
-//                        isLoading = false
-                    )
-                }
 
-                is Resource.Loading -> {
-                    this._paymentState.value = paymentState.value.copy(
-                        isLoading = true
-                    )
-                }
-            }
-        }.launchIn(this.viewModelScope)
-    }
+  fun getDetailService(params: ServiceParams) {
+    val methodName = "ServiceVM.getDetailService"
+    this.getFlatService(params = params).onEach { result ->
+      when (result) {
+        is Resource.Success -> {
+          Log.d("YkisLog", "$methodName: [SUCCESS] Список услуг: ${result.data?.size}")
+          this._detailState.value = detailState.value.copy(
+            services = result.data ?: emptyList(),
+            isLoading = false
+          )
+        }
+        is Resource.Error -> {
+          Log.e("YkisLog", "$methodName: [ERROR] ${result.message}")
+          // КРИТИЧНО: Явно выключаем лоадер, чтобы крутилка исчезла
+          this._totalDebtState.update { it.copy(isLoading = false, error = result.message ?: "Ошибка сети") }
+        }
+
+        is Resource.Loading -> {
+          Log.d("YkisLog", "$methodName: [LOADING]...")
+          this._detailState.value = detailState.value.copy(isLoading = true)
+        }
+      }
+    }.launchIn(this.viewModelScope)
+  }
+
+  fun getPaymentList(addressId: Int, year: String, uid: String) {
+    val methodName = "ServiceVM.getPaymentList"
+    this.getPaymentListRepo(addressId, year, uid).onEach { result ->
+      when (result) {
+        is Resource.Success -> {
+          Log.d("YkisLog", "$methodName: [SUCCESS] Платежей: ${result.data?.size}")
+          this._paymentState.value = paymentState.value.copy(
+            paymentList = result.data ?: emptyList(),
+            isLoading = false
+          )
+        }
+        is Resource.Error -> {
+          Log.e("YkisLog", "$methodName: [ERROR] ${result.message}")
+          // КРИТИЧНО: Явно выключаем лоадер, чтобы крутилка исчезла
+          this._totalDebtState.update { it.copy(isLoading = false, error = result.message ?: "Ошибка сети") }
+        }
+
+        is Resource.Loading -> {
+          Log.d("YkisLog", "$methodName: [LOADING] (Year: $year)...")
+          this._paymentState.value = paymentState.value.copy(isLoading = true)
+        }
+      }
+    }.launchIn(this.viewModelScope)
+  }
 
     fun insertPayment(
         params:InsertPaymentParams,

@@ -1,15 +1,18 @@
 package com.ykis.mob.ui.screens.service
 
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.layout.DisplayFeature
+import com.ykis.mob.domain.service.request.ServiceParams
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.components.BaseDualPanelContent
 import com.ykis.mob.ui.components.DetailPanel
@@ -33,6 +36,7 @@ fun MainServiceScreen(
 ) {
     val totalDebtState by viewModel.totalDebtState.collectAsStateWithLifecycle()
     val contentDetail : ContentDetail = totalDebtState.serviceDetail
+// ТРИГГЕР ЗАГРУЗКИ: Срабатывает при входе и при смене квартиры
 
     if(contentType==ContentType.DUAL_PANE){
         BaseDualPanelContent(

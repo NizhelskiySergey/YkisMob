@@ -39,7 +39,11 @@ import com.ykis.mob.ui.screens.chat.ChatViewModel
 import com.ykis.mob.ui.screens.chat.ImageDetailScreen
 import com.ykis.mob.ui.screens.chat.SendImageScreen
 import com.ykis.mob.ui.screens.chat.UserEntity
+import com.ykis.mob.ui.screens.meter.MeterViewModel
+import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.service.payment.choice.WebView
+import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
+import io.ktor.client.utils.EmptyContent.contentType
 import org.koin.compose.viewmodel.koinViewModel
 
 object Graph {
@@ -53,14 +57,18 @@ fun RootNavGraph(
   chatViewModel: ChatViewModel = koinViewModel(),
   apartmentViewModel: ApartmentViewModel = koinViewModel(),
   signUpViewModel: SignUpViewModel = koinViewModel(),
+  newSettingsViewModel: NewSettingsViewModel =koinViewModel (),
+  meterViewModel: MeterViewModel = koinViewModel(),
+  serviceViewModel: ServiceViewModel= koinViewModel (),
   contentType: ContentType,
   displayFeatures: List<DisplayFeature>,
   navigationType: NavigationType,
   initialChatId: String? = null // ПРИНИМАЕМ ID ЧАТА
 ) {
   val appState = rememberAppState()
-  var isMainScreen by rememberSaveable { mutableStateOf(false) }
-
+  var isMainScreen by rememberSaveable {
+    mutableStateOf(false)
+  }
   // Состояние бокового меню (Rail)
   var isRailExpanded by rememberSaveable {
     mutableStateOf(navigationType != NavigationType.BOTTOM_NAVIGATION)
@@ -160,16 +168,19 @@ fun RootNavGraph(
             navigationType = navigationType,
             displayFeatures = displayFeatures,
             rootNavController = navController,
+            apartmentViewModel = apartmentViewModel,
+            meterViewModel = meterViewModel,
+            serviceViewModel = serviceViewModel,
+            chatViewModel = chatViewModel,
             appState = appState,
             onLaunch = { isMainScreen = true },
             onDispose = { isMainScreen = false },
             isRailExpanded = isRailExpanded,
             onMenuClick = { isRailExpanded = !isRailExpanded },
             navigateToWebView = { uri -> navController.navigateToWebView(uri) },
-            chatViewModel = chatViewModel,
-            apartmentViewModel = apartmentViewModel,
           )
         }
+
 
         // --- ВСТРОЕННЫЙ БРАУЗЕР ---
         composable(
@@ -236,6 +247,7 @@ fun RootNavGraph(
             messageText = messageText,
             onMessageTextChanged = { chatViewModel.onMessageTextChanged(it) },
             navigateBack = { navController.navigateUp() },
+            address = baseUIState.address,
             onSent = {
               chatViewModel.uploadFileAndSendMessage(
                 context = context,
@@ -268,7 +280,7 @@ fun RootNavGraph(
 
               // 2. ЗАПУСКАЕМ AI АВТОМАТИЧЕСКИ
               Log.d("YkisLog", "Camera: Авто-запуск AI для сделанного фото")
-              chatViewModel.analyzePhotoWithGemini(uri, context)
+              chatViewModel.analyzePhotoWithGemini(uri, context,baseUIState.address)
 
               // 3. Навигация на экран подтверждения уже обычно зашита в CameraScreen,
               // но если нет — добавь navController.navigate(SendImageScreenDest.route)

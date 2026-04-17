@@ -2,6 +2,7 @@ package com.ykis.mob.ui.screens.chat
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.location.Address
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
@@ -48,7 +49,7 @@ import java.util.Locale
 @Composable
 fun CameraScreen(
   navController: NavHostController,
-  setImageUri: (Uri) -> Unit
+  setImageUri: (Uri) -> Unit,
 ) {
   val context = LocalContext.current
   val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current

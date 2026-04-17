@@ -123,20 +123,24 @@ class ApartmentViewModel(
     viewModelScope.launch {
       val methodName = "ApartmentViewModel.observeUserProfile()"
 
-      // 1. ПРОВЕРКА АВТОРИЗАЦИИ (Критично для фикса выхода)
+      // 1. ПРОВЕРКА АВТОРИЗАЦИИ
       val currentUser = firebaseService.currentUser
       if (currentUser == null) {
-        Log.d("YkisLog", "$methodName: [STOP] Пользователь не авторизован. Выход.")
+        Log.d("YkisLog", "$methodName: [STOP] Пользователь не авторизован.")
         _uiState.update { it.copy(mainLoading = false) }
         return@launch
       }
 
       Log.d("YkisLog", "$methodName: [START] Запуск для UID: ${currentUser.uid}")
-      _uiState.update { it.copy(mainLoading = true) }
 
+      // УМНЫЙ ЛОАДЕР: Включаем крутилку только если список квартир пуст
+      if (_uiState.value.apartments.isEmpty()) {
+        _uiState.update { it.copy(mainLoading = true) }
+      }
+
+      // 2. ПОЛУЧЕНИЕ ПРОФИЛЯ
       val user = withContext(Dispatchers.IO) { firebaseService.getUserProfile() }
 
-      // Дополнительная проверка: не вышел ли юзер, пока мы ходили в сеть
       if (firebaseService.currentUser == null) {
         Log.d("YkisLog", "$methodName: [ABORT] Сессия закрыта во время запроса")
         _uiState.update { it.copy(mainLoading = false) }
@@ -144,8 +148,6 @@ class ApartmentViewModel(
       }
 
       val currentUserRole = UserRole.fromString(user.userRole)
-      Log.d("YkisLog", "$methodName: [PROFILE] Role: $currentUserRole, OSBB: ${user.osbbId}")
-
       _uiState.update { it.copy(
         uid = user.uid,
         userRole = currentUserRole,
@@ -153,38 +155,45 @@ class ApartmentViewModel(
         displayName = user.name ?: "",
       )}
 
+      // 3. ЛОГИКА ЖИЛЬЦА
       if (currentUserRole == UserRole.StandardUser) {
         apartmentService.getApartmentList(user.uid).collect { result ->
-          if (firebaseService.currentUser == null) return@collect // Защита внутри Flow
+          if (firebaseService.currentUser == null) return@collect
 
           when (result) {
             is Resource.Success -> {
               val apartments = result.data ?: emptyList()
-              Log.d("YkisLog", "$methodName: [FETCH] Квартир: ${apartments.size}")
+              Log.d("YkisLog", "$methodName: [FETCH] Квартир получено: ${apartments.size}")
 
               if (apartments.isNotEmpty()) {
-                val first = apartments.first()
-                val combinedName = "${first.address} | ${first.nanim ?: ""}"
+                val currentSelectedId = _uiState.value.addressId
+
+                // Сохраняем текущий выбор или берем первую
+                val target = apartments.find { it.addressId == currentSelectedId }
+                  ?: apartments.first()
+
+                val combinedName = "${target.address} | ${target.nanim ?: ""}"
+
+                Log.d("YkisLog", "$methodName: [TARGET] Выбран ID: ${target.addressId}")
 
                 _uiState.update { it.copy(
                   apartments = apartments,
-                  addressId = first.addressId,
-                  osbbId = first.osmdId,
-                  address = first.address,
+                  addressId = target.addressId,
+                  osbbId = target.osmdId,
+                  address = target.address,
                   displayName = combinedName,
-                  mainLoading = false
+                  mainLoading = false // ВЫКЛЮЧАЕМ лоадер
                 )}
 
                 firebaseService.updateUserRoleAndPermissions(
                   uid = user.uid,
-                  addressId = first.addressId,
+                  addressId = target.addressId,
                   userRole = currentUserRole,
-                  osbbId = first.osmdId,
+                  osbbId = target.osmdId,
                   displayName = combinedName
                 )
-                chatViewModel.subscribeToResidentCounters(user.uid, first.osmdId, first.addressId)
+                chatViewModel.subscribeToResidentCounters(user.uid, target.osmdId, target.addressId)
               } else {
-                Log.d("YkisLog", "$methodName: [EMPTY] Квартир нет")
                 _uiState.update { it.copy(apartments = emptyList(), mainLoading = false) }
               }
             }
@@ -193,33 +202,44 @@ class ApartmentViewModel(
               _uiState.update { it.copy(mainLoading = false) }
             }
             is Resource.Loading -> {
+              // В Loading ничего не делаем с mainLoading, чтобы не перебивать "Умный лоадер"
               Log.d("YkisLog", "$methodName: [LOADING]...")
             }
           }
         }
       } else {
-        // --- ЛОГИКА АДМИНА ---
+        // 4. ЛОГИКА АДМИНА
         apartmentService.getOsbbApartmentsList(user.osbbId).collect { result ->
           if (firebaseService.currentUser == null) return@collect
 
           when (result) {
             is Resource.Success -> {
-              Log.d("YkisLog", "$methodName: [ADMIN] Загружено ${result.data?.size} квартир")
-              _uiState.update { it.copy(
-                apartments = result.data ?: emptyList(),
-                mainLoading = false
-              )}
+              val allApartments = result.data ?: emptyList()
+              Log.d("YkisLog", "$methodName: [ADMIN] Успех. Квартир: ${allApartments.size}")
+
+              withContext(Dispatchers.Default) {
+                _uiState.update { it.copy(
+                  apartments = allApartments,
+                  mainLoading = false // ВЫКЛЮЧАЕМ лоадер
+                )}
+              }
 
               firebaseService.updateUserRoleAndPermissions(user.uid, 0, currentUserRole, user.osbbId, user.name ?: "Адмін")
               chatViewModel.trackUserIdentifiersWithRole(currentUserRole, user.osbbId)
             }
-            is Resource.Error -> { _uiState.update { it.copy(mainLoading = false) } }
-            is Resource.Loading -> {}
+            is Resource.Error -> {
+              Log.e("YkisLog", "$methodName: [ADMIN ERROR] ${result.message}")
+              _uiState.update { it.copy(mainLoading = false) }
+            }
+            is Resource.Loading -> { Log.d("YkisLog", "$methodName: [ADMIN LOADING]...") }
           }
         }
       }
     }
   }
+
+
+
 
 
 
