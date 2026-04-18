@@ -24,7 +24,6 @@ import com.ykis.mob.core.ext.isValidEmail
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.domain.UserRole
-import com.ykis.mob.domain.UserRole.Companion.fromString
 import com.ykis.mob.domain.apartment.ApartmentEntity
 import com.ykis.mob.firebase.service.repo.AuthStateResponse
 import com.ykis.mob.firebase.service.repo.FirebaseService
@@ -32,7 +31,6 @@ import com.ykis.mob.firebase.service.repo.LogService
 import com.ykis.mob.ui.BaseViewModel
 import com.ykis.mob.ui.navigation.AddApartmentScreen
 import com.ykis.mob.ui.navigation.Graph
-import com.ykis.mob.ui.navigation.InfoApartmentScreenDest
 import com.ykis.mob.ui.screens.bti.ContactUIState
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import kotlinx.coroutines.Dispatchers
@@ -125,6 +123,7 @@ class ApartmentViewModel(
 
       // 1. ПРОВЕРКА АВТОРИЗАЦИИ
       val currentUser = firebaseService.currentUser
+
       if (currentUser == null) {
         Log.d("YkisLog", "$methodName: [STOP] Пользователь не авторизован.")
         _uiState.update { it.copy(mainLoading = false) }
@@ -152,7 +151,10 @@ class ApartmentViewModel(
         uid = user.uid,
         userRole = currentUserRole,
         osbbId = user.osbbId,
+        osmdId = user.osbbId,
+        houseId = 0,
         displayName = user.name ?: "",
+        addressId = 0
       )}
 
       // 3. ЛОГИКА ЖИЛЬЦА
@@ -218,11 +220,16 @@ class ApartmentViewModel(
               val allApartments = result.data ?: emptyList()
               Log.d("YkisLog", "$methodName: [ADMIN] Успех. Квартир: ${allApartments.size}")
 
-              withContext(Dispatchers.Default) {
-                _uiState.update { it.copy(
-                  apartments = allApartments,
-                  mainLoading = false // ВЫКЛЮЧАЕМ лоадер
-                )}
+              viewModelScope.launch(Dispatchers.Default) {
+                _uiState.update { currentState ->
+                  currentState.copy(
+                    apartments = allApartments,
+                    mainLoading = false
+                  )
+                }
+
+                // После обновления стейта логируем успех
+                Log.d("YkisLog", "Admin: State updated successfully")
               }
 
               firebaseService.updateUserRoleAndPermissions(user.uid, 0, currentUserRole, user.osbbId, user.name ?: "Адмін")
@@ -274,6 +281,7 @@ class ApartmentViewModel(
           addressId = targetApartment.addressId,
           osbbId = targetApartment.osmdId,
           osmdId = targetApartment.osmdId,
+          houseId = targetApartment.houseId,
           address = targetApartment.address,
           displayName = combinedName,
           apartment = targetApartment,
@@ -584,6 +592,7 @@ class ApartmentViewModel(
               addressId = data.addressId,
               address = data.address,
               osbbId = data.osmdId,
+              houseId = data.houseId,
               osmdId = data.osmdId,
               // ИСПРАВЛЕНИЕ ТУТ:
               // Если data.osbb содержит нормальное название, оставляем его.
@@ -728,7 +737,8 @@ class ApartmentViewModel(
       address = selected.address,
       displayName = combinedName,
       osbbId = selected.osmdId,
-      osmdId = selected.osmdId
+      osmdId = selected.osmdId,
+      houseId = selected.houseId
     )}
 
     if (currentUid.isNotEmpty() && _uiState.value.userRole == UserRole.StandardUser) {

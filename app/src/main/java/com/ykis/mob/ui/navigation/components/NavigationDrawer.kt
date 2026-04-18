@@ -71,16 +71,6 @@ fun ModalNavigationDrawerContent(
   val isUserAdmin = baseUIState.userRole != UserRole.StandardUser
   val focusRequester = remember { FocusRequester() } // 1. Создаем запросчик фокуса
 
-  // 2. Эффект: когда админ открывает шторку, запрашиваем фокус
-  // Если используешь drawerState, можно привязаться к drawerState.isInternalOpen
-//  LaunchedEffect(Unit) {
-//    if (isUserAdmin) {
-//      // Небольшая задержка, чтобы шторка успела выехать
-//      delay(300)
-//      focusRequester.requestFocus()
-//      keyboardController?.show()
-//    }
-//  }
   ModalDrawerSheet(
     modifier = modifier.width(320.dp),
     drawerContainerColor = MaterialTheme.colorScheme.surface
