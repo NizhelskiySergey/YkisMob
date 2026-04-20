@@ -65,4 +65,5 @@ object Constants {
     const val NO_USER_IDENTIFIER = "There is no user record corresponding to this identifier. The user may have been deleted."
 
     const val PASSWORD_FAILURE  = "The password is invalid or the user does not have a password."
+    const val EMAIL_FAILURE  = "The email address is already in use by another account."
 }

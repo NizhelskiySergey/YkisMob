@@ -18,6 +18,7 @@ package com.ykis.mob.core.snackbar
 
 import android.content.res.Resources
 import androidx.annotation.StringRes
+import com.ykis.mob.core.Constants.EMAIL_FAILURE
 import com.ykis.mob.core.Constants.INCORRECT_CODE
 import com.ykis.mob.core.Constants.NO_FLAT_DELETE
 import com.ykis.mob.core.Constants.NO_USER_IDENTIFIER
@@ -49,6 +50,7 @@ sealed class SnackbarMessage {
           VERIFY_DELETE_FLAT -> ResourceSnackbar(AppText.success_delete_flat)
           NO_USER_IDENTIFIER -> ResourceSnackbar(AppText.no_user_identifier)
           PASSWORD_FAILURE -> ResourceSnackbar(AppText.password_failure)
+          EMAIL_FAILURE -> ResourceSnackbar(AppText.email_use)
           SUCCESS_SEND_MESSAGE -> ResourceSnackbar(AppText.success_send_message)
           SENSITIVE_OPERATION_MESSAGE -> ResourceSnackbar(AppText.revoke_access_message)
           else -> StringSnackbar(message)

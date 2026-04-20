@@ -41,9 +41,11 @@
   <string name="repeat_password">Повторити пароль</string>
   <string name="generic_error">Щось пішло не так. Спробуйте знову</string>
   <string name="email_error">Пожалуйста введите правильный email.</string>
+
   <string name="try_again">Спробуйте знову</string>
   <string name="profile">Профіль</string>
   <!--   LoginScreen   -->
+  <string name="email_use">"Этот адрес электронной почты уже используется другим аккаунтом."</string>
   <string name="login_details">Ласкаво просимо!</string>
   <string name="forgot_password">Забули пароль? Натисніть для\n його відновлення по email</string>
   <string name="recovery_email_sent">Перевірте поштову скриньку (спам) на наявність листа для відновлення.</string>
@@ -325,20 +327,20 @@
   <string name="verify_email_label">Ми відправили вам лист на пошту</string>
   <string name="verify_email_title">Підтвердження пошти</string>
   <string name="success_delete">Останні показання видаленін</string>
-    <string name="error_incorrect_admin_code">Невірний секретний код</string>
+  <string name="error_incorrect_admin_code">Невірний секретний код</string>
   <string name="admin_access_granted">Надано адмін доступ</string>
-    <string name="error_admin_auth">помилка авторизації</string>
+  <string name="error_admin_auth">помилка авторизації</string>
   <string name="error_save_uid">користувач не доданий</string>
   <string name="user_uid_exist">користувач існує</string>
   <string name="error_add_user">помилка додавання користувача</string>
   <string name="error_delete_account">помилка видалення облікового запису</string>
   <string name="error_invalid_admin_code">код адміна не вірний</string>
   <string name="my_osbb">мій ОСББ</string>
-    <string name="izm">змінено</string>
+  <string name="izm">змінено</string>
   <string name="success_admin_auth">адмін доступ надано</string>
-    <string name="error_send_message">повідомлення не передано, помилка</string>
+  <string name="error_send_message">повідомлення не передано, помилка</string>
   <string name="dispatcher">диспетчер</string>
   <string name="forwarded">переслано</string>
-    <string name="forward_message">переслать повідомлення</string>
-    <string name="select_recipient">вибрати_отримувача</string>
+  <string name="forward_message">переслать повідомлення</string>
+  <string name="select_recipient">вибрати_отримувача</string>
 </resources>

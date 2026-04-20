@@ -39,23 +39,22 @@ import com.ykis.mob.core.composable.EmailField
 import com.ykis.mob.core.composable.LogoImage
 import com.ykis.mob.core.composable.PasswordField
 import com.ykis.mob.core.composable.RepeatPasswordField
+import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.ui.components.appbars.DefaultAppBar
 import com.ykis.mob.ui.navigation.VerifyEmailScreen
 import com.ykis.mob.ui.screens.auth.sign_up.components.SignUpUiState
 import com.ykis.mob.ui.theme.YkisPAMTheme
-
 @Composable
 fun SignUpScreenStateless(
   modifier: Modifier = Modifier,
   signUpUiState: SignUpUiState,
-  navigateBack : () -> Unit,
+  navigateBack: () -> Unit,
   onEmailChange: (String) -> Unit,
   onPasswordChange: (String) -> Unit,
   onRepeatPasswordChange: (String) -> Unit,
   onSignUpClick: () -> Unit,
   isLoading: Boolean
 ) {
-  var checkedState by rememberSaveable { mutableStateOf(false) }
   Box(
     modifier = modifier.fillMaxSize(),
     contentAlignment = Alignment.Center
@@ -98,10 +97,10 @@ fun SignUpScreenStateless(
         Button(
           modifier = Modifier.fillMaxWidth(),
           onClick = {
-            Log.d("YkisLog", "SignUpUI: [SUBMIT_CLICK] Email: ${signUpUiState.email}")
+            Log.d("YkisLog", "SignUpUI: [SUBMIT_CLICK] Отправка данных для: ${signUpUiState.email}")
             onSignUpClick()
           },
-          enabled = true
+          enabled = !isLoading // Блокируем кнопку при загрузке
         ) {
           AnimatedContent(targetState = isLoading, label = "loading_anim") { loading ->
             if (loading) {
@@ -134,18 +133,37 @@ fun SignUpScreen(
   val signUpUiState by viewModel.signUpUiState
   val signUpResponse by viewModel.signUpResponse.collectAsStateWithLifecycle()
 
+  // Логируем вход на экран
   LaunchedEffect(Unit) {
     Log.d("YkisLog", "SignUpUI: [ENTER_SCREEN]")
   }
 
+  // Слушаем ответ сервера
+
   LaunchedEffect(signUpResponse) {
-    if (signUpResponse is Resource.Success) {
-      Log.d("YkisLog", "SignUpUI: [NAVIGATE] Success. To VerifyEmail")
-      navController.navigate(VerifyEmailScreen.route) {
-        popUpTo(com.ykis.mob.ui.navigation.SignUpScreen.route) { inclusive = true }
+    when (val response = signUpResponse) {
+      is Resource.Success -> {
+        Log.d("YkisLog", "SignUpUI: [SUCCESS] Переход...")
+        navController.navigate(VerifyEmailScreen.route) {
+          popUpTo(com.ykis.mob.ui.navigation.SignUpScreen.route) { inclusive = true }
+        }
       }
+      is Resource.Error -> {
+        Log.e("YkisLog", "SignUpUI: [ERROR] ${response.message}")
+
+        // КРИТИЧЕСКИЙ ФИКС: Выводим ошибку на экран!
+        val errorMessage = response.message ?: "Помилка реєстрації"
+        SnackbarManager.showMessage(errorMessage)
+      }
+      is Resource.Loading -> {
+        Log.d("YkisLog", "SignUpUI: [LOADING]...")
+      }
+      else -> {}
     }
   }
+
+
+
 
   SignUpScreenStateless(
     signUpUiState = signUpUiState,
@@ -155,12 +173,14 @@ fun SignUpScreen(
     onRepeatPasswordChange = viewModel::onRepeatPasswordChange,
     onSignUpClick = {
       keyboard?.hide()
-      viewModel.signUpWithEmailAndPassword { }
+      viewModel.signUpWithEmailAndPassword {
+        // Лямбда оставлена для логов или доп. действий
+        Log.d("YkisLog", "SignUpUI: [ACTION] Вызов метода регистрации завершен")
+      }
     },
     isLoading = signUpResponse is Resource.Loading
   )
 }
-
 
 @Preview
 @Composable

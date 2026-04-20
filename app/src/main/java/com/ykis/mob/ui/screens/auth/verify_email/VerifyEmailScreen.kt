@@ -170,6 +170,7 @@ fun VerifyEmailScreen(
   }
 
   VerifyEmailScreenStateless(
+    modifier = Modifier,
     onRepeatEmailClick = { viewModel.repeatEmailVerified() },
     onReloadClick = {
       viewModel.reloadUser {
@@ -178,7 +179,7 @@ fun VerifyEmailScreen(
         restartApp(Graph.APARTMENT)
       }
     },
-    email = viewModel.email,
+    email = viewModel.displayEmail,
     navigateBack = {
       navController.popBackStack()
     },

@@ -54,6 +54,12 @@ class SignUpViewModel(
     private set
 
   val email get() = signUpUiState.value.email
+  // В SignUpViewModel
+  val displayEmail: String
+    get() = signUpUiState.value.email.ifBlank {
+      firebaseService.currentUser?.email ?: ""
+    }
+
   private val password get() = signUpUiState.value.password
   private val repeatPassword get() = signUpUiState.value.repeatPassword
 
