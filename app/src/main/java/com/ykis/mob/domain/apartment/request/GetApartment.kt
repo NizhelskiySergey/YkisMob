@@ -1,5 +1,6 @@
 package com.ykis.mob.domain.apartment.request
 
+import android.util.Log
 import com.ykis.mob.R
 import com.ykis.mob.core.ExceptionWithResourceMessage
 import com.ykis.mob.core.Resource
@@ -13,49 +14,58 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.io.IOException
 
-class GetApartment (
+class GetApartment(
   private val repository: ApartmentRepository,
   private val database: AppDatabase
-){
+) {
   operator fun invoke(addressId: Int, uid: String): Flow<Resource<ApartmentEntity>> = flow {
+    val methodName = "UseCase.GetApartment"
     try {
       emit(Resource.Loading())
 
-      // 1. Проверка локальной базы
+      // 1. ПРОВЕРКА ЛОКАЛЬНОЙ БАЗЫ
       val localApartment = database.apartmentDao().getFlatById(addressId = addressId)
       if (localApartment != null) {
+        Log.d("YkisLog", "$methodName: [LOCAL] Найдена квартира $addressId")
         emit(Resource.Success(localApartment))
       }
 
-      // 2. Запрос в сеть через Ktor
+      // 2. ЗАПРОС В СЕТЬ
+      Log.d("YkisLog", "$methodName: [NETWORK] Запрос ID: $addressId")
       val response = repository.getApartment(addressId, uid)
 
       if (response.success == 1) {
-        // РЕШЕНИЕ: Безопасно извлекаем объект из ответа
         response.apartment?.let { remoteApartment ->
-          emit(Resource.Success(remoteApartment))
-          // Теперь компилятор видит List<ApartmentEntity>, а не List<ApartmentEntity?>
-          database.apartmentDao().insertApartmentList(listOf(remoteApartment))
+
+          // --- КРИТИЧЕСКИЙ ФИКС: Прошиваем UID перед записью в Room ---
+          // Это гарантирует, что в Database Inspector поле uid больше не будет null
+          val apartmentWithUid = remoteApartment.copy(uid = uid)
+
+          database.apartmentDao().insertApartmentList(listOf(apartmentWithUid))
+          Log.d("YkisLog", "$methodName: [DB_WRITE] Сохранено с UID: $uid")
+
+          emit(Resource.Success(apartmentWithUid))
         } ?: run {
-          // Если успех 1, но объекта нет — это ошибка данных сервера
-          emit(Resource.Error("Данные квартиры отсутствуют в ответе"))
+          Log.e("YkisLog", "$methodName: [ERROR] Пустой объект в ответе")
+          emit(Resource.Error("Дані квартири відсутні"))
         }
       } else {
-        throw ExceptionWithResourceMessage(R.string.generic_error)
+        // Если сервер вернул успех 0
+        emit(Resource.Error("Помилка сервера: ${response.success}"))
       }
 
     } catch (e: ExceptionWithResourceMessage) {
+      Log.e("YkisLog", "$methodName: [RESOURCE_ERROR] ${e.localizedMessage}")
       SnackbarManager.showMessage(e.resourceMessage)
-      emit(Resource.Error(e.localizedMessage ?: "Unexpected error!"))
+      emit(Resource.Error(e.localizedMessage ?: "Error"))
     } catch (e: IOException) {
-      // 3. Обработка отсутствия сети
-      val cachedApartment = database.apartmentDao().getFlatById(addressId = addressId)
-      if (cachedApartment != null) {
-        emit(Resource.Success(cachedApartment))
-      }
+      Log.w("YkisLog", "$methodName: [OFFLINE] Проверка кэша")
+      val cached = database.apartmentDao().getFlatById(addressId = addressId)
+      if (cached != null) emit(Resource.Success(cached))
       SnackbarManager.showMessage(R.string.error_network)
-      emit(Resource.Error())
+      emit(Resource.Error("Немає зв'язку"))
     } catch (e: Exception) {
+      Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${e.message}")
       emit(Resource.Error(e.localizedMessage ?: "Unexpected error"))
     }
   }.flowOn(Dispatchers.IO)

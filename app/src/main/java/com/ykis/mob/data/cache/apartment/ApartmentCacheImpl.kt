@@ -8,24 +8,24 @@ class ApartmentCacheImpl (
 ): ApartmentCache {
 
 
-    override fun insertApartmentList(apartment: List<ApartmentEntity>) {
+    override suspend fun insertApartmentList(apartment: List<ApartmentEntity>) {
         apartmentDao.insertApartmentList(apartment)
     }
 
-    override fun getApartmentsByUser(): List<ApartmentEntity> {
+    override suspend fun getApartmentsByUser(): List<ApartmentEntity> {
         return apartmentDao.getApartmentList()
     }
 
 
-    override fun deleteAllApartments() {
+    override suspend fun deleteAllApartments() {
         apartmentDao.deleteAllApartments()
     }
 
-    override fun deleteFlat(addressId: Int) {
+    override suspend fun deleteFlat(addressId: Int) {
         apartmentDao.deleteFlat(addressId)
     }
 
-    override fun getApartmentById(addressId: Int): ApartmentEntity? {
+    override suspend fun getApartmentById(addressId: Int): ApartmentEntity? {
         return apartmentDao.getFlatById(addressId)
     }
 

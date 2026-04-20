@@ -9,20 +9,23 @@ import com.ykis.mob.domain.apartment.ApartmentEntity
 @Dao
 interface ApartmentDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun insertApartmentList(apartment:List<ApartmentEntity>)
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertApartmentList(apartment: List<ApartmentEntity>)
 
-    @Query("delete from apartment")
-    fun deleteAllApartments()
+  @Query("DELETE FROM apartment")
+  suspend fun deleteAllApartments()
 
-    @Query("delete from apartment where address_id = :addressId")
-    fun deleteFlat(addressId :Int)
-    @Query("select * from apartment where address_id = :addressId")
-    fun getFlatById(addressId :Int) : ApartmentEntity?
+  @Query("DELETE FROM apartment WHERE address_id = :addressId")
+  suspend fun deleteFlat(addressId: Int)
 
+  @Query("SELECT * FROM apartment WHERE address_id = :addressId")
+  suspend fun getFlatById(addressId: Int): ApartmentEntity?
 
-    @Query("select * from apartment")
-    fun getApartmentList(): List<ApartmentEntity>
+  // КРИТИЧНО: Получаем список только для конкретного пользователя
+  @Query("SELECT * FROM apartment WHERE uid = :uid")
+  suspend fun getApartmentListByUid(uid: String): List<ApartmentEntity>
 
-
+  // Оставляем общий метод, если он нужен для отладки
+  @Query("SELECT * FROM apartment")
+  suspend fun getApartmentList(): List<ApartmentEntity>
 }

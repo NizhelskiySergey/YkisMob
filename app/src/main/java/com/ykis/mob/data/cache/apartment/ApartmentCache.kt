@@ -4,10 +4,10 @@ import com.ykis.mob.domain.apartment.ApartmentEntity
 
 
 interface ApartmentCache {
-    fun insertApartmentList(apartment:List<ApartmentEntity>)
-    fun getApartmentsByUser():List<ApartmentEntity>
+    suspend fun insertApartmentList(apartment:List<ApartmentEntity>)
+    suspend fun getApartmentsByUser():List<ApartmentEntity>
 
-    fun deleteAllApartments()
-    fun deleteFlat(addressId: Int)
-    fun getApartmentById(addressId: Int): ApartmentEntity?
+    suspend fun deleteAllApartments()
+    suspend fun deleteFlat(addressId: Int)
+    suspend fun getApartmentById(addressId: Int): ApartmentEntity?
 }

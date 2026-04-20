@@ -138,7 +138,7 @@ class SignInViewModel(
         Log.d("YkisLog", "$methodName: [START] Получены учетные данные Google")
 
 
-        if (credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+        if (credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
           val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
 
           // 2. Входим/Линкуем в Firebase
