@@ -298,22 +298,7 @@ fun ApartmentNavGraph(
         route = Graph.APARTMENT,
         startDestination = firstDestination
       ) {
-//        composable(ProfileScreenDest.route) {
-//
-//          ProfileScreen(
-//            viewModel=profileViewModel,
-//            navigationType = navigationType,
-//            onDrawerClicked = onDrawerClicked,
-//            navigateToSettings = {
-//              navController.navigate(SettingsScreenDest.route)
-//            },
-//            restartApp = { route ->
-//              rootNavController.navigate(route) {
-//                popUpTo(0) // Полная очистка стека при выходе/удалении
-//              }
-//            }
-//          )
-//        }
+
         composable(UserListScreen.route) {
           // 1. Автоматический запуск отслеживания чатов для админа при входе на экран
           LaunchedEffect(baseUIState.userRole, baseUIState.osbbId) {

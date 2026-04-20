@@ -130,12 +130,14 @@ class SignUpViewModel(
   }
 
 
-  // Повторная отправка письма
   fun repeatEmailVerified() {
     val methodName = "SignUpVM.repeatVerify"
+    val userEmail = firebaseService.currentUser?.email
+
     launchCatching {
-      Log.d("YkisLog", "$methodName: [REQUEST] Повторная отправка письма на ${firebaseService.currentUser?.email}")
+      Log.d("YkisLog", "$methodName: [REQUEST] Отправка на $userEmail")
       _sendEmailVerificationResponse.value = Resource.Loading()
+
       val result = firebaseService.sendEmailVerification()
       _sendEmailVerificationResponse.value = result
 
@@ -143,10 +145,14 @@ class SignUpViewModel(
         Log.d("YkisLog", "$methodName: [SUCCESS] Письмо отправлено")
         SnackbarManager.showMessage(R.string.verify_email_message)
       } else {
-        Log.e("YkisLog", "$methodName: [ERROR] Не удалось отправить письмо")
+        // КРИТИЧЕСКИЙ ФИКС: Выводим реальную причину из Firebase (например, лимит запросов)
+        val errorMsg = result.message ?: "Не вдалося відправити лист"
+        Log.e("YkisLog", "$methodName: [ERROR] Причина: $errorMsg")
+        SnackbarManager.showMessage(errorMsg)
       }
     }
   }
+
 
   fun onEmailChange(newValue: String) { signUpUiState.value = signUpUiState.value.copy(email = newValue) }
   fun onPasswordChange(newValue: String) { signUpUiState.value = signUpUiState.value.copy(password = newValue) }

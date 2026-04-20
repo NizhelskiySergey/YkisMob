@@ -16,6 +16,7 @@ limitations under the License.
 
 package com.ykis.mob.core.snackbar
 
+import android.util.Log
 import androidx.annotation.StringRes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,21 +24,34 @@ import kotlinx.coroutines.flow.asStateFlow
 
 object SnackbarManager {
   private val messages: MutableStateFlow<SnackbarMessage?> = MutableStateFlow(null)
+
   val snackbarMessages: StateFlow<SnackbarMessage?>
     get() = messages.asStateFlow()
 
   fun showMessage(@StringRes message: Int) {
+    Log.d("YkisLog", "Snackbar: [SHOW_RES] ID: $message")
     messages.value = SnackbarMessage.ResourceSnackbar(message)
   }
 
+  fun showMessage(message: String) {
+    // Защита от пустых сообщений
+    if (message.isBlank()) return
+
+    Log.d("YkisLog", "Snackbar: [SHOW_STR] Text: $message")
+    messages.value = SnackbarMessage.StringSnackbar(message)
+  }
+
   fun showMessage(message: SnackbarMessage) {
+    Log.d("YkisLog", "Snackbar: [SHOW_MSG] Object: $message")
     messages.value = message
   }
 
-  fun showMessage(message: String) {
-    messages.value = SnackbarMessage.StringSnackbar(message)
-
+  // КРИТИЧНО: Вызывай этот метод в LaunchedEffect сразу после showSnackbar
+  fun clearMessage() {
+    if (messages.value != null) {
+      Log.d("YkisLog", "Snackbar: [CLEAR] Сообщение удалено из очереди")
+      messages.value = null
+    }
   }
-
-
 }
+

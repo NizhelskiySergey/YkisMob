@@ -33,6 +33,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.window.layout.DisplayFeature
 import com.ykis.mob.R
+import com.ykis.mob.core.snackbar.SnackbarManager
+import com.ykis.mob.core.snackbar.SnackbarMessage
 import com.ykis.mob.data.cache.preferences.PreferenceRepository
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.firebase.service.repo.ConfigurationService
@@ -97,11 +99,11 @@ fun RootNavGraph(
   val selectedUser by chatViewModel.selectedUser.collectAsStateWithLifecycle()
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
   val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
-
   // 1. ПЕРВИЧНАЯ ПРОВЕРКА СОГЛАСИЯ ПРИ ЗАПУСКЕ
   LaunchedEffect(Unit) {
     isAgreed = preferenceRepository.isUserAgreed()
   }
+
 
   // --- [ЗОЛОТОЙ ФОНД] ЛОГИКИ ПЕРЕХОДОВ ---
   LaunchedEffect(isAgreed, initialChatId, baseUIState.uid, baseUIState.mainLoading) {

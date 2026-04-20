@@ -6,6 +6,7 @@
 package com.ykis.mob.ui
 
 import android.content.res.Resources
+import android.util.Log
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Stable
 import com.ykis.mob.core.snackbar.SnackbarManager
@@ -21,28 +22,26 @@ import kotlinx.coroutines.launch
  */
 @Stable
 class YkisPamAppState(
-  // Состояние хоста Snackbar (через него физически выводятся сообщения)
   val snackbarHostState: SnackbarHostState,
-  // Глобальный синглтон-менеджер сообщений (бизнес-логика)
   private val snackbarManager: SnackbarManager,
-  // Доступ к ресурсам для перевода строк (strings.xml)
   private val resources: Resources,
-  // Область видимости корутин (обычно привязана к жизненному циклу экрана)
   val coroutineScope: CoroutineScope
 ) {
   init {
-    // Запускаем бесконечный цикл прослушивания сообщений при создании объекта
     coroutineScope.launch {
-      // Подписываемся на поток сообщений из SnackbarManager
       snackbarManager.snackbarMessages
-        .filterNotNull() // Пропускаем пустые значения
+        .filterNotNull()
         .collect { snackbarMessage ->
-          // 1. Преобразуем объект сообщения в готовую строку (с учетом локализации)
+          // 1. Формируем текст
           val text = snackbarMessage.toMessage(resources)
 
-          // 2. Вызываем системную функцию отображения всплывающего уведомления
-          // Это приостанавливающая функция (suspend), она дождется закрытия уведомления
+          // 2. Показываем (это suspend функция, она "висит" пока снэкбар на экране)
           snackbarHostState.showSnackbar(text)
+
+          // 3. КРИТИЧЕСКИЙ ФИКС: Сразу после показа очищаем менеджер,
+          // чтобы при смене конфигурации или рекомпозиции сообщение не вылетело снова.
+          snackbarManager.clearMessage()
+          Log.d("YkisLog", "AppState: Snackbar показан и очищен из очереди")
         }
     }
   }

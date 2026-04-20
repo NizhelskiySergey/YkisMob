@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ykis.mob.R
+import com.ykis.mob.core.ext.truncate
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.navigation.AddApartmentScreen

@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ykis.mob.R
+import com.ykis.mob.core.ext.truncate
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.navigation.AddApartmentScreen
@@ -206,33 +207,30 @@ fun ApartmentNavigationRail(
                   )
                   Spacer(Modifier.width(12.dp))
                   Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                      modifier = Modifier.fillMaxWidth(),
-                      horizontalArrangement = Arrangement.SpaceBetween,
-                      verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                      // Адрес (Жирный)
                       Text(
                         text = apartment.address,
-                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
+                        style = MaterialTheme.typography.bodyLarge
                       )
+                      // о/р (Шрифт как у фамилии)
                       Text(
                         text = " о/р ${apartment.addressId}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(0.7f) else MaterialTheme.colorScheme.outline
+                        style = MaterialTheme.typography.labelSmall, // Как у ФИО
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(start = 4.dp)
                       )
                     }
-                    Text(
-                      text = apartment.nanim ?: "",
-                      style = MaterialTheme.typography.labelSmall,
-                      color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis
-                    )
+                    apartment.nanim?.let {
+                      Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                      )
+                    }
                   }
                   val count = unreadCounts[apartment.addressId.toString()] ?: 0
                   if (count > 0) {

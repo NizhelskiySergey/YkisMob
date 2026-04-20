@@ -65,7 +65,7 @@ class ApartmentViewModel(
 
   private var lastLoadedAddressId: Int = -1
   private var observeJob: Job? = null // Ссылка на текущую работу
-
+  private var isHandlingResult = false // Флаг-предохранитель
   private val _apartment = MutableStateFlow(ApartmentEntity())
   val apartment: StateFlow<ApartmentEntity> get() = _apartment.asStateFlow()
 
@@ -376,82 +376,90 @@ class ApartmentViewModel(
     result: Resource<GetSimpleResponse>,
     restartApp: () -> Unit
   ) {
-    val methodName = "ApartmentViewModel.handleApartmentResult()"
+    val methodName = "ApartmentVM.handleResult"
+
+    // 1. ПРЕДОХРАНИТЕЛЬ: Проверяем, не запущена ли уже обработка
+    if (isHandlingResult && result !is Resource.Loading) {
+      Log.w("YkisLog", "$methodName: [SKIP] Попытка повторного вызова во время обработки")
+      return
+    }
 
     when (result) {
+      is Resource.Loading -> {
+        Log.d("YkisLog", "$methodName: [LOADING] Включаем индикатор")
+        _uiState.update { it.copy(mainLoading = true) }
+      }
+
       is Resource.Success -> {
-        val data = result.data ?: return
+        // Устанавливаем флаг только при реальном начале обработки успеха
+        isHandlingResult = true
+
+        val data = result.data ?: run {
+          isHandlingResult = false
+          return
+        }
+
         val newAddressId = data.addressId ?: 0
         val newOsbbId = data.osbbId ?: 0
         val newAddress = data.address ?: ""
 
-        Log.d("YkisLog", "$methodName: [SUCCESS] Начинаем привязку квартиры: $newAddress (ID: $newAddressId)")
+        Log.d("YkisLog", "$methodName: [SUCCESS] Привязка: $newAddress (ID: $newAddressId)")
 
         try {
-          // 1. СИНХРОНИЗАЦИЯ С FIREBASE (Передаем роль как String)
-          Log.d("YkisLog", "$methodName: [STEP 1] Запись в Firestore. Роль: ${UserRole.StandardUser.name}")
+          // ШАГ 1: Синхронизация с Firestore
           firebaseService.updateUserRoleAndPermissions(
             uid = uid,
             addressId = newAddressId,
-            userRole = UserRole.StandardUser, // ПЕРЕДАЕМ СТРОКУ
+            userRole = UserRole.StandardUser,
             osbbId = newOsbbId,
             displayName = newAddress
           )
 
-          // 2. ОБНОВЛЕНИЕ ЛОКАЛЬНОГО UI STATE
-          Log.d("YkisLog", "$methodName: [STEP 2] Обновление локального UI State")
-          _uiState.update { currentState ->
-            currentState.copy(
-              addressId = newAddressId,
-              osmdId = newOsbbId,
-              osbbId = newOsbbId,
-              address = newAddress,
-              userRole = UserRole.StandardUser, // Здесь Enum
-              mainLoading = false,
-              apartmentLoading = false
-            )
-          }
+          // ШАГ 2: Обновление локального стейта
+          _uiState.update { it.copy(
+            addressId = newAddressId,
+            osmdId = newOsbbId,
+            osbbId = newOsbbId,
+            address = newAddress,
+            userRole = UserRole.StandardUser,
+            mainLoading = false
+          )}
 
-          // 3. ПОЛУЧЕНИЕ СПИСКА И ПОДПИСКА НА ЧАТЫ
+          // ШАГ 3: Обновление списка и подписка
+          // Мы используем suspend вызов, чтобы дождаться завершения
           getApartmentList {
-            Log.d("YkisLog", "$methodName: [STEP 3] Список квартир обновлен. Запуск счетчиков чатов.")
-
-            // Активируем Badge для новой квартиры
-            chatViewModel.subscribeToResidentCounters(
-              uid = uid,
-              osbbId = newOsbbId,
-              addressId = newAddressId
-            )
+            Log.d("YkisLog", "$methodName: [STEP 3] Подписка на чаты")
+            chatViewModel.subscribeToResidentCounters(uid, newOsbbId, newAddressId)
 
             _secretCode.value = ""
             SnackbarManager.showMessage(R.string.success_add_flat)
 
+            // ФИНАЛ: Задержка и выход
             viewModelScope.launch {
-              Log.d("YkisLog", "$methodName: [FINISH] Перезапуск приложения через 100мс")
-              delay(100)
+              Log.d("YkisLog", "$methodName: [FINISH] Навигация")
+              delay(200) // Увеличили задержку для стабильности Compose
+              isHandlingResult = false // Сбрасываем ПЕРЕД переходом
               restartApp()
             }
           }
 
         } catch (e: Exception) {
-          Log.e("YkisLog", "$methodName: [CRITICAL ERROR] Ошибка при синхронизации: ${e.message}", e)
-          SnackbarManager.showMessage(R.string.error_add_apartment)
+          Log.e("YkisLog", "$methodName: [CRITICAL ERROR] ${e.message}")
+          isHandlingResult = false
           _uiState.update { it.copy(mainLoading = false) }
+          SnackbarManager.showMessage(R.string.error_add_apartment)
         }
       }
 
       is Resource.Error -> {
         Log.e("YkisLog", "$methodName: [API ERROR] ${result.resourceMessage}")
+        isHandlingResult = false // Сбрасываем, чтобы юзер мог попробовать еще раз
         _uiState.update { it.copy(mainLoading = false) }
         SnackbarManager.showMessage(result.resourceMessage ?: R.string.error_add_apartment)
       }
-
-      is Resource.Loading -> {
-        Log.d("YkisLog", "$methodName: [LOADING] Обработка запроса...")
-        _uiState.update { it.copy(mainLoading = true) }
-      }
     }
   }
+
 
 
 

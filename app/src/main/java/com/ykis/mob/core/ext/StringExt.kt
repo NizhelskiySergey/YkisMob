@@ -36,6 +36,11 @@ fun String.passwordMatches(repeated: String): Boolean {
   return this == repeated
 }
 
-fun String.idFromParameter(): String {
-  return this.substring(1, this.length - 1)
+fun String.truncate(maxChar: Int): String {
+  return if (this.length > maxChar) {
+    "${this.take(maxChar)}..."
+  } else {
+    this
+  }
 }
+
