@@ -28,12 +28,14 @@ import com.ykis.mob.domain.apartment.ApartmentEntity
 import com.ykis.mob.firebase.service.repo.AuthStateResponse
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.firebase.service.repo.LogService
+import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.BaseViewModel
 import com.ykis.mob.ui.navigation.AddApartmentScreen
 import com.ykis.mob.ui.navigation.Graph
 import com.ykis.mob.ui.screens.bti.ContactUIState
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -62,6 +64,7 @@ class ApartmentViewModel(
   val email get() = firebaseService.email
 
   private var lastLoadedAddressId: Int = -1
+  private var observeJob: Job? = null // Ссылка на текущую работу
 
   private val _apartment = MutableStateFlow(ApartmentEntity())
   val apartment: StateFlow<ApartmentEntity> get() = _apartment.asStateFlow()
@@ -70,9 +73,6 @@ class ApartmentViewModel(
   val secretCode: StateFlow<String> = _secretCode.asStateFlow()
 
 
-  fun onSecretCodeChanged(newCode: String) {
-    _secretCode.value = newCode
-  }
 
   // LaunchScreen
   private val _showError = MutableStateFlow(false)
@@ -101,25 +101,65 @@ class ApartmentViewModel(
   fun onSearchQueryChanged(newQuery: String) {
     _searchQuery.value = newQuery
   }
+  fun clearState() {
+    Log.d("YkisLog", "ApartmentVM: [RESET] Начало полной очистки")
+    observeJob?.cancel()
+
+    // 1. Очищаем запрос поиска (это триггернет filteredApartments)
+    _searchQuery.value = ""
+
+    // 2. Сбрасываем ID последней загрузки
+    lastLoadedAddressId = -1
+
+    // 3. Полностью затираем стейт
+    _uiState.update {
+      BaseUIState(mainLoading = false) // Возвращаем абсолютно чистый объект
+    }
+
+    Log.d("YkisLog", "ApartmentVM: [RESET] Стейт очищен, процессы остановлены")
+  }
+
+
+  fun onSecretCodeChanged(newCode: String) {
+    _secretCode.value = newCode
+  }
   fun onAppStart(): String {
     val userExists = firebaseService.hasUser
     val emailVerified = firebaseService.isEmailVerified
 
-    // Если пользователь залогинен И почта подтверждена — в приложение.
-    // Иначе — на экран входа/регистрации.
+    Log.d("YkisLog", "AppStart: UserExists=$userExists, Verified=$emailVerified")
+
     return if (userExists && emailVerified == true) {
+      // Если юзер есть, мы ПРОВЕРЯЕМ, не остались ли в памяти старые квартиры
+      if (_uiState.value.uid != null && _uiState.value.uid != firebaseService.uid) {
+        Log.w("YkisLog", "AppStart: Обнаружен конфликт UID в памяти! Чистим стейт.")
+        clearState() // Тот самый метод очистки, который мы писали
+      }
       Graph.APARTMENT
     } else {
+      // Если юзера нет — принудительно чистим всё перед уходом на логин
+      clearState()
       Graph.AUTHENTICATION
     }
   }
+
   /**
    * Инициализирует профиль пользователя при старте приложения.
    * Загружает роль, ID организации и список квартир (для жильцов).
    */
   fun observeUserProfile() {
-    viewModelScope.launch {
-      val methodName = "ApartmentViewModel.observeUserProfile()"
+    val methodName = "ApartmentViewModel.observeUserProfile()"
+    val actualUid = firebaseService.uid
+    Log.w("YkisLog", "$methodName: actualUid {currentUser.uid}")
+    if (_uiState.value.uid != null && _uiState.value.uid != actualUid) {
+      Log.w("YkisLog", "$methodName: Обнаружена смена аккаунта  без очистки! Исправляю...")
+      clearState()
+    }
+
+    observeJob?.cancel()
+    observeJob = viewModelScope.launch {
+
+
 
       // 1. ПРОВЕРКА АВТОРИЗАЦИИ
       val currentUser = firebaseService.currentUser
@@ -289,8 +329,7 @@ class ApartmentViewModel(
         )
       }
 
-      // 2. Запускаем мониторинг счетчиков именно этой квартиры
-      // Используем UID админа, но addressId выбранной квартиры
+      // 2. Запускаем мониторинг счетчиков именно этой квартиры  Используем UID админа, но addressId выбранной квартиры
       chatViewModel.subscribeToResidentCounters(
         uid = _uiState.value.uid ?: "",
         osbbId = targetApartment.osmdId,

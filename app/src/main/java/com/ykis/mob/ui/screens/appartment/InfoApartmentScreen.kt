@@ -1,5 +1,6 @@
 package com.ykis.mob.ui.screens.appartment
 
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
@@ -64,14 +65,28 @@ fun InfoApartmentScreen(
   }
 
   // 2. Логика загрузки данных
-  LaunchedEffect(baseUIState.addressId, baseUIState.apartments) {
+  // Добавляем baseUIState.uid в ключи, чтобы эффект знал о смене юзера
+  LaunchedEffect(baseUIState.addressId, baseUIState.apartments, baseUIState.uid) {
+    val currentFirebaseUid = baseUIState.uid // Наш текущий UID из стейта
+
+    // ПРЕДОХРАНИТЕЛЬ:
+    // Если UID в стейте еще не обновился или список пуст — игнорируем
+    if (currentFirebaseUid == null || baseUIState.apartments.isEmpty()) {
+      Log.d("YkisLog", "MainScreen: [WAIT] Ждем загрузки данных нового пользователя...")
+      return@LaunchedEffect
+    }
+
     val targetId = when {
       baseUIState.addressId != 0 -> baseUIState.addressId
-      baseUIState.apartments.isNotEmpty() -> baseUIState.apartments.firstOrNull()?.addressId
-      else -> null
+      else -> baseUIState.apartments.firstOrNull()?.addressId
     }
-    targetId?.let { apartmentViewModel.getApartment(it) }
+
+    targetId?.let { id ->
+      Log.d("YkisLog", "MainScreen: [LOAD] Загрузка квартиры ID: $id для UID: $currentFirebaseUid")
+      apartmentViewModel.getApartment(id)
+    }
   }
+
 
   Scaffold(
     topBar = {

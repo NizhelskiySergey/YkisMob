@@ -2,6 +2,7 @@ package com.ykis.mob.ui.navigation
 
 import android.util.Log
 import android.net.Uri
+import android.net.http.SslCertificate.restoreState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
@@ -18,20 +19,27 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.window.layout.DisplayFeature
+import com.ykis.mob.R
+import com.ykis.mob.data.cache.preferences.PreferenceRepository
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.firebase.service.repo.ConfigurationService
 import com.ykis.mob.ui.rememberAppState
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.SignUpViewModel
+import com.ykis.mob.ui.screens.auth.sign_up.TermsAndConditionScreen
 import com.ykis.mob.ui.screens.chat.CameraScreen
 import com.ykis.mob.ui.screens.chat.ChatScreenContent
 import com.ykis.mob.ui.screens.chat.ChatScreenStateful
@@ -44,12 +52,16 @@ import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.service.payment.choice.WebView
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
 import io.ktor.client.utils.EmptyContent.contentType
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 object Graph {
+  const val TERMS_CONDITION = "terms_graph" // Новый этап
   const val AUTHENTICATION = "auth_graph"
   const val APARTMENT = "apartment_graph"
 }
+
 @Composable
 fun RootNavGraph(
   modifier: Modifier = Modifier,
@@ -66,9 +78,17 @@ fun RootNavGraph(
   initialChatId: String? = null // ПРИНИМАЕМ ID ЧАТА
 ) {
   val appState = rememberAppState()
-  var isMainScreen by rememberSaveable {
-    mutableStateOf(false)
-  }
+  val scope = rememberCoroutineScope()
+  var isMainScreen by rememberSaveable { mutableStateOf(false) }
+
+  // Инъекция репозитория
+  val preferenceRepository: PreferenceRepository = koinInject()
+  val configurationService: ConfigurationService = koinInject()
+// Достаем текст (он уже должен быть загружен в init приложения или через fetchAndActivate)
+  val termsText = remember { configurationService.agreementText}
+  // Инициализируем false, чтобы LaunchedEffect сработал на проверку
+  var isAgreed by remember { mutableStateOf(false) }
+
   // Состояние бокового меню (Rail)
   var isRailExpanded by rememberSaveable {
     mutableStateOf(navigationType != NavigationType.BOTTOM_NAVIGATION)
@@ -78,23 +98,37 @@ fun RootNavGraph(
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
   val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
 
-  // --- [СТАБИЛЬНАЯ ВЕРСИЯ] ЛОГИКИ ПЕРЕХОДОВ ---
-  LaunchedEffect(initialChatId, baseUIState.uid, baseUIState.mainLoading) {
+  // 1. ПЕРВИЧНАЯ ПРОВЕРКА СОГЛАСИЯ ПРИ ЗАПУСКЕ
+  LaunchedEffect(Unit) {
+    isAgreed = preferenceRepository.isUserAgreed()
+  }
+
+  // --- [ЗОЛОТОЙ ФОНД] ЛОГИКИ ПЕРЕХОДОВ ---
+  LaunchedEffect(isAgreed, initialChatId, baseUIState.uid, baseUIState.mainLoading) {
     val currentRoute = navController.currentDestination?.route
     val isUserLoggedIn = baseUIState.uid != null
 
-    // 1. Если пользователь ВЫШЕЛ (uid == null) и мы не загружаемся
-    if (!isUserLoggedIn && !baseUIState.mainLoading) {
-      // Если мы не в графе авторизации — принудительно уходим туда
-      if (currentRoute != null && !currentRoute.contains(Graph.AUTHENTICATION)) {
-        navController.navigate(Graph.AUTHENTICATION) {
+    // ЭТАП 0: Проверка соглашения (Самый высокий приоритет)
+    if (!isAgreed) {
+      if (currentRoute != Graph.TERMS_CONDITION) {
+        Log.d("YkisLog", "Nav: Пользователь не принял условия. Переход на Graph.TERMS_CONDITION")
+        navController.navigate(Graph.TERMS_CONDITION) {
           popUpTo(0) { inclusive = true }
         }
+      }
+      return@LaunchedEffect // Остановка, дальше проверки не идут
+    }
+
+    // ЭТАП 1: Если пользователь ВЫШЕЛ (uid == null) и мы не загружаемся
+    if (!isUserLoggedIn && !baseUIState.mainLoading) {
+      if (currentRoute != null && !currentRoute.contains(Graph.AUTHENTICATION)) {
+        Log.d("YkisLog", "Nav: Юзер вышел. Переход на AUTHENTICATION")
+        cleanNavigateTo(navController, Graph.AUTHENTICATION)
       }
       return@LaunchedEffect
     }
 
-    // 2. Обработка PUSH (только для авторизованных)
+    // ЭТАП 2: Обработка PUSH (только для авторизованных)
     if (isUserLoggedIn && !initialChatId.isNullOrEmpty()) {
       if (currentRoute != ChatScreenDest.route) {
         if (baseUIState.userRole != UserRole.StandardUser) {
@@ -108,22 +142,18 @@ fun RootNavGraph(
       return@LaunchedEffect
     }
 
-    // 3. Автоматический вход в приложение (Graph.APARTMENT)
-    // Срабатывает только если: Юзер есть, Мы не в процессе загрузки профиля,
-    // и мы либо на старте, либо еще в графе авторизации
+    // ЭТАП 3: Автоматический вход в приложение (Graph.APARTMENT)
     if (isUserLoggedIn && !baseUIState.mainLoading) {
-      if (currentRoute == null || currentRoute.contains(Graph.AUTHENTICATION)) {
-        navController.navigate(Graph.APARTMENT) {
-          popUpTo(0) { inclusive = true }
-          launchSingleTop = true
-        }
+      if (currentRoute == null || currentRoute.contains(Graph.AUTHENTICATION) || currentRoute == Graph.TERMS_CONDITION) {
+        Log.d("YkisLog", "Nav: Авто-вход. Переход на APARTMENT")
+        cleanNavigateTo(navController, Graph.APARTMENT)
       }
     }
   }
 
   // Универсальное вычисление chatUid
   val chatUid = remember(baseUIState.userRole, baseUIState.osbbId, selectedUser, baseUIState.uid) {
-    if (baseUIState.uid == null) return@remember "" // Защита от NPE при выходе
+    if (baseUIState.uid == null) return@remember ""
     when (baseUIState.userRole) {
       UserRole.YtkeUser -> "9997"
       UserRole.VodokanalUser -> "9998"
@@ -133,6 +163,7 @@ fun RootNavGraph(
       else -> selectedUser?.uid ?: ""
     }
   }
+
 
 
   Scaffold(
@@ -155,6 +186,24 @@ fun RootNavGraph(
         enterTransition = { EnterTransition.None },
         exitTransition = { ExitTransition.None }
       ) {
+        // Внутри RootNavGraph в блоке NavHost
+        // Внутри RootNavGraph -> NavHost
+
+        composable(route = Graph.TERMS_CONDITION) {
+          TermsAndConditionScreen(
+            termsText = termsText.ifBlank { stringResource(R.string.agreement_text) }, // Fallback на локальный ресурс
+            onAccept = {
+              scope.launch {
+                preferenceRepository.setAgreement(true)
+                isAgreed = true
+                val target = if (baseUIState.uid != null) Graph.APARTMENT else Graph.AUTHENTICATION
+                navController.navigate(target) { popUpTo(Graph.TERMS_CONDITION) { inclusive = true } }
+              }
+            }
+          )
+        }
+
+
         // --- ГРАФ АВТОРИЗАЦИИ ---
         authNavGraph(
           navController = navController,
@@ -308,4 +357,13 @@ fun RootNavGraph(
  */
 private fun NavHostController.navigateToWebView(uri: String) {
   this.navigate("${WebViewScreenDest.route}/$uri")
+}
+fun cleanNavigateTo(navController: NavController, route: String) {
+  Log.d("YkisLog", "Nav: [CLEAN_START] Полная очистка стека и переход на $route")
+  navController.navigate(route) {
+    // Мы чистим всё до основания, чтобы убить все старые ViewModel и их стейты
+    popUpTo(0) { inclusive = true }
+    launchSingleTop = true
+    restoreState = false // КРИТИЧНО: не восстанавливаем старый хлам
+  }
 }

@@ -32,6 +32,8 @@ import com.ykis.mob.data.cache.payment.PaymentCache
 import com.ykis.mob.data.cache.payment.PaymentCacheImpl
 import com.ykis.mob.data.cache.preferences.AppSettingsRepository
 import com.ykis.mob.data.cache.preferences.AppSettingsRepositoryImpl
+import com.ykis.mob.data.cache.preferences.PreferenceRepository
+import com.ykis.mob.data.cache.preferences.PreferenceRepositoryImpl
 import com.ykis.mob.data.cache.service.ServiceCache
 import com.ykis.mob.data.cache.service.ServiceCacheImpl
 import com.ykis.mob.data.cache.water.meter.WaterMeterCache
@@ -280,6 +282,7 @@ val dataModule = module {
   single<ServiceRemote> { ServiceRemoteImpl(get()) }
   // 4. DataStore
   single<AppSettingsRepository> { AppSettingsRepositoryImpl(androidContext()) }
+  single<PreferenceRepository> { PreferenceRepositoryImpl(get()) }
 
 
 }

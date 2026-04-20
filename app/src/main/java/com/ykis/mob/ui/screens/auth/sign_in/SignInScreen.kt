@@ -15,16 +15,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,10 +47,12 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.ykis.mob.R
+import com.ykis.mob.core.Resource
 import com.ykis.mob.core.composable.EmailField
 import com.ykis.mob.core.composable.LogoImage
 import com.ykis.mob.core.composable.PasswordField
@@ -53,48 +62,90 @@ import com.ykis.mob.ui.navigation.Graph
 import com.ykis.mob.ui.theme.YkisPAMTheme
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
-
 @Composable
-fun AuthenticationButton(buttonText: Int, onRequestResult: (Credential) -> Unit) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
+fun AuthenticationButton(
+  buttonText: Int,
+  isLoading: Boolean,
+  onRequestResult: (Credential) -> Unit
+) {
+  val context = LocalContext.current
+  val coroutineScope = rememberCoroutineScope()
 
-    OutlinedButton(
-        onClick = { coroutineScope.launch {
-            launchCredManButtonUI(context, onRequestResult) }
+  // Локальный стейт для выбора аккаунта
+  var isChoosingAccount by remember { mutableStateOf(false) }
 
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ){
-            Image(
-                painter = painterResource(id = R.drawable.ic_google_logo),
-                contentDescription = "Google logo"
-            )
+  OutlinedButton(
+    onClick = {
+      coroutineScope.launch {
+        Log.d("YkisLog", "AuthButton: [CLICK] Включаем локальный лоадер")
+        isChoosingAccount = true // 1. Включаем лоадер СРАЗУ
 
-            Text(
-                text = stringResource(buttonText),
-                style = MaterialTheme.typography.titleMedium
-            )
-        }
-
+        launchCredManButtonUI(
+          context = context,
+          onFinished = {
+            // 3. Системное окно закрылось.
+            // Выключаем локальный лоадер. К этому моменту
+            // глобальный isLoading уже должен быть true (если аккаунт выбран)
+            isChoosingAccount = false
+            Log.d("YkisLog", "AuthButton: [FINISHED] Локальный лоадер выключен")
+          },
+          onRequestResult = { credential ->
+            // 2. Передаем данные. Внутри ViewModel ПЕРВОЙ строкой
+            // должно идти: signInWithGoogleResponse = Resource.Loading()
+            Log.d("YkisLog", "AuthButton: [DATA] Передача во ViewModel")
+            onRequestResult(credential)
+          }
+        )
+      }
+    },
+    modifier = Modifier.fillMaxWidth(),
+    // Блокируем кнопку, пока идет любой из процессов
+    enabled = !isLoading && !isChoosingAccount,
+    shape = RoundedCornerShape(12.dp)
+  ) {
+    // Если активен хотя бы один лоадер — показываем CircularProgressIndicator
+    if (isLoading || isChoosingAccount) {
+      CircularProgressIndicator(
+        modifier = Modifier.size(24.dp),
+        strokeWidth = 2.dp,
+        color = MaterialTheme.colorScheme.primary
+      )
+    } else {
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        Image(
+          painter = painterResource(id = R.drawable.ic_google_logo),
+          contentDescription = "Google logo",
+          modifier = Modifier.size(20.dp)
+        )
+        Text(
+          text = stringResource(buttonText),
+          style = MaterialTheme.typography.titleMedium
+        )
+      }
     }
+  }
 }
+
+
+
+
 
 private suspend fun launchCredManButtonUI(
   context: Context,
+  onFinished: () -> Unit, // Сигнал для выключения лоадера
   onRequestResult: (Credential) -> Unit
 ) {
+  val methodName = "Auth.launchCredMan"
   try {
-    // Более стабильный вариант для работы с Firebase
+    Log.d("YkisLog", "$methodName: [START] Открытие системного окна Google")
+
     val googleIdOption = GetGoogleIdOption.Builder()
-      .setFilterByAuthorizedAccounts(false) // Показывать все аккаунты
+      .setFilterByAuthorizedAccounts(false) // Позволяет выбрать любой аккаунт на устройстве
       .setServerClientId("1062920014188-8s41hcrkkik155m7mo2spj26jupp27e5.apps.googleusercontent.com")
-      .setAutoSelectEnabled(false) // Лучше false для первого входа
+      .setAutoSelectEnabled(false)
       .build()
 
     val request = GetCredentialRequest.Builder()
@@ -106,17 +157,26 @@ private suspend fun launchCredManButtonUI(
       context = context
     )
 
+    Log.d("YkisLog", "$methodName: [SUCCESS] Аккаунт выбран")
     onRequestResult(result.credential)
+
   } catch (e: GetCredentialException) {
-    // Обработка отмены пользователем (чтобы не спамить в лог)
-    if (e is GetCredentialCancellationException) {
-      Log.d("Auth", "User cancelled")
-    } else {
-      Log.e("Auth", "Error: ${e.message}")
-      SnackbarManager.showMessage("Помилка авторизації")
+    when (e) {
+      is GetCredentialCancellationException -> {
+        Log.d("YkisLog", "$methodName: [CANCEL] Пользователь закрыл окно")
+      }
+      else -> {
+        Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+        SnackbarManager.showMessage("Помилка авторизації: ${e.localizedMessage}")
+      }
     }
+  } finally {
+    // КРИТИЧЕСКИ ВАЖНО: всегда уведомляем кнопку об окончании,
+    // чтобы выключить локальный лоадер (isChoosingAccount = false)
+    onFinished()
   }
 }
+
 
 @Composable
 fun SignInScreenStateless(
@@ -130,7 +190,9 @@ fun SignInScreenStateless(
     onSignUpClick : () -> Unit,
     onGoogleClick : (Credential) -> Unit
 ) {
-        Box(
+
+
+  Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ){
@@ -203,9 +265,15 @@ fun SignInScreenStateless(
                             .height(1.dp)
                             .background(MaterialTheme.colorScheme.outline))
                     }
-                    AuthenticationButton(buttonText = R.string.sign_in_with_google) { credential ->
-                        onGoogleClick(credential)
+
+                  val isGoogleLoading = false
+                  AuthenticationButton(
+                    buttonText = R.string.sign_in_with_google,
+                    isLoading = isGoogleLoading, // Передаем флаг
+                    onRequestResult = { credential ->
+                      onGoogleClick(credential)
                     }
+                  )
                     Spacer(modifier = modifier.height(8.dp))
                     Row(
                         modifier = modifier.fillMaxWidth(),
@@ -240,7 +308,8 @@ fun SignInScreen(
 ) {
     val singInUiState = viewModel.singInUiState
     val keyboard = LocalSoftwareKeyboardController.current
-
+  val googleResponse = viewModel.signInWithGoogleResponse
+  val isGoogleLoading = googleResponse is Resource.Loading<*>
     SignInScreenStateless(
         email = singInUiState.email,
         onEmailChange = viewModel::onEmailChange,
@@ -256,11 +325,20 @@ fun SignInScreen(
         onSignUpClick = {
             viewModel.onSignUpClick(openScreen)
         },
-        onGoogleClick = {
-            viewModel.onSignUpWithGoogle(it , openAndPopUp = {
-                navController.navigate(Graph.APARTMENT)
-            })
-        }
+      onGoogleClick = { credential ->
+        // Сначала чистим вьюмодель
+
+        viewModel.onSignUpWithGoogle(credential, openAndPopUp = {
+          navController.navigate(Graph.APARTMENT) {
+            // 1. Очищаем весь стек до основания
+            popUpTo(0) { inclusive = true }
+            // 2. ЗАПРЕЩАЕМ восстанавливать старый стейт (это убьет "призраков")
+            restoreState = false
+            launchSingleTop = true
+          }
+        })
+      }
+
     )
 }
 

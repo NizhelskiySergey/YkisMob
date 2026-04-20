@@ -22,4 +22,8 @@ interface ConfigurationService {
     val agreementTitle: String
     val agreementText: String
     suspend fun fetchConfiguration(): Boolean
+
+
+
+
 }

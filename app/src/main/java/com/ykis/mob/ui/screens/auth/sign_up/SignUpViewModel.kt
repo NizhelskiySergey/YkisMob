@@ -16,6 +16,7 @@ limitations under the License.
 
 package com.ykis.mob.ui.screens.auth.sign_up
 
+import android.util.Log
 import androidx.compose.runtime.mutableStateOf
 import com.ykis.mob.R
 import com.ykis.mob.core.Resource
@@ -35,7 +36,6 @@ import com.ykis.mob.ui.screens.auth.sign_up.components.SignUpUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.ykis.mob.R.string as AppText
-
 class SignUpViewModel(
   private val firebaseService: FirebaseService,
   private val configurationService: ConfigurationService,
@@ -45,10 +45,9 @@ class SignUpViewModel(
   private val _reloadUserResponse = MutableStateFlow<ReloadUserResponse>(Resource.Success(false))
   val reloadUserResponse = _reloadUserResponse.asStateFlow()
 
-  private val _signUpResponse = MutableStateFlow<SignUpResponse>(Resource.Success(false))
+  private val _signUpResponse = MutableStateFlow<SignUpResponse?>(null)
   val signUpResponse = _signUpResponse.asStateFlow()
 
-  // Стейт для верификации почты
   private val _sendEmailVerificationResponse = MutableStateFlow<SendEmailVerificationResponse>(Resource.Success(false))
 
   var signUpUiState = mutableStateOf(SignUpUiState())
@@ -61,20 +60,29 @@ class SignUpViewModel(
   val isEmailVerified get() = firebaseService.currentUser?.isEmailVerified ?: false
 
   init {
-    launchCatching { configurationService.fetchConfiguration() }
+    val methodName = "SignUpVM.init"
+    launchCatching {
+      Log.d("YkisLog", "$methodName: [START] Загрузка Remote Config")
+      configurationService.fetchConfiguration()
+      Log.d("YkisLog", "$methodName: [SUCCESS] Конфигурация готова")
+    }
   }
 
-  // --- ВАЛИДАЦИЯ (Вынесена отдельно) ---
+  // --- ВАЛИДАЦИЯ ---
   private fun isInputValid(): Boolean {
+    val methodName = "SignUpVM.validate"
     if (!email.isValidEmail()) {
+      Log.w("YkisLog", "$methodName: Некорректный email: $email")
       SnackbarManager.showMessage(AppText.email_error)
       return false
     }
     if (!password.isValidPassword()) {
+      Log.w("YkisLog", "$methodName: Пароль не прошел проверку сложности")
       SnackbarManager.showMessage(AppText.password_error)
       return false
     }
     if (!password.passwordMatches(repeatPassword)) {
+      Log.w("YkisLog", "$methodName: Пароли не совпадают")
       SnackbarManager.showMessage(AppText.password_match_error)
       return false
     }
@@ -83,33 +91,54 @@ class SignUpViewModel(
 
   // --- РЕГИСТРАЦИЯ ---
   fun signUpWithEmailAndPassword(onSuccess: () -> Unit) {
+    val methodName = "SignUpVM.signUp"
     if (!isInputValid()) return
 
+    // 1. СБРОС СТЕЙТА перед началом, чтобы LaunchedEffect не видел старый Success
+    _signUpResponse.value = null
+
     launchCatching {
+      Log.d("YkisLog", "$methodName: [START] Регистрация для: $email")
       _signUpResponse.value = Resource.Loading()
 
-      // 1. Регистрируем пользователя
       val result = firebaseService.firebaseSignUpWithEmailAndPassword(email, password)
+
+      // 2. ЗАПИСЬ РЕЗУЛЬТАТА (это триггернет LaunchedEffect в UI)
       _signUpResponse.value = result
 
-      if (result is Resource.Success) {
-        // 2. Сразу отправляем письмо верификации
-        firebaseService.sendEmailVerification()
-
-        // 3. Обновляем токен пушей, чтобы пользователь был на связи
-        addFcmToken()
-
-        onSuccess()
+      when (result) {
+        is Resource.Success -> {
+          Log.d("YkisLog", "$methodName: [SUCCESS] Пользователь создан. Отправка email...")
+          firebaseService.sendEmailVerification()
+          addFcmToken()
+          // 3. Вызываем onSuccess() только если LaunchedEffect на экране отсутствует.
+          // Если на экране есть LaunchedEffect(signUpResponse), то onSuccess можно оставить пустым.
+          onSuccess()
+        }
+        is Resource.Error -> {
+          Log.e("YkisLog", "$methodName: [ERROR] ${result.message}")
+        }
+        else -> {}
       }
     }
   }
 
-  // Повторная отправка письма (если первое не дошло)
+
+  // Повторная отправка письма
   fun repeatEmailVerified() {
+    val methodName = "SignUpVM.repeatVerify"
     launchCatching {
+      Log.d("YkisLog", "$methodName: [REQUEST] Повторная отправка письма на ${firebaseService.currentUser?.email}")
       _sendEmailVerificationResponse.value = Resource.Loading()
-      _sendEmailVerificationResponse.value = firebaseService.sendEmailVerification()
-      SnackbarManager.showMessage(R.string.verify_email_message)
+      val result = firebaseService.sendEmailVerification()
+      _sendEmailVerificationResponse.value = result
+
+      if (result is Resource.Success) {
+        Log.d("YkisLog", "$methodName: [SUCCESS] Письмо отправлено")
+        SnackbarManager.showMessage(R.string.verify_email_message)
+      } else {
+        Log.e("YkisLog", "$methodName: [ERROR] Не удалось отправить письмо")
+      }
     }
   }
 
@@ -117,15 +146,25 @@ class SignUpViewModel(
   fun onPasswordChange(newValue: String) { signUpUiState.value = signUpUiState.value.copy(password = newValue) }
   fun onRepeatPasswordChange(newValue: String) { signUpUiState.value = signUpUiState.value.copy(repeatPassword = newValue) }
 
+  // Проверка статуса верификации
   fun reloadUser(onSuccess: () -> Unit) {
+    val methodName = "SignUpVM.reloadUser"
     launchCatching {
+      Log.d("YkisLog", "$methodName: [START] Проверка подтверждения почты...")
       _reloadUserResponse.value = Resource.Loading()
       val result = firebaseService.reloadFirebaseUser()
       _reloadUserResponse.value = result
 
-      if (result is Resource.Success && isEmailVerified) {
-        addFcmToken() // Обновляем токен при успешном подтверждении
-        onSuccess()
+      if (result is Resource.Success) {
+        val verified = firebaseService.currentUser?.isEmailVerified == true
+        Log.d("YkisLog", "$methodName: [RESULT] Почта подтверждена: $verified")
+
+        if (verified) {
+          addFcmToken()
+          onSuccess()
+        } else {
+          SnackbarManager.showMessage("Пошта ще не підтверджена. Перевірте скриньку.")
+        }
       }
     }
   }
