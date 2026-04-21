@@ -19,25 +19,29 @@ class DeleteUserAccount(
   private val repository: ApartmentRepository,
 ) {
   operator fun invoke(uid: String, email: String): Flow<Resource<GetSimpleResponse>> = flow {
+    val methodName = "DeleteUserAccount.invoke"
     emit(Resource.Loading())
 
     try {
-      // Выполняем прямой suspend запрос
+      Log.d("YkisLog", "$methodName: [START] Запрос на удаление UID: $uid")
+
+      // Прямой suspend запрос к API (MySQL)
       val response = repository.deleteUserAccount(uid, email)
 
-      val result = when {
-        response.success == 1 -> Resource.Success(response)
-        else -> Resource.Error(resourceMessage = R.string.error_delete_account)
+      if (response.success == 1) {
+        Log.d("YkisLog", "$methodName: [SUCCESS] Аккаунт удален из внешней БД (MySQL)")
+        emit(Resource.Success(response))
+      } else {
+        Log.e("YkisLog", "$methodName: [API_ERROR] Success: ${response.success}")
+        emit(Resource.Error(resourceMessage = R.string.error_delete_account))
       }
-      emit(result)
 
     } catch (ce: CancellationException) {
-      // ОЧЕНЬ ВАЖНО: пробрасываем исключение отмены дальше,
-      // чтобы Flow завершился корректно и не вызывал ошибку прозрачности.
+      Log.w("YkisLog", "$methodName: [CANCELLED] Процесс отменен корутиной")
       throw ce
     } catch (ex: Exception) {
-      Log.e("YkisLog", "deleteUserAccount: ${ex.message}")
-      emit(Resource.Error(message = ex.localizedMessage))
+      Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${ex.message}")
+      emit(Resource.Error(message = ex.localizedMessage ?: "Unknown Error"))
     }
   }.flowOn(Dispatchers.IO)
 }

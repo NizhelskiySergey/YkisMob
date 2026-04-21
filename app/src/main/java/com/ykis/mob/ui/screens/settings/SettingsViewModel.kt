@@ -99,55 +99,69 @@ class NewSettingsViewModel(
 
   // 2. УДАЛЕНИЕ АККАУНТА (Revoke Access)
   fun revokeAccess(onSuccess: () -> Unit) {
-    val methodName = "SettingsVM.revokeAccess()"
+    val methodName = "SettingsVM.revokeAccess"
     Log.d("YkisLog", "$methodName: [START]")
 
     _loading.value = true
-    chatViewModel.stopAllTrackers()
-    apartmentViewModel.clearState()
 
-    viewModelScope.launch {
-      firebaseService.revokeAccess().collect { result ->
-        when (result) {
-          is Resource.Loading -> { _loading.value = true }
+    // Используем immediate запуск и NonCancellable, чтобы корутину не "убило" при навигации
+    viewModelScope.launch(Dispatchers.Main.immediate + NonCancellable) {
+      Log.d("YkisLog", "$methodName: [INSIDE_LAUNCH]")
+      try {
+        // 1. Предварительная очистка
+        chatViewModel.stopAllTrackers()
+        apartmentViewModel.clearState()
 
-          is Resource.Success -> {
-            Log.d("YkisLog", "$methodName: [SUCCESS] Firebase данные удалены")
+        // 2. Вызов основного процесса удаления
+        firebaseService.revokeAccess().collect { result ->
+          when (result) {
+            is Resource.Success -> {
+              Log.d("YkisLog", "$methodName: [SUCCESS] Облако очищено")
 
-            withContext(Dispatchers.IO) {
-              Log.d("YkisLog", "$methodName: [CLEANUP] Очистка Room...")
-              // Ждем завершения, пока Loading не сменится на Success/Error
-              clearDatabase().collect { dbResult ->
-                if (dbResult is Resource.Success) {
-                  Log.d("YkisLog", "$methodName: [CLEANUP] Room полностью пуста")
+              // 3. Очистка локальной базы Room с таймаутом (чтобы не висеть вечно)
+              withContext(Dispatchers.IO) {
+                try {
+                  withTimeout(2000) {
+                    Log.d("YkisLog", "$methodName: [CLEANUP] Запуск Room clean...")
+                    clearDatabase().collect { dbResult ->
+                      if (dbResult is Resource.Success) {
+                        Log.d("YkisLog", "$methodName: [DB_CLEAN] База Room пуста")
+                      }
+                    }
+                  }
+                } catch (e: Exception) {
+                  Log.w("YkisLog", "$methodName: [TIMEOUT] Room не ответила, идем дальше")
                 }
               }
-            }
 
-            _loading.value = false
-            Log.d("YkisLog", "$methodName: [FINISH] Навигация")
-            onSuccess()
-          }
-
-          is Resource.Error -> {
-            Log.e("YkisLog", "$methodName: [ERROR] ${result.message}")
-
-            // 1. Показываем сообщение об ошибке (например, "Нужно перезайти")
-            val errorMsg = result.message ?: "Помилка видалення"
-            SnackbarManager.showMessage(errorMsg)
-
-            // 2. Выключаем лоадер
-            _loading.value = false
-
-            // 3. ДАЕМ ВРЕМЯ ПРОЧИТАТЬ (1.5 - 2 секунды) перед тем как выкинуть на логин
-            viewModelScope.launch {
-              delay(2000)
-              Log.d("YkisLog", "$methodName: [NAVIGATE] После отображения ошибки")
+              // Завершаем успех
+              _loading.value = false
+              Log.d("YkisLog", "$methodName: [FINISH] Успешное удаление. Навигация.")
               onSuccess()
             }
-          }
 
+            is Resource.Error -> {
+              Log.e("YkisLog", "$methodName: [ERROR] ${result.message}")
+
+              _loading.value = false
+              val errorMsg = result.message ?: "Помилка видалення"
+              SnackbarManager.showMessage(errorMsg)
+
+              // Даем время прочитать ошибку (напр. Re-auth) и выходим
+              delay(2000)
+              Log.d("YkisLog", "$methodName: [NAVIGATE] Уход на логин после ошибки")
+              onSuccess()
+            }
+
+            is Resource.Loading -> {
+              Log.d("YkisLog", "$methodName: [LOADING]...")
+            }
+          }
         }
+      } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${e.message}")
+        _loading.value = false
+        onSuccess()
       }
     }
   }
