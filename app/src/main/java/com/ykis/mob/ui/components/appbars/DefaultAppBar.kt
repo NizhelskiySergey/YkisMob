@@ -61,6 +61,7 @@ fun DefaultAppBar(
               text = " | $subtitle",
               style = MaterialTheme.typography.labelSmall, // Шрифт как у ФИО
               color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+              fontWeight = FontWeight.Bold,
               modifier = Modifier.padding(start = 4.dp, bottom = 2.dp), // Смещение для визуального баланса
               maxLines = 1,
               overflow = TextOverflow.Ellipsis

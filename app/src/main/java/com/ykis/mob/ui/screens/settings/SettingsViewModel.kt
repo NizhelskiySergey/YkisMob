@@ -14,6 +14,7 @@ import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -44,43 +46,51 @@ class NewSettingsViewModel(
   val loading = _loading.asStateFlow()
 
   fun signOut(onSuccess: () -> Unit) {
-    val methodName = "SettingsVM.signOut()"
+    val methodName = "NewSettingsViewModel.signOut"
+    Log.d("YkisLog", "$methodName: [START]")
+
     _loading.value = true
 
     viewModelScope.launch {
       try {
+        // 1. Остановка слушателей чата (предотвращаем фоновые попытки записи)
         chatViewModel.stopAllTrackers()
-        apartmentViewModel.clearState()
 
-        // Внутри SettingsViewModel.signOut
         withContext(Dispatchers.IO) {
+          // 2. ФИЗИЧЕСКИЙ ВЫХОД (Закрываем сессию в Firebase)
           firebaseService.logoutDirectly()
+          Log.d("YkisLog", "$methodName: [STEP 1] Auth SignOut Success. Права доступа отозваны.")
 
-          Log.d("YkisLog", "SettingsVM: [DB] Запуск очистки через UseCase...")
+          // 3. ОЧИСТКА ПАМЯТИ (Мгновенно затираем UID и список квартир в RAM)
+//          withContext(Dispatchers.Main) {
+//            apartmentViewModel.clearState()
+//            Log.d("YkisLog", "$methodName: [STEP 2] ApartmentViewModel стейт обнулен.")
+//          }
 
-          // Используем collect, чтобы пройти через Loading и дождаться Success
+          // 4. ГЛУБОКАЯ ОЧИСТКА БАЗЫ (Ждем реального удаления всех строк в Room)
+          Log.d("YkisLog", "$methodName: [STEP 3] Запуск очистки Room...")
           clearDatabase().collect { result ->
             if (result is Resource.Success) {
-              Log.d("YkisLog", "SettingsVM: [DB] clearAllTables завершен успешно")
-            }
-            if (result is Resource.Error) {
-              Log.e("YkisLog", "SettingsVM: [DB_ERROR] ${result.message}")
+              Log.d("YkisLog", "$methodName: [DB_CLEAN] База Room полностью пуста. Призраков больше нет.")
             }
           }
         }
 
-
-        withContext(Dispatchers.Main) {
+      } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [ERROR] Ошибка при выходе: ${e.message}")
+      } finally {
+        // Гарантированно выключаем лоадер и переходим на логин
+        withContext(NonCancellable + Dispatchers.Main) {
           _loading.value = false
+          Log.d("YkisLog", "$methodName: [FINISH] Лоадер выключен. Навигация на Auth.")
           onSuccess()
         }
-      } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [ERROR] $e")
-        _loading.value = false
-        onSuccess()
       }
     }
   }
+
+
+
 
 
 

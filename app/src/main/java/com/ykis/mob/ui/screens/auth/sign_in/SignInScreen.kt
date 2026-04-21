@@ -180,185 +180,185 @@ private suspend fun launchCredManButtonUI(
 
 @Composable
 fun SignInScreenStateless(
-    modifier: Modifier = Modifier,
-    email : String,
-    onEmailChange : (String) -> Unit,
-    password: String,
-    onPasswordChange: (String) -> Unit,
-    onSignInClick : ()->Unit,
-    onForgotPasswordClick : () ->Unit,
-    onSignUpClick : () -> Unit,
-    onGoogleClick : (Credential) -> Unit
+  modifier: Modifier = Modifier,
+  email : String,
+  onEmailChange : (String) -> Unit,
+  password: String,
+  onPasswordChange: (String) -> Unit,
+  onSignInClick : ()->Unit,
+  onForgotPasswordClick : () ->Unit,
+  onSignUpClick : () -> Unit,
+  onGoogleClick : (Credential) -> Unit
 ) {
 
 
   Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ){
-            Column(
-                modifier = modifier
-                    .fillMaxHeight()
-                    .widthIn(max = 460.dp) ,
-                verticalArrangement = Arrangement.Top,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                DefaultAppBar(
-                    title = stringResource(R.string.login_details),
-                    canNavigateBack = false,
-                )
-                Column(
-                    modifier = modifier
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState())
-                    ,
-                    verticalArrangement = Arrangement.Top,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    LogoImage()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    EmailField(email, onEmailChange, modifier)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    PasswordField(password, onPasswordChange)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(
-                        modifier = modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.CenterEnd
-                    ) {
-                        Text(
-                            modifier = modifier
-                                .clip(MaterialTheme.shapes.medium)
-                                .clickable {
-                                    onForgotPasswordClick()
-                                }
-                                .padding(4.dp),
-                            text = stringResource(R.string.forget_password)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        modifier = modifier.fillMaxWidth(),
-                        onClick = {
-                            onSignInClick()
-                        }
-                    ) {
-                        Text(
-                            text = stringResource(R.string.sign_in),
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-                    Row(
-                        modifier = modifier.padding(vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(modifier = modifier
-                            .weight(1f)
-                            .height(1.dp)
-                            .background(MaterialTheme.colorScheme.outline))
-                        Text(
-                            modifier = modifier.padding(horizontal = 4.dp),
-                            text = stringResource(R.string.or),
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                        Box(modifier = modifier
-                            .weight(1f)
-                            .height(1.dp)
-                            .background(MaterialTheme.colorScheme.outline))
-                    }
-
-                  val isGoogleLoading = false
-                  AuthenticationButton(
-                    buttonText = R.string.sign_in_with_google,
-                    isLoading = isGoogleLoading, // Передаем флаг
-                    onRequestResult = { credential ->
-                      onGoogleClick(credential)
-                    }
-                  )
-                    Spacer(modifier = modifier.height(8.dp))
-                    Row(
-                        modifier = modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.have_no_account)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            modifier = modifier
-                                .clip(MaterialTheme.shapes.small)
-                                .clickable {
-                                    onSignUpClick()
-                                },
-                            color = MaterialTheme.colorScheme.primary,
-                            text = stringResource(R.string.sign_up)
-                        )
-                    }
-                }
-            }
+    modifier = modifier.fillMaxSize(),
+    contentAlignment = Alignment.Center
+  ){
+    Column(
+      modifier = modifier
+        .fillMaxHeight()
+        .widthIn(max = 460.dp) ,
+      verticalArrangement = Arrangement.Top,
+      horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+      DefaultAppBar(
+        title = stringResource(R.string.login_details),
+        canNavigateBack = false,
+      )
+      Column(
+        modifier = modifier
+          .padding(16.dp)
+          .verticalScroll(rememberScrollState())
+        ,
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.CenterHorizontally
+      ) {
+        LogoImage()
+        Spacer(modifier = Modifier.height(16.dp))
+        EmailField(email, onEmailChange, modifier)
+        Spacer(modifier = Modifier.height(8.dp))
+        PasswordField(password, onPasswordChange)
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+          modifier = modifier.fillMaxWidth(),
+          contentAlignment = Alignment.CenterEnd
+        ) {
+          Text(
+            modifier = modifier
+              .clip(MaterialTheme.shapes.medium)
+              .clickable {
+                onForgotPasswordClick()
+              }
+              .padding(4.dp),
+            text = stringResource(R.string.forget_password)
+          )
         }
+        Spacer(modifier = Modifier.height(24.dp))
+        Button(
+          modifier = modifier.fillMaxWidth(),
+          onClick = {
+            onSignInClick()
+          }
+        ) {
+          Text(
+            text = stringResource(R.string.sign_in),
+            style = MaterialTheme.typography.titleMedium
+          )
+        }
+        Row(
+          modifier = modifier.padding(vertical = 16.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Box(modifier = modifier
+            .weight(1f)
+            .height(1.dp)
+            .background(MaterialTheme.colorScheme.outline))
+          Text(
+            modifier = modifier.padding(horizontal = 4.dp),
+            text = stringResource(R.string.or),
+            color = MaterialTheme.colorScheme.outline
+          )
+          Box(modifier = modifier
+            .weight(1f)
+            .height(1.dp)
+            .background(MaterialTheme.colorScheme.outline))
+        }
+
+        val isGoogleLoading = false
+        AuthenticationButton(
+          buttonText = R.string.sign_in_with_google,
+          isLoading = isGoogleLoading, // Передаем флаг
+          onRequestResult = { credential ->
+            onGoogleClick(credential)
+          }
+        )
+        Spacer(modifier = modifier.height(8.dp))
+        Row(
+          modifier = modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.End,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Text(
+            text = stringResource(R.string.have_no_account)
+          )
+          Spacer(Modifier.width(4.dp))
+          Text(
+            modifier = modifier
+              .clip(MaterialTheme.shapes.small)
+              .clickable {
+                onSignUpClick()
+              },
+            color = MaterialTheme.colorScheme.primary,
+            text = stringResource(R.string.sign_up)
+          )
+        }
+      }
+    }
+  }
 
 }
 
 @Composable
 fun SignInScreen(
-    openScreen: (String) -> Unit,
-    viewModel: SignInViewModel = koinViewModel(),
-    navController: NavController
+  openScreen: (String) -> Unit,
+  viewModel: SignInViewModel = koinViewModel(),
+  navController: NavController
 ) {
-    val singInUiState = viewModel.singInUiState
-    val keyboard = LocalSoftwareKeyboardController.current
+  val singInUiState = viewModel.singInUiState
+  val keyboard = LocalSoftwareKeyboardController.current
   val googleResponse = viewModel.signInWithGoogleResponse
   val isGoogleLoading = googleResponse is Resource.Loading<*>
-    SignInScreenStateless(
-        email = singInUiState.email,
-        onEmailChange = viewModel::onEmailChange,
-        password = singInUiState.password,
-        onPasswordChange = viewModel::onPasswordChange,
-        onSignInClick = {
-            keyboard?.hide()
-            viewModel.onSignInClick(openScreen)
-        },
-        onForgotPasswordClick = {
-            viewModel.onForgotPasswordClick()
-        },
-        onSignUpClick = {
-            viewModel.onSignUpClick(openScreen)
-        },
-      onGoogleClick = { credential ->
-        // Сначала чистим вьюмодель
+  SignInScreenStateless(
+    email = singInUiState.email,
+    onEmailChange = viewModel::onEmailChange,
+    password = singInUiState.password,
+    onPasswordChange = viewModel::onPasswordChange,
+    onSignInClick = {
+      keyboard?.hide()
+      viewModel.onSignInClick(openScreen)
+    },
+    onForgotPasswordClick = {
+      viewModel.onForgotPasswordClick()
+    },
+    onSignUpClick = {
+      viewModel.onSignUpClick(openScreen)
+    },
+    onGoogleClick = { credential ->
+      // Сначала чистим вьюмодель
 
-        viewModel.onSignUpWithGoogle(credential, openAndPopUp = {
-          navController.navigate(Graph.APARTMENT) {
-            // 1. Очищаем весь стек до основания
-            popUpTo(0) { inclusive = true }
-            // 2. ЗАПРЕЩАЕМ восстанавливать старый стейт (это убьет "призраков")
-            restoreState = false
-            launchSingleTop = true
-          }
-        })
-      }
+      viewModel.onSignUpWithGoogle(credential, openAndPopUp = {
+        navController.navigate(Graph.APARTMENT) {
+          // 1. Очищаем весь стек до основания
+          popUpTo(0) { inclusive = true }
+          // 2. ЗАПРЕЩАЕМ восстанавливать старый стейт (это убьет "призраков")
+          restoreState = false
+          launchSingleTop = true
+        }
+      })
+    }
 
-    )
+  )
 }
 
 @Preview(showBackground = true, device = "spec:parent=pixel_5,orientation=landscape")
 @Composable
 private fun SignInScreenPreview() {
-    YkisPAMTheme {
-        Box(
-            modifier = Modifier.fillMaxSize()
-        ){
-            SignInScreenStateless(
-                email = "",
-                onEmailChange = {},
-                password = "",
-                onSignInClick = {},
-                onForgotPasswordClick = {},
-                onSignUpClick = {},
-                onPasswordChange = {},
-                onGoogleClick = {},
-            )
-        }
+  YkisPAMTheme {
+    Box(
+      modifier = Modifier.fillMaxSize()
+    ){
+      SignInScreenStateless(
+        email = "",
+        onEmailChange = {},
+        password = "",
+        onSignInClick = {},
+        onForgotPasswordClick = {},
+        onSignUpClick = {},
+        onPasswordChange = {},
+        onGoogleClick = {},
+      )
     }
+  }
 }

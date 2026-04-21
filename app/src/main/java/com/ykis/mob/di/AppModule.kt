@@ -360,6 +360,7 @@ val viewModelsModule = module {
   }
 
 
+
   viewModel {
     ApartmentViewModel(
       firebaseService = get(),
