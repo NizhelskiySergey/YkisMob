@@ -11,8 +11,10 @@ import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.preferences.AppSettingsRepository
 import com.ykis.mob.domain.ClearDatabase
 import com.ykis.mob.firebase.service.repo.FirebaseService
+import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -29,7 +31,8 @@ class NewSettingsViewModel(
   private val application: MainApplication,
   private val clearDatabase: ClearDatabase,
   private val firebaseService: FirebaseService,
-  private val chatViewModel: ChatViewModel
+  private val chatViewModel: ChatViewModel,
+  private val apartmentViewModel: ApartmentViewModel
 ) : ViewModel() {
   private val _theme = MutableStateFlow<String?>(null)
   val theme = _theme.asStateFlow()
@@ -40,93 +43,105 @@ class NewSettingsViewModel(
   private val _loading = MutableStateFlow(false)
   val loading = _loading.asStateFlow()
 
-  // 1. ВЫХОД ИЗ СИСТЕМЫ
-  // [СТАБИЛЬНАЯ ВЕРСИЯ]
-  // [СТАБИЛЬНАЯ ВЕРСИЯ]
   fun signOut(onSuccess: () -> Unit) {
     val methodName = "SettingsVM.signOut()"
-    Log.d("YkisLog", "$methodName: [START]")
-
     _loading.value = true
-
-    // 1. Остановка всех сетевых процессов чата (пока токен жив)
-    chatViewModel.stopAllTrackers()
 
     viewModelScope.launch {
       try {
-        // Шаг 1: Работа с токенами и подписками ПЕРЕД выходом
-        val uid = firebaseService.uid
-        Log.d("YkisLog", "$methodName: UID перед выходом: $uid")
+        chatViewModel.stopAllTrackers()
+        apartmentViewModel.clearState()
 
+        // Внутри SettingsViewModel.signOut
         withContext(Dispatchers.IO) {
-          // Отписываемся от пушей (теперь через Firebase напрямую)
-          Firebase.messaging.unsubscribeFromTopic("chat").await()
-
-          // Шаг 2: Физический выход из системы (локально в SDK)
           firebaseService.logoutDirectly()
-        }
-        Log.d("YkisLog", "$methodName: [SUCCESS] Firebase Auth SignOut")
 
-        // Шаг 3: Очистка локальной базы Room (асинхронно)
-        launch(Dispatchers.IO) {
-          clearDatabase().firstOrNull()
-          Log.d("YkisLog", "$methodName: [CLEANUP] Room DB cleared")
+          Log.d("YkisLog", "SettingsVM: [DB] Запуск очистки через UseCase...")
+
+          // Используем collect, чтобы пройти через Loading и дождаться Success
+          clearDatabase().collect { result ->
+            if (result is Resource.Success) {
+              Log.d("YkisLog", "SettingsVM: [DB] clearAllTables завершен успешно")
+            }
+            if (result is Resource.Error) {
+              Log.e("YkisLog", "SettingsVM: [DB_ERROR] ${result.message}")
+            }
+          }
         }
 
-        // Шаг 4: Завершение на главном потоке
+
         withContext(Dispatchers.Main) {
           _loading.value = false
-          Log.d("YkisLog", "$methodName: [FINISH] Вызов onSuccess")
           onSuccess()
         }
       } catch (e: Exception) {
         Log.e("YkisLog", "$methodName: [ERROR] $e")
         _loading.value = false
-        onSuccess() // Принудительный выход в любом случае
+        onSuccess()
       }
     }
-    // [СТАБИЛЬНАЯ ВЕРСИЯ]
-
-
   }
 
+
+
+
+
   // 2. УДАЛЕНИЕ АККАУНТА (Revoke Access)
-  // [СТАБИЛЬНАЯ ВЕРСИЯ] для NewSettingsViewModel
   fun revokeAccess(onSuccess: () -> Unit) {
     val methodName = "SettingsVM.revokeAccess()"
     Log.d("YkisLog", "$methodName: [START]")
 
     _loading.value = true
     chatViewModel.stopAllTrackers()
+    apartmentViewModel.clearState()
 
-    // КРИТИЧНО: Все вызовы Flow должны быть внутри launch
     viewModelScope.launch {
       firebaseService.revokeAccess().collect { result ->
         when (result) {
-          is Resource.Loading -> {
-            Log.d("YkisLog", "$methodName: [LOADING]...")
-            _loading.value = true
-          }
-          is Resource.Success -> {
-            Log.d("YkisLog", "$methodName: [SUCCESS] Firebase удалил данные")
+          is Resource.Loading -> { _loading.value = true }
 
-            // Чистим базу Room перед уходом
-            clearDatabase().firstOrNull()
+          is Resource.Success -> {
+            Log.d("YkisLog", "$methodName: [SUCCESS] Firebase данные удалены")
+
+            withContext(Dispatchers.IO) {
+              Log.d("YkisLog", "$methodName: [CLEANUP] Очистка Room...")
+              // Ждем завершения, пока Loading не сменится на Success/Error
+              clearDatabase().collect { dbResult ->
+                if (dbResult is Resource.Success) {
+                  Log.d("YkisLog", "$methodName: [CLEANUP] Room полностью пуста")
+                }
+              }
+            }
 
             _loading.value = false
+            Log.d("YkisLog", "$methodName: [FINISH] Навигация")
             onSuccess()
           }
+
           is Resource.Error -> {
             Log.e("YkisLog", "$methodName: [ERROR] ${result.message}")
+
+            // 1. Показываем сообщение об ошибке (например, "Нужно перезайти")
+            val errorMsg = result.message ?: "Помилка видалення"
+            SnackbarManager.showMessage(errorMsg)
+
+            // 2. Выключаем лоадер
             _loading.value = false
-            // Даже при ошибке (например, RE-AUTH) мы вызываем onSuccess,
-            // так как сервис уже сделал signOut()
-            onSuccess()
+
+            // 3. ДАЕМ ВРЕМЯ ПРОЧИТАТЬ (1.5 - 2 секунды) перед тем как выкинуть на логин
+            viewModelScope.launch {
+              delay(2000)
+              Log.d("YkisLog", "$methodName: [NAVIGATE] После отображения ошибки")
+              onSuccess()
+            }
           }
+
         }
       }
     }
   }
+
+
 
 
 

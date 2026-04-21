@@ -725,50 +725,57 @@ class ApartmentViewModel(
 
 
   fun deleteApartment(onNavigate: (String) -> Unit) {
+    val methodName = "ApartmentVM.delete"
     val currentAddressId = _uiState.value.addressId
     val currentUid = firebaseService.uid ?: ""
 
-    apartmentService.deleteApartment(
-      addressId = currentAddressId,
-      uid = currentUid
-    ).onEach { result ->
-      when (result) {
-        is Resource.Success -> {
-          SnackbarManager.showMessage(R.string.success_delete_flat)
+    if (currentAddressId == 0) return
 
-          // 1. Обновляем список квартир из сети
-          getApartmentList {
-            val updatedList = _uiState.value.apartments
+    apartmentService.deleteApartment(addressId = currentAddressId, uid = currentUid)
+      .onEach { result ->
+        when (result) {
+          is Resource.Loading -> {
+            Log.d("YkisLog", "$methodName: [LOADING]")
+            _uiState.update { it.copy(mainLoading = true) }
+          }
+          is Resource.Success -> {
+            Log.d("YkisLog", "$methodName: [SUCCESS] Квартира удалена")
+            SnackbarManager.showMessage(R.string.success_delete_flat)
 
-            if (updatedList.isEmpty()) {
-              // 2. Квартир нет — сбрасываем стейт и уходим на AddApartment
-              _uiState.update { it.copy(
-                addressId = 0,
-                address = "",
-                apartment = ApartmentEntity()
-              ) }
-              onNavigate(AddApartmentScreen.route)
-            } else {
-              // 3. Квартиры остались — выбираем первую из списка.
-              // Мы НЕ вызываем onNavigate, чтобы не пересоздавать экран и не ломать Drawer.
-              // Экран обновится сам, так как setAddressId изменит UIState.
-              val nextApartment = updatedList.first()
-              setAddressId(nextApartment.addressId)
+            // Сразу после успеха сбрасываем текущий ID, чтобы UI не "завис" на старой квартире
+            _uiState.update { it.copy(addressId = 0) }
+
+            // Обновляем список квартир
+            getApartmentList {
+              val updatedList = _uiState.value.apartments
+              Log.d("YkisLog", "$methodName: [UPDATE] Осталось квартир: ${updatedList.size}")
+
+              if (updatedList.isEmpty()) {
+                Log.d("YkisLog", "$methodName: [NAVIGATE] На экран добавления")
+                _uiState.update { it.copy(
+                  address = "",
+                  apartment = ApartmentEntity(),
+                  mainLoading = false
+                )}
+                onNavigate(AddApartmentScreen.route)
+              } else {
+                // Выбираем следующую доступную
+                val nextApartment = updatedList.first()
+                Log.d("YkisLog", "$methodName: [SWITCH] Переход на ID: ${nextApartment.addressId}")
+                setAddressId(nextApartment.addressId)
+                _uiState.update { it.copy(mainLoading = false) }
+              }
             }
           }
+          is Resource.Error -> {
+            Log.e("YkisLog", "$methodName: [ERROR] ${result.message}")
+            _uiState.update { it.copy(mainLoading = false) }
+            SnackbarManager.showMessage(result.resourceMessage ?: R.string.error_delete_flat)
+          }
         }
-
-        is Resource.Error -> {
-          _uiState.update { it.copy(mainLoading = false) }
-          SnackbarManager.showMessage(result.resourceMessage ?: R.string.error_delete_flat)
-        }
-
-        is Resource.Loading -> {
-          _uiState.update { it.copy(mainLoading = true) }
-        }
-      }
-    }.launchIn(this.viewModelScope)
+      }.launchIn(viewModelScope)
   }
+
   fun setAddressId(id: Int) {
     val selected = _uiState.value.apartments.find { it.addressId == id } ?: return
     val currentUid = firebaseService.uid ?: ""

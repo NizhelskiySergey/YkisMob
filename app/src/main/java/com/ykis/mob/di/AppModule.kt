@@ -354,7 +354,8 @@ val viewModelsModule = module {
       application = get(), // Теперь get() сам найдет MainApplication, зарегистрированный строкой выше
       clearDatabase = get(),
       firebaseService = get(),
-      chatViewModel = get()
+      chatViewModel = get(),
+      apartmentViewModel = get()
     )
   }
 
