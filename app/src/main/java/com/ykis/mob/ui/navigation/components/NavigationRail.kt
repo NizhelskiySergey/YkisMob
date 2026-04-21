@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -92,7 +93,6 @@ fun ApartmentNavigationRail(
 ) {
   val keyboardController = LocalSoftwareKeyboardController.current
   val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
-  val totalUnread = remember(unreadCounts) { unreadCounts.values.sum() }
   val searchQuery by apartmentViewModel.searchQuery.collectAsStateWithLifecycle()
   val apartments by apartmentViewModel.filteredApartments.collectAsStateWithLifecycle()
   val isUserAdmin = baseUIState.userRole != UserRole.StandardUser
@@ -101,63 +101,50 @@ fun ApartmentNavigationRail(
     modifier = modifier,
     currentWidth = railWidth,
     header = {
-      // 1. Кнопка меню (бургер)
-      IconButton(
-        onClick = onMenuClick,
-        modifier = Modifier.padding(start = 12.dp, top = 8.dp)
+      // 1. Компактный Header
+      Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        Icon(Icons.Default.Menu, contentDescription = "Menu")
+        IconButton(onClick = onMenuClick) {
+          Icon(Icons.Default.Menu, contentDescription = "Menu")
+        }
       }
 
-      // 2. HEADER: Поиск или Кнопка Добавить
       if (isRailExpanded) {
-        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
           if (isUserAdmin) {
+            // Компактное поле поиска
             OutlinedTextField(
               value = searchQuery,
               onValueChange = { apartmentViewModel.onSearchQueryChanged(it) },
-              modifier = Modifier.fillMaxWidth(),
-              placeholder = { Text("Пошук кв.", fontSize = 12.sp) },
-              leadingIcon = { Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null, // Имя параметра обязательно
-                modifier = Modifier.size(18.dp)
-              )
-              },
+              modifier = Modifier.fillMaxWidth().height(48.dp),
+              placeholder = { Text("Пошук кв.", fontSize = 11.sp) },
+              leadingIcon = { Icon(Icons.Default.Search, null, Modifier.size(16.dp)) },
               trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
                   IconButton(onClick = { apartmentViewModel.onSearchQueryChanged("") }) {
-                    Icon(
-                      imageVector = Icons.Default.Close,
-                      contentDescription = null, // Имя параметра обязательно
-                      modifier = Modifier.size(16.dp)
-                    )
-
+                    Icon(Icons.Default.Close, null, Modifier.size(14.dp))
                   }
                 }
               },
               singleLine = true,
-              shape = RoundedCornerShape(12.dp),
-              textStyle = MaterialTheme.typography.bodySmall
+              shape = RoundedCornerShape(8.dp),
+              textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
             )
           } else {
+            // Компактная кнопка добавления
             FloatingActionButton(
               onClick = { navigateToDestination(AddApartmentScreen.route) },
-              modifier = Modifier.fillMaxWidth(),
+              modifier = Modifier.fillMaxWidth().height(40.dp),
               containerColor = MaterialTheme.colorScheme.primaryContainer,
               elevation = FloatingActionButtonDefaults.elevation(0.dp)
             ) {
-              Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-              ) {
-                Icon(Icons.Default.AddHome, null)
-                Text(
-                  text = stringResource(id = R.string.add_appartment),
-                  modifier = Modifier.padding(start = 12.dp),
-                  maxLines = 1,
-                  style = MaterialTheme.typography.labelLarge
-                )
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AddHome, null, Modifier.size(18.dp))
+                if (railWidth > 150.dp) {
+                  Text(" Додати", style = MaterialTheme.typography.labelSmall)
+                }
               }
             }
           }
@@ -167,52 +154,57 @@ fun ApartmentNavigationRail(
   ) {
     Column(modifier = Modifier.fillMaxSize()) {
 
-      // --- СПИСОК КВАРТИР (СТИЛЬ ДРАЙВЕРА) ---
+      // --- СПИСОК КВАРТИР (Занимает все свободное место) ---
       if (!isApartmentsEmpty && isRailExpanded) {
         Column(
           modifier = Modifier
             .fillMaxWidth()
-            .then(if (isUserAdmin) Modifier.weight(1f) else Modifier.wrapContentHeight())
+            .weight(1f) // ОТДАЕМ ПРИОРИТЕТ СПИСКУ
         ) {
           Text(
             text = stringResource(id = R.string.list_apartment),
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             color = MaterialTheme.colorScheme.primary
           )
 
           val listToDisplay = if (isUserAdmin) apartments else baseUIState.apartments
 
-          LazyColumn(modifier = Modifier.fillMaxWidth()) {
+          LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(bottom = 8.dp)
+          ) {
             items(listToDisplay, key = { it.addressId }) { apartment ->
               val isSelected = baseUIState.addressId == apartment.addressId
 
+              // Компактный элемент списка (высота уменьшена)
               Box(
                 modifier = Modifier
-                  .padding(horizontal = 12.dp, vertical = 2.dp)
+                  .padding(horizontal = 8.dp, vertical = 1.dp)
                   .fillMaxWidth()
-                  .clip(RoundedCornerShape(12.dp))
-                  .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                  .clip(RoundedCornerShape(8.dp))
+                  .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f) else Color.Transparent)
                   .clickable {
                     keyboardController?.hide()
                     navigateToApartment(apartment.addressId)
                   }
-                  .padding(8.dp)
+                  .padding(6.dp)
               ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                   Icon(
                     Icons.Default.Home, null,
                     tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(18.dp)
                   )
-                  Spacer(Modifier.width(12.dp))
+                  Spacer(Modifier.width(8.dp))
                   Column(modifier = Modifier.weight(1f)) {
+                    // ПЕРВАЯ СТРОКА: Адрес + о/р
                     Row(verticalAlignment = Alignment.CenterVertically) {
                       // Адрес (Жирный)
                       Text(
                         text = apartment.address,
                         fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodySmall
                       )
                       // о/р (Шрифт как у фамилии)
                       Text(
@@ -223,6 +215,8 @@ fun ApartmentNavigationRail(
                         modifier = Modifier.padding(start = 4.dp)
                       )
                     }
+
+                    // ВТОРАЯ СТРОКА: ФИО (как и было)
                     apartment.nanim?.let {
                       Text(
                         text = it,
@@ -232,65 +226,62 @@ fun ApartmentNavigationRail(
                       )
                     }
                   }
-                  val count = unreadCounts[apartment.addressId.toString()] ?: 0
-                  if (count > 0) {
-                    Badge(Modifier.padding(start = 4.dp)) { Text(count.toString()) }
-                  }
                 }
               }
             }
           }
-          HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         }
       }
 
-      // --- ГЛАВНОЕ МЕНЮ НАВИГАЦИИ ---
+      // --- НИЖНЕЕ МЕНЮ (Минимальная высота) ---
       Column(
         modifier = Modifier
           .fillMaxWidth()
-          .then(if (!isUserAdmin) Modifier.weight(1f) else Modifier.wrapContentHeight())
-          .verticalScroll(rememberScrollState())
-          .padding(top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+          .wrapContentHeight() // Не занимает лишнего места
+          .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
       ) {
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+
         NAV_RAIL_DESTINATIONS.forEach { destination ->
           if (destination.alwaysVisible || !isApartmentsEmpty) {
             val isSelected = selectedDestination.substringBefore("/") == destination.route.substringBefore("/")
 
+            // Компактный пункт навигации (высота 40dp вместо 56dp)
             Box(
               modifier = Modifier
-                .padding(horizontal = 12.dp, vertical = 2.dp)
+                .padding(horizontal = 8.dp)
                 .fillMaxWidth()
-                .height(56.dp)
-                .clip(RoundedCornerShape(28.dp))
+                .height(40.dp)
+                .clip(RoundedCornerShape(20.dp))
                 .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                 .clickable { navigateToDestination(destination.route) }
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 12.dp),
               contentAlignment = Alignment.CenterStart
             ) {
               Row(verticalAlignment = Alignment.CenterVertically) {
                 BadgedBox(
                   badge = {
-                    if (destination.route == UserListScreen.route && totalUnread > 0) {
-                      Badge { Text(if (totalUnread > 99) "99+" else totalUnread.toString()) }
+                    if (destination.route.contains("chat")) {
+                      val totalUnread = unreadCounts.values.sum()
+                      if (totalUnread > 0) Badge { Text(totalUnread.toString()) }
                     }
                   }
                 ) {
                   Icon(
-                    imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
+                    imageVector = destination.selectedIcon,
                     contentDescription = null,
+                    modifier = Modifier.size(20.dp),
                     tint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                   )
                 }
-
                 if (isRailExpanded) {
                   Text(
                     text = stringResource(destination.labelId),
                     modifier = Modifier.padding(start = 12.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
+                    maxLines = 1,
+                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                   )
                 }
               }
@@ -301,5 +292,6 @@ fun ApartmentNavigationRail(
     }
   }
 }
+
 
 

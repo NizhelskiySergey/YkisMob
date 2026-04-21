@@ -139,17 +139,7 @@ class FirebaseServiceImpl(
   }
 
 
-  override fun signOut(): Flow<Resource<Boolean>> = flow {
-    emit(Resource.Loading())
-    try {
-      auth.signOut()
-      // Очищаем состояние Credential Manager
-      credentialManager.clearCredentialState(ClearCredentialStateRequest())
-      emit(Resource.Success(true))
-    } catch (e: Exception) {
-      emit(Resource.Error(e.localizedMessage ?: "Google Sign-In failed"))
-    }
-  }.flowOn(Dispatchers.IO)
+
 
 
   override suspend fun firebaseSignInWithGoogle(googleCredential: AuthCredential): SignInWithGoogleResponse =
@@ -248,7 +238,17 @@ class FirebaseServiceImpl(
   override suspend fun logoutDirectly() {
     auth.signOut() // Стандартный метод Firebase, который срабатывает мгновенно
   }
-
+  override fun signOut(): Flow<Resource<Boolean>> = flow {
+    emit(Resource.Loading())
+    try {
+      auth.signOut()
+      // Очищаем состояние Credential Manager
+      credentialManager.clearCredentialState(ClearCredentialStateRequest())
+      emit(Resource.Success(true))
+    } catch (e: Exception) {
+      emit(Resource.Error(e.localizedMessage ?: "Google Sign-In failed"))
+    }
+  }.flowOn(Dispatchers.IO)
 
   override fun revokeAccessEmail(): Flow<Resource<Boolean>> = revokeAccess()
 
@@ -267,60 +267,71 @@ class FirebaseServiceImpl(
   }
 
   override suspend fun addUserFirestore(): addUserFirestoreResponse = withContext(Dispatchers.IO) {
+    val methodName = "FirebaseServiceImpl.addUserFirestore"
     try {
-      // 1. Получаем текущие данные пользователя
       val currentUser = auth.currentUser
       val currentUid = currentUser?.uid
       val userEmail = currentUser?.email ?: ""
 
       if (currentUid.isNullOrEmpty()) {
-        Log.e("YkisLog", "FirebaseServiceImpl.addUserFirestore() Error: UID is null")
+        Log.e("YkisLog", "$methodName: [ERROR] UID is null")
         return@withContext Resource.Error("UID is empty")
       }
 
-      // Явно указываем <String, Any>, чтобы можно было класть и строки, и даты, и числа
+      Log.d("YkisLog", "$methodName: [START] UID: $currentUid, Email: $userEmail")
+
+      // 1. Проверка существования профиля
+      val userDoc = db.collection("users").document(currentUid).get().await()
+      val isNewUser = !userDoc.exists()
+
+      // 2. Формирование данных
       val userMap: HashMap<String, Any> = hashMapOf(
         "uid" to currentUid,
         "email" to userEmail,
         "displayName" to (currentUser.displayName ?: ""),
-        "userRole" to "STANDARD_USER",
-        "osbbId" to 0,
-        "createdAt" to com.google.firebase.Timestamp.now()
+        "lastLogin" to com.google.firebase.Timestamp.now()
       )
 
+      if (isNewUser) {
+        Log.d("YkisLog", "$methodName: [NEW_USER] Регистрация нового профиля")
+        userMap["userRole"] = "STANDARD_USER"
+        userMap["osbbId"] = 0
+        userMap["createdAt"] = com.google.firebase.Timestamp.now()
+      } else {
+        // ПРОВЕРКА: вытягиваем существующий osbbId для лога
+        val existingOsbbId = userDoc.getLong("osbbId") ?: 0
+        Log.d("YkisLog", "$methodName: [EXISTING_USER] Вход. osbbId в облаке: $existingOsbbId. Затирание заблокировано.")
+      }
 
-      // 2. Пишем в Firestore
+      // 3. Запись в Firestore
       db.collection("users")
         .document(currentUid)
         .set(userMap, SetOptions.merge())
         .await()
 
-      Log.d("YkisLog", "FirebaseServiceImpl.Firestore Success for $currentUid")
+      Log.d("YkisLog", "$methodName: [SUCCESS] Firestore синхронизирован для UID: $currentUid")
 
-      // 3. Пишем в вашу внешнюю БД через ApartmentService
-      // .filter { it !is Resource.Loading } — игнорируем состояние загрузки
-      // .first() — ждем первого фактического результата (Success или Error) и останавливаем Flow
+      // 4. Синхронизация с внешней БД (MySQL)
       val result = getSaveUserUidResult(currentUid, userEmail)
 
       if (result is Resource.Error) {
+        Log.e("YkisLog", "$methodName: [EXTERNAL_DB_ERROR] UID: $currentUid, Msg: ${result.message}")
         return@withContext Resource.Error(
           resourceMessage = result.resourceMessage ?: R.string.error_add_user,
           message = result.message
         )
       }
 
-
-      Log.d(
-        "YkisLog",
-        "FirebaseServiceImpl.addUserFirestore() All databases updated successfully for $currentUid"
-      )
+      Log.d("YkisLog", "$methodName: [FINISH] Все базы обновлены. UID: $currentUid")
       Resource.Success(true)
 
     } catch (e: Exception) {
-      Log.e("YkisLog", "FirebaseServiceImpl.addUserFirestore() Exception: ${e.message}")
+      Log.e("YkisLog", "FirebaseServiceImpl.addUserFirestore: [FATAL_ERROR] ${e.message}")
       Resource.Error(e.localizedMessage ?: "Process error")
     }
   }
+
+
 
   private suspend fun getSaveUserUidResult(
     uid: String,
@@ -382,6 +393,10 @@ class FirebaseServiceImpl(
     osbbId: Int?,
     displayName: String? // Это наша строка "Адрес | Фамилия"
   ) {
+    if (osbbId == 0) {
+      Log.w("YkisLog", "Firestore: Попытка записи osbbId=0 заблокирована.")
+      return
+    }
     try {
       val updates = mutableMapOf<String, Any>(
         "userRole" to userRole.name,

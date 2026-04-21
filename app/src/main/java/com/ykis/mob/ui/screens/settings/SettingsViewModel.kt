@@ -14,6 +14,7 @@ import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,9 +22,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
 class NewSettingsViewModel(
@@ -44,43 +47,51 @@ class NewSettingsViewModel(
   val loading = _loading.asStateFlow()
 
   fun signOut(onSuccess: () -> Unit) {
-    val methodName = "SettingsVM.signOut()"
-    _loading.value = true
+    val methodName = "NewSettingsViewModel.signOut"
+    if (_loading.value) return
 
-    viewModelScope.launch {
+    _loading.value = true
+    Log.d("YkisLog", "$methodName: [START] Лоадер включен")
+
+    // Используем Dispatchers.Main.immediate, чтобы зайти в launch МГНОВЕННО
+    viewModelScope.launch(Dispatchers.Main.immediate + NonCancellable) {
+      Log.d("YkisLog", "$methodName: [INSIDE_LAUNCH] Мы внутри корутины!")
       try {
+        // 1. Быстрая очистка (память)
         chatViewModel.stopAllTrackers()
         apartmentViewModel.clearState()
 
-        // Внутри SettingsViewModel.signOut
         withContext(Dispatchers.IO) {
+          // 2. Firebase выход
           firebaseService.logoutDirectly()
+          Log.d("YkisLog", "$methodName: [STEP 1] Firebase Logout OK")
 
-          Log.d("YkisLog", "SettingsVM: [DB] Запуск очистки через UseCase...")
-
-          // Используем collect, чтобы пройти через Loading и дождаться Success
-          clearDatabase().collect { result ->
-            if (result is Resource.Success) {
-              Log.d("YkisLog", "SettingsVM: [DB] clearAllTables завершен успешно")
+          // 3. Очистка Room (с защитой от зависания)
+          try {
+            withTimeout(2000) {
+              clearDatabase().collect { result ->
+                if (result is Resource.Success) {
+                  Log.d("YkisLog", "$methodName: [STEP 2] База пуста")
+                }
+              }
             }
-            if (result is Resource.Error) {
-              Log.e("YkisLog", "SettingsVM: [DB_ERROR] ${result.message}")
-            }
+          } catch (e: Exception) {
+            Log.w("YkisLog", "$methodName: [TIMEOUT] База не ответила, идем дальше")
           }
         }
-
-
-        withContext(Dispatchers.Main) {
-          _loading.value = false
-          onSuccess()
-        }
       } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [ERROR] $e")
+        Log.e("YkisLog", "$methodName: [FATAL] ${e.message}")
+      } finally {
         _loading.value = false
+        Log.d("YkisLog", "$methodName: [FINISH] Лоадер OFF, переход...")
         onSuccess()
       }
     }
   }
+
+
+
+
 
 
 

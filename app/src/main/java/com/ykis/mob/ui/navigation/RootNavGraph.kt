@@ -38,6 +38,7 @@ import com.ykis.mob.core.snackbar.SnackbarMessage
 import com.ykis.mob.data.cache.preferences.PreferenceRepository
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.firebase.service.repo.ConfigurationService
+import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.ui.rememberAppState
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.SignUpViewModel
@@ -74,6 +75,7 @@ fun RootNavGraph(
   newSettingsViewModel: NewSettingsViewModel =koinViewModel (),
   meterViewModel: MeterViewModel = koinViewModel(),
   serviceViewModel: ServiceViewModel= koinViewModel (),
+  firebaseService: FirebaseService= koinInject(),
   contentType: ContentType,
   displayFeatures: List<DisplayFeature>,
   navigationType: NavigationType,
@@ -99,6 +101,8 @@ fun RootNavGraph(
   val selectedUser by chatViewModel.selectedUser.collectAsStateWithLifecycle()
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
   val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
+  val isSettingsLoading by newSettingsViewModel.loading.collectAsStateWithLifecycle()
+
   // 1. ПЕРВИЧНАЯ ПРОВЕРКА СОГЛАСИЯ ПРИ ЗАПУСКЕ
   LaunchedEffect(Unit) {
     isAgreed = preferenceRepository.isUserAgreed()
@@ -106,10 +110,19 @@ fun RootNavGraph(
 
 
   // --- [ЗОЛОТОЙ ФОНД] ЛОГИКИ ПЕРЕХОДОВ ---
-  LaunchedEffect(isAgreed, initialChatId, baseUIState.uid, baseUIState.mainLoading) {
+  LaunchedEffect(
+    isAgreed,
+    initialChatId,
+    baseUIState.uid,
+    baseUIState.mainLoading,
+    isSettingsLoading // Используем считанный стейт
+  ) {
+    // Если идет процесс выхода из аккаунта — блокируем навигацию,
+    // чтобы не было "дерганий" до завершения очистки
+    if (isSettingsLoading) return@LaunchedEffect
+
     val currentRoute = navController.currentDestination?.route
     val isUserLoggedIn = baseUIState.uid != null
-
     // ЭТАП 0: Проверка соглашения (Самый высокий приоритет)
     if (!isAgreed) {
       if (currentRoute != Graph.TERMS_CONDITION) {
@@ -223,6 +236,7 @@ fun RootNavGraph(
             meterViewModel = meterViewModel,
             serviceViewModel = serviceViewModel,
             chatViewModel = chatViewModel,
+            firebaseService = firebaseService,
             appState = appState,
             onLaunch = { isMainScreen = true },
             onDispose = { isMainScreen = false },

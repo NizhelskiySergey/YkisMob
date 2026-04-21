@@ -46,6 +46,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.window.layout.DisplayFeature
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.YkisPamAppState
 import com.ykis.mob.ui.navigation.components.ApartmentNavigationRail
@@ -79,6 +80,7 @@ fun MainApartmentScreen(
   serviceViewModel: ServiceViewModel = koinViewModel(),
   chatViewModel: ChatViewModel = koinViewModel(),
   newSettingsViewModel: NewSettingsViewModel =koinViewModel (),
+  firebaseService: FirebaseService,
   rootNavController: NavHostController,
   appState: YkisPamAppState,
   onLaunch: () -> Unit,
@@ -92,7 +94,6 @@ fun MainApartmentScreen(
   val navBackStackEntry by navController.currentBackStackEntryAsState()
   val selectedDestination = navBackStackEntry?.destination?.route ?: InfoApartmentScreenDest.route
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
-
   val railWidth by animateDpAsState(
     targetValue = if (isRailExpanded) 280.dp else 80.dp,
     animationSpec = tween(400),
@@ -127,20 +128,30 @@ fun MainApartmentScreen(
 
 
 
-  DisposableEffect(Unit) {
-    onLaunch()
+  // В начале MainApartmentScreen получаем актуальный UID из Firebase SDK
+  val currentFirebaseUid = firebaseService.uid
 
-    // ПРОВЕРКА: Если список квартир уже загружен, не вызываем observeUserProfile заново.
-    // Это предотвратит сброс выбранной квартиры на первую при возврате из чата.
-    if (apartmentViewModel.uiState.value.apartments.isEmpty()) {
-      Log.d("YkisLog", "MainScreen: [INIT] Данных нет, запускаем загрузку")
+  LaunchedEffect(baseUIState.uid, currentFirebaseUid) {
+    val methodName = "MainApartmentScreen.LaunchedEffect"
+
+    // 1. СИНХРОНИЗАЦИЯ: Если UID в стейте еще не совпадает с реальным юзером
+    if (baseUIState.uid != currentFirebaseUid) {
+      Log.w("YkisLog", "$methodName: [UID_MISMATCH] Данные устарели. Стейт: ${baseUIState.uid} != Auth: $currentFirebaseUid")
+      // Принудительно вызываем обновление профиля для НОВОГО пользователя
       apartmentViewModel.observeUserProfile()
-    } else {
-      Log.d("YkisLog", "MainScreen: [SKIP] Данные уже в памяти, сохраняем текущий адрес")
+      return@LaunchedEffect
     }
 
-    onDispose { onDispose() }
+    // 2. ПРОВЕРКА ДАННЫХ: Если мы уверены, что UID наш, проверяем список
+    if (baseUIState.apartments.isEmpty()) {
+      Log.d("YkisLog", "$methodName: [INIT] Список пуст для $currentFirebaseUid. Загрузка...")
+      apartmentViewModel.observeUserProfile()
+    } else {
+      // Теперь этот лог будет правдивым: данные в памяти именно того юзера, который вошел
+      Log.d("YkisLog", "$methodName: [SKIP] Данные актуальны для $currentFirebaseUid. Сохраняем стейт.")
+    }
   }
+
 
 
   val movableApartmentNavGraph = remember(baseUIState, contentType, navigationType, firstDestination) {

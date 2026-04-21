@@ -66,32 +66,40 @@ fun InfoApartmentScreen(
 
   // 2. Логика загрузки данных
   // Добавляем baseUIState.uid в ключи, чтобы эффект знал о смене юзера
-  LaunchedEffect(baseUIState.addressId, baseUIState.apartments, baseUIState.uid) {
-    val currentFirebaseUid = baseUIState.uid // Наш текущий UID из стейта
+  LaunchedEffect(baseUIState.addressId, baseUIState.apartments.size, baseUIState.uid) {
+    val methodName = "InfoApartmentScreen.LaunchedEffect"
+    val currentFirebaseUid = baseUIState.uid
 
-    // ПРЕДОХРАНИТЕЛЬ:
-    // Если UID в стейте еще не обновился или список пуст — игнорируем
+    // 1. ПРЕДОХРАНИТЕЛЬ: Ждем авторизации и данных
     if (currentFirebaseUid == null || baseUIState.apartments.isEmpty()) {
-      Log.d("YkisLog", "MainScreen: [WAIT] Ждем загрузки данных нового пользователя...")
+      Log.d("YkisLog", "$methodName: [WAIT] Данные профиля или список квартир еще не готовы")
       return@LaunchedEffect
     }
 
-    val targetId = when {
-      baseUIState.addressId != 0 -> baseUIState.addressId
-      else -> baseUIState.apartments.firstOrNull()?.addressId
+    // 2. ВЫЧИСЛЯЕМ ЦЕЛЕВОЙ ID
+    val targetId = if (baseUIState.addressId != 0) {
+      baseUIState.addressId
+    } else {
+      baseUIState.apartments.firstOrNull()?.addressId ?: 0
     }
 
-    targetId?.let { id ->
-      Log.d("YkisLog", "MainScreen: [LOAD] Загрузка квартиры ID: $id для UID: $currentFirebaseUid")
-      apartmentViewModel.getApartment(id)
+    // 3. ПРОВЕРКА НА ДУБЛИКАТ ЗАГРУЗКИ
+    // Загружаем только если этот ID отличается от того, что уже загружен в ViewModel
+    if (targetId != 0 && targetId != apartmentViewModel.lastLoadedAddressId) {
+      Log.d("YkisLog", "$methodName: [LOAD] Запрос ID: $targetId для UID: $currentFirebaseUid")
+      apartmentViewModel.getApartment(targetId)
+    } else {
+      Log.d("YkisLog", "$methodName: [SKIP] ID: $targetId уже является текущим. Цикл предотвращен.")
     }
   }
+
 
 
   Scaffold(
     topBar = {
       DefaultAppBar(
         title = baseUIState.address,
+        subtitle = baseUIState.addressId.toString(),
         canNavigateBack = false,
         onDrawerClick = onDrawerClicked,
         navigationType = navigationType,
