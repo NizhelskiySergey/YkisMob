@@ -1,5 +1,6 @@
 package com.ykis.mob.ui.navigation.components
 
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -92,10 +93,35 @@ fun ApartmentNavigationRail(
   isApartmentsEmpty: Boolean
 ) {
   val keyboardController = LocalSoftwareKeyboardController.current
-  val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
   val searchQuery by apartmentViewModel.searchQuery.collectAsStateWithLifecycle()
   val apartments by apartmentViewModel.filteredApartments.collectAsStateWithLifecycle()
   val isUserAdmin = baseUIState.userRole != UserRole.StandardUser
+  val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
+
+  // 2. РЕАКТИВНЫЙ ПЕРЕСЧЕТ: Как только мапа unreadCounts меняется,
+  // эти переменные пересчитаются автоматически
+  val totalUnread = remember(unreadCounts) { unreadCounts.values.sum() }
+  LaunchedEffect(totalUnread) {
+    Log.d("YkisLog", "RailMenu: Total sum calculated: $totalUnread")
+  }
+
+  // Внутри ApartmentNavigationRail
+  val apartmentBadges = remember(unreadCounts) {
+    unreadCounts.map { (fullKey, count) ->
+      // Извлекаем ID: разбиваем строку по "_" и берем ту часть, которая является числом
+      // Для "OSBB_3_1336_izLMP..." -> части: [OSBB, 3, 1336, izLMP...]
+      // Нам нужно 1336
+      val parts = fullKey.split("_")
+
+      // Обычно ID квартиры — это третья часть в ОСББ (индекс 2)
+      // или вторая в службах. Чтобы не гадать, ищем первое длинное число:
+      val addressId = parts.find { it.length >= 3 && it.all { char -> char.isDigit() } } ?: ""
+
+      addressId to count
+    }.filter { it.first.isNotEmpty() }
+      .toMap()
+  }
+
 
   CustomNavigationRail(
     modifier = modifier,
@@ -176,8 +202,13 @@ fun ApartmentNavigationRail(
           ) {
             items(listToDisplay, key = { it.addressId }) { apartment ->
               val isSelected = baseUIState.addressId == apartment.addressId
-
-              // Компактный элемент списка (высота уменьшена)
+              val addrIdStr = apartment.addressId.toString()
+              // 1. ПОИСК BADGE: ищем количество сообщений для этой квартиры
+              // Мы берем apartmentBadges (которую подготовили выше через remember)
+              val badgeCount = apartmentBadges[apartment.addressId.toString()] ?: 0
+              if (unreadCounts.isNotEmpty()) {
+                Log.d("YkisLog", "RailList: Check ID: $addrIdStr | Found Badge: $badgeCount | RawMapKeys: ${unreadCounts.keys}")
+              }
               Box(
                 modifier = Modifier
                   .padding(horizontal = 8.dp, vertical = 1.dp)
@@ -197,39 +228,51 @@ fun ApartmentNavigationRail(
                     modifier = Modifier.size(18.dp)
                   )
                   Spacer(Modifier.width(8.dp))
+
                   Column(modifier = Modifier.weight(1f)) {
                     // ПЕРВАЯ СТРОКА: Адрес + о/р
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                      // Адрес (Жирный)
                       Text(
                         text = apartment.address,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.bodyMedium
                       )
-                      // о/р (Шрифт как у фамилии)
                       Text(
                         text = " о/р ${apartment.addressId}",
-                        style = MaterialTheme.typography.labelSmall, // Как у ФИО
+                        style = MaterialTheme.typography.labelSmall,
                         color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier.padding(start = 4.dp)
                       )
                     }
 
-                    // ВТОРАЯ СТРОКА: ФИО (как и было)
+                    // ВТОРАЯ СТРОКА: ФИО
                     apartment.nanim?.let {
                       Text(
                         text = it,
                         style = MaterialTheme.typography.labelSmall,
                         color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
                       )
+                    }
+                  }
+
+                  // 2. ОТОБРАЖЕНИЕ BADGE (Красный кружок)
+                  if (badgeCount > 0) {
+                    Badge(
+                      modifier = Modifier.padding(start = 4.dp),
+                      containerColor = MaterialTheme.colorScheme.error,
+                      contentColor = MaterialTheme.colorScheme.onError
+                    ) {
+                      Text(badgeCount.toString())
                     }
                   }
                 }
               }
             }
           }
+
         }
       }
 
@@ -243,7 +286,10 @@ fun ApartmentNavigationRail(
       ) {
         HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
 
+
         NAV_RAIL_DESTINATIONS.forEach { destination ->
+          Log.d("YkisLog", "RailCheck: Current route is '${destination.route}'")
+
           if (destination.alwaysVisible || !isApartmentsEmpty) {
             val isSelected = selectedDestination.substringBefore("/") == destination.route.substringBefore("/")
 
@@ -260,11 +306,19 @@ fun ApartmentNavigationRail(
               contentAlignment = Alignment.CenterStart
             ) {
               Row(verticalAlignment = Alignment.CenterVertically) {
+                Log.d("YkisLog", "RailCheck: Current route is '${destination.route}'")
+
                 BadgedBox(
                   badge = {
-                    if (destination.route.contains("chat")) {
-                      val totalUnread = unreadCounts.values.sum()
-                      if (totalUnread > 0) Badge { Text(totalUnread.toString()) }
+                    // Проверяем: если это экран списка пользователей (админский чат)
+                    // ИЛИ любой другой роут, содержащий "chat"
+                    val isChatDestination = destination.route == "UserListScreen" ||
+                      destination.route.contains("chat", ignoreCase = true)
+
+                    if (isChatDestination && totalUnread > 0) {
+                      Badge {
+                        Text(text = totalUnread.toString())
+                      }
                     }
                   }
                 ) {

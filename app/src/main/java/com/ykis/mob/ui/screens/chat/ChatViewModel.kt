@@ -1114,58 +1114,51 @@ class ChatViewModel(
    * Например: админ ОСББ 105 увидит только ветки, начинающиеся на "OSBB_105_".
    */
   fun trackUserIdentifiersWithRole(role: UserRole, osbbId: Int?) {
-    val methodName = "ChatViewModel.trackUserIdentifiersWithRole()"
-    val ref = chatsReference
+    val methodName = "ChatViewModel.trackUserIdentifiersWithRole"
+    val ref = chatsReference // Ссылка на /chats/
 
-    // Определяем префикс службы (напр. "OSBB_3_")
+    // 1. Формируем префикс для фильтрации (например, "OSBB_3_")
     val targetPrefix = if (role == UserRole.OsbbUser && osbbId != null) {
       "OSBB_${osbbId}_"
     } else {
       "${role.codeName.name}_"
     }
 
-    Log.d("YkisLog", "$methodName: [START] Prefix: $targetPrefix")
+    Log.d("YkisLog", "$methodName: [START] Префикс: $targetPrefix")
 
-    // Удаляем старый слушатель, чтобы избежать дублирования при смене подразделения
+    // 2. Очистка старого слушателя структуры (чтобы не дублировать логику)
     listeners[ref]?.let {
       ref.removeEventListener(it)
-      Log.d("YkisLog", "$methodName: [CLEANUP] Предыдущий слушатель удален")
+      Log.d("YkisLog", "$methodName: [CLEANUP] Удален старый слушатель структуры")
     }
 
+    // 3. Слушатель появления новых чатов
     val listener = object : ValueEventListener {
       override fun onDataChange(dataSnapshot: DataSnapshot) {
         viewModelScope.launch(Dispatchers.Default) {
-          // 1. Собираем все ключи из /chats/
           val allKeys = dataSnapshot.children.mapNotNull { it.key }
-
-          // 2. Фильтруем те, что подходят под нашу службу (PREFIX_ADDRESSID_UID)
           val chatKeys = allKeys.filter { it.startsWith(targetPrefix) }
 
-          // 3. ПРЕДОХРАНИТЕЛЬ: Сравниваем списки ключей
+          // ПРЕДОХРАНИТЕЛЬ: Если список веток не изменился — выходим
           val currentKeys = _userIdentifiersWithRole.value
-          if (chatKeys.sorted() == currentKeys.sorted()) {
-            Log.d("YkisLog", "$methodName: [SKIP] Изменений в составе чатов нет")
+          if (chatKeys.size == currentKeys.size && chatKeys.sorted() == currentKeys.sorted()) {
             return@launch
           }
 
-          // 4. Извлекаем чистые UID для Firestore (часть после последнего "_")
-          val uidsToFetch = chatKeys.map { it.substringAfterLast("_") }.distinct()
-
-          Log.d(
-            "YkisLog",
-            "$methodName: [UPDATE] Найдено чатов: ${chatKeys.size}. Уникальных жильцов: ${uidsToFetch.size}"
-          )
-          chatKeys.forEach { key -> Log.d("YkisLog", "$methodName: Активная ветка -> $key") }
+          Log.d("YkisLog", "$methodName: [EVENT] Изменение структуры веток. Найдено: ${chatKeys.size}")
 
           withContext(Dispatchers.Main) {
-            // Сохраняем полные ключи (OSBB_3_1434_UID) в стейт
             _userIdentifiersWithRole.value = chatKeys
 
-            if (uidsToFetch.isNotEmpty()) {
-              Log.d("YkisLog", "$methodName: [ACTION] Запуск getUsers() для подгрузки имен...")
+            if (chatKeys.isNotEmpty()) {
+              // КРИТИЧЕСКИЙ ФИКС: Подписываем твой проверенный метод
+              // на все найденные ключи (включая новые)
+              Log.d("YkisLog", "$methodName: [BADGE_SYNC] Запуск subscribeToUnreadCount для ${chatKeys.size} веток")
+              subscribeToUnreadCount(chatKeys)
+
               getUsers()
             } else {
-              Log.d("YkisLog", "$methodName: [EMPTY] Чаты не найдены, очистка списка")
+              Log.d("YkisLog", "$methodName: [EMPTY] Нет активных чатов")
               _userList.value = emptyList()
             }
           }
@@ -1173,13 +1166,50 @@ class ChatViewModel(
       }
 
       override fun onCancelled(error: DatabaseError) {
-        Log.e("YkisLog", "$methodName: [ERROR] Database error: ${error.message}")
+        Log.e("YkisLog", "$methodName: [ERROR] Firebase: ${error.message}")
       }
     }
 
     ref.addValueEventListener(listener)
     listeners[ref] = listener
-    Log.d("YkisLog", "$methodName: [READY] Слушатель зарегистрирован")
+    Log.d("YkisLog", "$methodName: [READY] Трекер веток запущен")
+  }
+
+
+
+// В ChatViewModel.kt
+
+  private fun subscribeToAllOsbbCounters(osbbId: Int) {
+    val methodName = "ChatViewModel.subscribeToAllOsbbCounters"
+    val ref = chatRepo.realtime.getReference("counters").child("OSBB_$osbbId")
+
+    // Удаляем старый слушатель для этой конкретной ссылки, если он был
+    listeners[ref]?.let {
+      ref.removeEventListener(it)
+      Log.d("YkisLog", "$methodName: [CLEANUP] Удален старый слушатель Badge")
+    }
+
+    val listener = object : ValueEventListener {
+      override fun onDataChange(snapshot: DataSnapshot) {
+        val newCounts = mutableMapOf<String, Int>()
+        snapshot.children.forEach { chatSnapshot ->
+          val addressId = chatSnapshot.key
+          val count = chatSnapshot.child("unreadCount").getValue(Int::class.java) ?: 0
+          if (addressId != null) {
+            newCounts[addressId] = count
+          }
+        }
+        _unreadCounts.value = newCounts
+        Log.d("YkisLog", "$methodName: [UPDATE] Badge обновлены")
+      }
+
+      override fun onCancelled(error: DatabaseError) {
+        Log.e("YkisLog", "$methodName: [ERROR] ${error.message}")
+      }
+    }
+
+    ref.addValueEventListener(listener)
+    listeners[ref] = listener // Сохраняем по ссылке ref
   }
 
 
