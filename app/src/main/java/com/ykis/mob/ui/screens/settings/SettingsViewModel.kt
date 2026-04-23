@@ -3,8 +3,6 @@ package com.ykis.mob.ui.screens.settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.Firebase
-import com.google.firebase.messaging.messaging
 import com.ykis.mob.MainApplication
 import com.ykis.mob.core.Resource
 import com.ykis.mob.core.snackbar.SnackbarManager
@@ -18,16 +16,9 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 
 class NewSettingsViewModel(
   private val dataStore: AppSettingsRepository,
@@ -61,11 +52,13 @@ class NewSettingsViewModel(
         chatViewModel.stopAllTrackers()
         apartmentViewModel.clearState()
 
+
         withContext(Dispatchers.IO) {
           // 2. Firebase выход
           firebaseService.logoutDirectly()
           Log.d("YkisLog", "$methodName: [STEP 1] Firebase Logout OK")
-
+          firebaseService.setAgreement(false)
+          Log.d("YkisLog", "$methodName: Согласие сброшено в false")
           // 3. Очистка Room (с защитой от зависания)
           try {
             withTimeout(2000) {
@@ -88,14 +81,6 @@ class NewSettingsViewModel(
       }
     }
   }
-
-
-
-
-
-
-
-
 
   // 2. УДАЛЕНИЕ АККАУНТА (Revoke Access)
   fun revokeAccess(onSuccess: () -> Unit) {
@@ -120,6 +105,8 @@ class NewSettingsViewModel(
 
               // 3. Очистка локальной базы Room с таймаутом (чтобы не висеть вечно)
               withContext(Dispatchers.IO) {
+                firebaseService.setAgreement(false)
+                Log.d("YkisLog", "$methodName: Согласие сброшено в false")
                 try {
                   withTimeout(2000) {
                     Log.d("YkisLog", "$methodName: [CLEANUP] Запуск Room clean...")

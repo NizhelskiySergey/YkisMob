@@ -204,7 +204,7 @@ fun ApartmentNavigationRail(
                       Text(
                         text = apartment.address,
                         fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodyMedium
                       )
                       // о/р (Шрифт как у фамилии)
                       Text(

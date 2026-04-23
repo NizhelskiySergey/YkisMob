@@ -32,8 +32,6 @@ import com.ykis.mob.data.cache.payment.PaymentCache
 import com.ykis.mob.data.cache.payment.PaymentCacheImpl
 import com.ykis.mob.data.cache.preferences.AppSettingsRepository
 import com.ykis.mob.data.cache.preferences.AppSettingsRepositoryImpl
-import com.ykis.mob.data.cache.preferences.PreferenceRepository
-import com.ykis.mob.data.cache.preferences.PreferenceRepositoryImpl
 import com.ykis.mob.data.cache.service.ServiceCache
 import com.ykis.mob.data.cache.service.ServiceCacheImpl
 import com.ykis.mob.data.cache.water.meter.WaterMeterCache
@@ -86,10 +84,8 @@ import com.ykis.mob.domain.service.ServiceRepository
 import com.ykis.mob.domain.service.request.GetFlatServices
 import com.ykis.mob.domain.service.request.GetTotalDebtServices
 import com.ykis.mob.firebase.service.impl.ChatRepository
-import com.ykis.mob.firebase.service.impl.ConfigurationServiceImpl
 import com.ykis.mob.firebase.service.impl.FirebaseServiceImpl
 import com.ykis.mob.firebase.service.impl.LogServiceImpl
-import com.ykis.mob.firebase.service.repo.ConfigurationService
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.firebase.service.repo.LogService
 import com.ykis.mob.ui.screens.appartment.ApartmentService
@@ -105,7 +101,6 @@ import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.plugins.logging.ANDROID
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
@@ -122,7 +117,7 @@ import org.koin.dsl.module
 
 val appModule = module {
 
-  // 1. ЕДИНЫЙ HttpClient (с createdAtStart для Kotzilla)
+  // 1. ЕДИНЫЙ HttpClient
   single(createdAtStart = false) { // 1. УБЕРИ true. Пусть создается при первом вызове (lazy)
     HttpClient(io.ktor.client.engine.android.Android) {
 
@@ -152,7 +147,7 @@ val appModule = module {
         level = LogLevel.ALL
       }
 
-      // 3. ТАЙМАУТЫ (Общие)
+      // 3. Тайм-ауты (Общие)
       install(HttpTimeout) {
         requestTimeoutMillis = 30_000
         connectTimeoutMillis = 30_000
@@ -282,7 +277,6 @@ val dataModule = module {
   single<ServiceRemote> { ServiceRemoteImpl(get()) }
   // 4. DataStore
   single<AppSettingsRepository> { AppSettingsRepositoryImpl(androidContext()) }
-  single<PreferenceRepository> { PreferenceRepositoryImpl(get()) }
 
 
 }
@@ -296,7 +290,6 @@ val firebaseModule = module {
   single { FirebaseCrashlytics.getInstance() }
 
   // 2. Вспомогательные сервисы
-  single<ConfigurationService> { ConfigurationServiceImpl() }
 
   // 3. Generative AI (Gemini)
   // Примечание: Убедитесь, что версия 2.5-flash-lite доступна,
@@ -372,7 +365,8 @@ val viewModelsModule = module {
   viewModel { FamilyListViewModel(get(), get()) }
   single { ChatViewModel(get(), get()) }
   viewModel { SignInViewModel(get(), get()) }
-  viewModel { SignUpViewModel(get(), get(), get()) }
+  viewModel { SignUpViewModel(get(),get()) }
+
   viewModel {
     MeterViewModel(
       waterMeterRepository = get(),

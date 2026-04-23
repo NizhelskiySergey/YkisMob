@@ -23,10 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.ykis.mob.R
+import com.ykis.mob.firebase.service.repo.FirebaseService
 
 @Composable
 fun TermsAndConditionScreen(
-  termsText: String, // ПРИНИМАЕМ ТЕКСТ
+  termsText: String,
+  firebaseService: FirebaseService,// ПРИНИМАЕМ ТЕКСТ
   onAccept: () -> Unit
 ) {
   Column(

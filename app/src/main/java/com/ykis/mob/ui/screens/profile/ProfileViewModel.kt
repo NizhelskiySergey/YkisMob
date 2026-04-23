@@ -6,8 +6,6 @@ import com.ykis.mob.core.Resource
 import com.ykis.mob.domain.ClearDatabase
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.firebase.service.repo.LogService
-import com.ykis.mob.firebase.service.repo.RevokeAccessResponse
-import com.ykis.mob.firebase.service.repo.SignOutResponse
 import com.ykis.mob.ui.BaseViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow

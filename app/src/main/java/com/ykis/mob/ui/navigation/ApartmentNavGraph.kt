@@ -67,6 +67,7 @@ import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.service.list.TotalServiceDebt
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
 import com.ykis.mob.ui.screens.settings.SettingsScreenStateful
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 @Composable
@@ -79,7 +80,7 @@ fun MainApartmentScreen(
   meterViewModel: MeterViewModel = koinViewModel(),
   serviceViewModel: ServiceViewModel = koinViewModel(),
   chatViewModel: ChatViewModel = koinViewModel(),
-  newSettingsViewModel: NewSettingsViewModel =koinViewModel (),
+  newSettingsViewModel: NewSettingsViewModel = koinViewModel(),
   firebaseService: FirebaseService,
   rootNavController: NavHostController,
   appState: YkisPamAppState,
@@ -94,93 +95,102 @@ fun MainApartmentScreen(
   val navBackStackEntry by navController.currentBackStackEntryAsState()
   val selectedDestination = navBackStackEntry?.destination?.route ?: InfoApartmentScreenDest.route
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
+
   val railWidth by animateDpAsState(
     targetValue = if (isRailExpanded) 280.dp else 80.dp,
     animationSpec = tween(400),
     label = "RailWidth"
   )
-
-  // Определение стартового экрана в зависимости от роли
-  val firstDestination = remember(baseUIState.userRole, baseUIState.apartments, baseUIState.mainLoading) {
-    // 1. Пока идет загрузка, возвращаем временный маршрут, чтобы не дергать логику
-    if (baseUIState.mainLoading) return@remember "loading"
-
-    val hasApartments = baseUIState.apartments.isNotEmpty()
-
-    when (baseUIState.userRole) {
-      UserRole.VodokanalUser,
-      UserRole.YtkeUser,
-      UserRole.TboUser -> UserListScreen.route
-
-      UserRole.OsbbUser -> {
-        // Если админ ввел код и выбрал квартиру (hasApartments) — идем в Инфо
-        if (hasApartments) InfoApartmentScreenDest.route else UserListScreen.route
-      }
-
-      UserRole.StandardUser -> {
-        // Если у жильца нет квартир — строго на добавление, иначе на Инфо
-        if (!hasApartments) AddApartmentScreen.route else InfoApartmentScreenDest.route
-      }
-
-      else -> InfoApartmentScreenDest.route
-    }
-  } ?: InfoApartmentScreenDest.route // 2. Гарантируем тип String (фикс ошибки компиляции)
-
-
-
-  // В начале MainApartmentScreen получаем актуальный UID из Firebase SDK
   val currentFirebaseUid = firebaseService.uid
 
+  // 1. КОНТРОЛЬ СОСТОЯНИЯ (Для логов и блокировки графа)
+  val stateLog = "UID: ${baseUIState.uid}, Role: ${baseUIState.userRole}, OSBB: ${baseUIState.osbbId}, Addr: ${baseUIState.addressId}"
+
+  val isDataReady = remember(baseUIState.uid, currentFirebaseUid, baseUIState.mainLoading) {
+    // Готовы, если UID совпали и загрузка завершена, ИЛИ если юзера вообще нет (для редиректа)
+    (baseUIState.uid == currentFirebaseUid && !baseUIState.mainLoading) || currentFirebaseUid == null
+  }
+
+  // 2. ВЫЧИСЛЕНИЕ МАРШРУТА
+  val firstDestination = remember(baseUIState.userRole, baseUIState.apartments, isDataReady) {
+    val methodName = "MainApartmentScreen.firstDestination"
+
+    // Пока не готовы, не считаем маршрут, чтобы не спровоцировать краш NavHost
+    if (!isDataReady) return@remember "loading_buffer"
+
+    val hasApartments = baseUIState.apartments.isNotEmpty()
+    val role = baseUIState.userRole
+
+    val route = when (role) {
+      UserRole.VodokanalUser, UserRole.YtkeUser, UserRole.TboUser -> UserListScreen.route
+      UserRole.OsbbUser -> if (hasApartments) InfoApartmentScreenDest.route else UserListScreen.route
+      UserRole.StandardUser -> if (!hasApartments) AddApartmentScreen.route else InfoApartmentScreenDest.route
+      else -> InfoApartmentScreenDest.route
+    }
+
+    Log.d("YkisLog", "$methodName: [DECISION] Route: $route | $stateLog")
+    route
+  }
+
+  // 3. СИНХРОНИЗАЦИЯ И ЗАЩИТА
   LaunchedEffect(baseUIState.uid, currentFirebaseUid) {
     val methodName = "MainApartmentScreen.LaunchedEffect"
 
-    // 1. СИНХРОНИЗАЦИЯ: Если UID в стейте еще не совпадает с реальным юзером
+    // ШАГ 0: Жесткий редирект, если сессия потеряна
+    if (currentFirebaseUid == null) {
+      Log.e("YkisLog", "$methodName: [FATAL] Экран открыт без авторизации. Уходим.")
+      rootNavController.navigate(Graph.AUTHENTICATION) {
+        popUpTo(0) { inclusive = true }
+      }
+      return@LaunchedEffect
+    }
+
+    // БАРЬЕР №2: Синхронизация для залогиненных
     if (baseUIState.uid != currentFirebaseUid) {
-      Log.w("YkisLog", "$methodName: [UID_MISMATCH] Данные устарели. Стейт: ${baseUIState.uid} != Auth: $currentFirebaseUid")
-      // Принудительно вызываем обновление профиля для НОВОГО пользователя
+      Log.w("YkisLog", "$methodName: [UID_MISMATCH] Стейт: ${baseUIState.uid} != Auth: $currentFirebaseUid")
       apartmentViewModel.observeUserProfile()
       return@LaunchedEffect
     }
 
-    // 2. ПРОВЕРКА ДАННЫХ: Если мы уверены, что UID наш, проверяем список
-    if (baseUIState.apartments.isEmpty()) {
-      Log.d("YkisLog", "$methodName: [INIT] Список пуст для $currentFirebaseUid. Загрузка...")
+    // ШАГ 2: Проверка данных
+    if (baseUIState.apartments.isEmpty() && !baseUIState.mainLoading) {
+      Log.d("YkisLog", "$methodName: [INIT_LOAD] Список пуст, обновляем данные. ($stateLog)")
       apartmentViewModel.observeUserProfile()
-    } else {
-      // Теперь этот лог будет правдивым: данные в памяти именно того юзера, который вошел
-      Log.d("YkisLog", "$methodName: [SKIP] Данные актуальны для $currentFirebaseUid. Сохраняем стейт.")
     }
   }
 
-
-
-  val movableApartmentNavGraph = remember(baseUIState, contentType, navigationType, firstDestination) {
+  // 4. ГРАФ НАВИГАЦИИ (Обернут в проверку готовности)
+  val movableApartmentNavGraph = remember(baseUIState, contentType, navigationType, firstDestination, isDataReady) {
     movableContentOf {
-      ApartmentNavGraph(
-        modifier = Modifier.fillMaxSize(),
-        contentType = contentType,
-        navigationType = navigationType,
-        displayFeatures = displayFeatures,
-        baseUIState = baseUIState,
-        navController = navController,
-        onDrawerClicked = { coroutineScope.launch { drawerState.open() } },
-        apartmentViewModel = apartmentViewModel,
-        rootNavController = rootNavController,
-        firstDestination = firstDestination,
-        meterViewModel = meterViewModel,
-        serviceViewModel = serviceViewModel,
-        chatViewModel = chatViewModel,
-        newSettingsViewModel = newSettingsViewModel,
-        closeContentDetail = {
-          meterViewModel.closeContentDetail()
-          serviceViewModel.closeContentDetail()
-        },
-        navigateToWebView = navigateToWebView,
-
-      )
+      if (!isDataReady || firstDestination == "loading_buffer") {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+          CircularProgressIndicator()
+        }
+      } else {
+        ApartmentNavGraph(
+          modifier = Modifier.fillMaxSize(),
+          contentType = contentType,
+          navigationType = navigationType,
+          displayFeatures = displayFeatures,
+          baseUIState = baseUIState,
+          navController = navController,
+          onDrawerClicked = { coroutineScope.launch { drawerState.open() } },
+          apartmentViewModel = apartmentViewModel,
+          rootNavController = rootNavController,
+          firstDestination = firstDestination,
+          meterViewModel = meterViewModel,
+          serviceViewModel = serviceViewModel,
+          chatViewModel = chatViewModel,
+          newSettingsViewModel = newSettingsViewModel,
+          closeContentDetail = {
+            meterViewModel.closeContentDetail()
+            serviceViewModel.closeContentDetail()
+          },
+          navigateToWebView = navigateToWebView,
+        )
+      }
     }
   }
-
   if (navigationType == NavigationType.BOTTOM_NAVIGATION) {
     // --- ТЕЛЕФОН (Шторка с поиском + Нижняя панель) ---
     ModalNavigationDrawer(

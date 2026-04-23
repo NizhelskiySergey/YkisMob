@@ -10,10 +10,7 @@ import com.ykis.mob.firebase.entity.UserFirebase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-import okhttp3.Address
 
-typealias SignOutResponse = Resource<Boolean>
-typealias RevokeAccessResponse = Resource<Boolean>
 typealias SignInWithGoogleResponse = Resource<Boolean>
 typealias SignUpResponse = Resource<Boolean>
 typealias SendEmailVerificationResponse = Resource<Boolean>
@@ -34,7 +31,13 @@ interface FirebaseService {
   val providerId: String
   val photoUrl: String
   val email: String
-
+  val isWiFiCheckConfig: Boolean
+  val isMobileCheckConfig: Boolean
+  val agreementTitle: String
+  val agreementText: String
+  suspend fun fetchConfiguration(): Boolean
+  suspend fun isUserAgreed(): Boolean
+  suspend fun setAgreement(agreed: Boolean)
   suspend fun authenticate(email: String, password: String)
   suspend fun sendRecoveryEmail(email: String)
   suspend fun linkAccount(email: String, password: String)
@@ -50,7 +53,6 @@ interface FirebaseService {
 
   suspend fun firebaseSignInWithGoogle(googleCredential: AuthCredential): SignInWithGoogleResponse
   suspend fun firebaseSignUpWithEmailAndPassword(email: String, password: String): SignUpResponse
-  suspend fun firebaseSignUpWithGoogle2(googleCredential: AuthCredential)
   suspend fun sendEmailVerification(): SendEmailVerificationResponse
   suspend fun sendPasswordResetEmail(email: String): SendPasswordResetEmailResponse
   fun getProvider(viewModelScope: CoroutineScope): String

@@ -1,12 +1,8 @@
 package com.ykis.mob.ui.navigation
 
 import android.util.Log
-import android.net.Uri
-import android.net.http.SslCertificate.restoreState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -33,11 +29,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.window.layout.DisplayFeature
 import com.ykis.mob.R
-import com.ykis.mob.core.snackbar.SnackbarManager
-import com.ykis.mob.core.snackbar.SnackbarMessage
-import com.ykis.mob.data.cache.preferences.PreferenceRepository
 import com.ykis.mob.domain.UserRole
-import com.ykis.mob.firebase.service.repo.ConfigurationService
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.ui.rememberAppState
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
@@ -45,7 +37,6 @@ import com.ykis.mob.ui.screens.auth.sign_up.SignUpViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.TermsAndConditionScreen
 import com.ykis.mob.ui.screens.chat.CameraScreen
 import com.ykis.mob.ui.screens.chat.ChatScreenContent
-import com.ykis.mob.ui.screens.chat.ChatScreenStateful
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import com.ykis.mob.ui.screens.chat.ImageDetailScreen
 import com.ykis.mob.ui.screens.chat.SendImageScreen
@@ -54,7 +45,6 @@ import com.ykis.mob.ui.screens.meter.MeterViewModel
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.service.payment.choice.WebView
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
-import io.ktor.client.utils.EmptyContent.contentType
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -72,10 +62,10 @@ fun RootNavGraph(
   chatViewModel: ChatViewModel = koinViewModel(),
   apartmentViewModel: ApartmentViewModel = koinViewModel(),
   signUpViewModel: SignUpViewModel = koinViewModel(),
-  newSettingsViewModel: NewSettingsViewModel =koinViewModel (),
+  newSettingsViewModel: NewSettingsViewModel = koinViewModel(),
   meterViewModel: MeterViewModel = koinViewModel(),
-  serviceViewModel: ServiceViewModel= koinViewModel (),
-  firebaseService: FirebaseService= koinInject(),
+  serviceViewModel: ServiceViewModel = koinViewModel(),
+  firebaseService: FirebaseService = koinInject(),
   contentType: ContentType,
   displayFeatures: List<DisplayFeature>,
   navigationType: NavigationType,
@@ -86,10 +76,8 @@ fun RootNavGraph(
   var isMainScreen by rememberSaveable { mutableStateOf(false) }
 
   // Инъекция репозитория
-  val preferenceRepository: PreferenceRepository = koinInject()
-  val configurationService: ConfigurationService = koinInject()
 // Достаем текст (он уже должен быть загружен в init приложения или через fetchAndActivate)
-  val termsText = remember { configurationService.agreementText}
+  val termsText = remember { firebaseService.agreementText }
   // Инициализируем false, чтобы LaunchedEffect сработал на проверку
   var isAgreed by remember { mutableStateOf(false) }
 
@@ -102,69 +90,52 @@ fun RootNavGraph(
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
   val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
   val isSettingsLoading by newSettingsViewModel.loading.collectAsStateWithLifecycle()
-
+  val currentFirebaseUid = firebaseService.uid
   // 1. ПЕРВИЧНАЯ ПРОВЕРКА СОГЛАСИЯ ПРИ ЗАПУСКЕ
   LaunchedEffect(Unit) {
-    isAgreed = preferenceRepository.isUserAgreed()
+    val agreedFromCache = firebaseService.isUserAgreed() // Теперь ошибки нет!
+    Log.d("YkisLog", "RootNavGraph: Чтение из кэша is_agreed = $agreedFromCache")
+    isAgreed = agreedFromCache
   }
 
 
   // --- [ЗОЛОТОЙ ФОНД] ЛОГИКИ ПЕРЕХОДОВ ---
-  LaunchedEffect(
-    isAgreed,
-    initialChatId,
-    baseUIState.uid,
-    baseUIState.mainLoading,
-    isSettingsLoading // Используем считанный стейт
-  ) {
-    // Если идет процесс выхода из аккаунта — блокируем навигацию,
-    // чтобы не было "дерганий" до завершения очистки
-    if (isSettingsLoading) return@LaunchedEffect
-
+  LaunchedEffect(isAgreed, currentFirebaseUid) {
+    val methodName = "RootNavGraph.LaunchedEffect"
     val currentRoute = navController.currentDestination?.route
-    val isUserLoggedIn = baseUIState.uid != null
-    // ЭТАП 0: Проверка соглашения (Самый высокий приоритет)
+
+    // 1. Если не принял условия — только TERMS
     if (!isAgreed) {
       if (currentRoute != Graph.TERMS_CONDITION) {
-        Log.d("YkisLog", "Nav: Пользователь не принял условия. Переход на Graph.TERMS_CONDITION")
-        navController.navigate(Graph.TERMS_CONDITION) {
-          popUpTo(0) { inclusive = true }
-        }
-      }
-      return@LaunchedEffect // Остановка, дальше проверки не идут
-    }
-
-    // ЭТАП 1: Если пользователь ВЫШЕЛ (uid == null) и мы не загружаемся
-    if (!isUserLoggedIn && !baseUIState.mainLoading) {
-      if (currentRoute != null && !currentRoute.contains(Graph.AUTHENTICATION)) {
-        Log.d("YkisLog", "Nav: Юзер вышел. Переход на AUTHENTICATION")
-        cleanNavigateTo(navController, Graph.AUTHENTICATION)
+        navController.navigate(Graph.TERMS_CONDITION) { popUpTo(0) { inclusive = true } }
       }
       return@LaunchedEffect
     }
 
-    // ЭТАП 2: Обработка PUSH (только для авторизованных)
-    if (isUserLoggedIn && !initialChatId.isNullOrEmpty()) {
-      if (currentRoute != ChatScreenDest.route) {
-        if (baseUIState.userRole != UserRole.StandardUser) {
-          chatViewModel.fetchAndSelectUser(initialChatId) {
-            navController.navigate(ChatScreenDest.route) { launchSingleTop = true }
+    // 2. Если принял условия — решаем: ЛОГИН или ГЛАВНАЯ
+    if (isAgreed) {
+      if (currentFirebaseUid == null) {
+        // СЛУЧАЙ А: Сессии нет (Новичок или разлогинился) -> ТОЛЬКО ЛОГИН
+        if (currentRoute == null || !currentRoute.contains(Graph.AUTHENTICATION)) {
+          Log.d("YkisLog", "$methodName: [NAV] -> AUTHENTICATION (Сессии нет)")
+          navController.navigate(Graph.AUTHENTICATION) {
+            popUpTo(Graph.TERMS_CONDITION) { inclusive = true }
           }
-        } else {
-          navController.navigate(ChatScreenDest.route) { launchSingleTop = true }
         }
-      }
-      return@LaunchedEffect
-    }
-
-    // ЭТАП 3: Автоматический вход в приложение (Graph.APARTMENT)
-    if (isUserLoggedIn && !baseUIState.mainLoading) {
-      if (currentRoute == null || currentRoute.contains(Graph.AUTHENTICATION) || currentRoute == Graph.TERMS_CONDITION) {
-        Log.d("YkisLog", "Nav: Авто-вход. Переход на APARTMENT")
-        cleanNavigateTo(navController, Graph.APARTMENT)
+      } else {
+        // СЛУЧАЙ Б: Сессия ЕСТЬ (Пользователь уже заходил раньше) -> НА ГЛАВНУЮ
+        if (currentRoute == null || currentRoute.contains(Graph.AUTHENTICATION) || currentRoute == Graph.TERMS_CONDITION) {
+          Log.d("YkisLog", "$methodName: [NAV] -> APARTMENT (Сессия активна: $currentFirebaseUid)")
+          // Перед переходом убедимся, что данные подгружаются
+          if (baseUIState.apartments.isEmpty()) {
+            apartmentViewModel.observeUserProfile()
+          }
+          cleanNavigateTo(navController, Graph.APARTMENT)
+        }
       }
     }
   }
+
 
   // Универсальное вычисление chatUid
   val chatUid = remember(baseUIState.userRole, baseUIState.osbbId, selectedUser, baseUIState.uid) {
@@ -197,7 +168,11 @@ fun RootNavGraph(
       NavHost(
         modifier = Modifier.fillMaxSize(),
         navController = navController,
-        startDestination = remember { apartmentViewModel.onAppStart() },
+        startDestination = when {
+          !isAgreed -> Graph.TERMS_CONDITION             // 1. Сначала лицензия
+          firebaseService.currentUser == null -> Graph.AUTHENTICATION // 2. Потом логин
+          else -> Graph.APARTMENT                        // 3. Если всё есть — в приложение
+        },
         enterTransition = { EnterTransition.None },
         exitTransition = { ExitTransition.None }
       ) {
@@ -206,13 +181,17 @@ fun RootNavGraph(
 
         composable(route = Graph.TERMS_CONDITION) {
           TermsAndConditionScreen(
-            termsText = termsText.ifBlank { stringResource(R.string.agreement_text) }, // Fallback на локальный ресурс
+            termsText = termsText,
+            firebaseService = firebaseService,
             onAccept = {
               scope.launch {
-                preferenceRepository.setAgreement(true)
+                firebaseService.setAgreement(true)
                 isAgreed = true
-                val target = if (baseUIState.uid != null) Graph.APARTMENT else Graph.AUTHENTICATION
-                navController.navigate(target) { popUpTo(Graph.TERMS_CONDITION) { inclusive = true } }
+                Log.d("YkisLog", "Terms: Согласие получено. Уходим на AUTH")
+                // Явный переход на логин сразу после клика
+                navController.navigate(Graph.AUTHENTICATION) {
+                  popUpTo(Graph.TERMS_CONDITION) { inclusive = true }
+                }
               }
             }
           )
@@ -263,7 +242,7 @@ fun RootNavGraph(
             userEntity = selectedUser ?: UserEntity(),
             chatViewModel = chatViewModel,
             baseUIState = baseUIState,
-            navigationType= navigationType,
+            navigationType = navigationType,
             navigateBack = { navController.navigateUp() },
             navigateToSendImageScreen = { navController.navigate(SendImageScreenDest.route) },
             chatUid = chatUid,
@@ -321,7 +300,8 @@ fun RootNavGraph(
                 senderDisplayedName = finalDisplayName,
                 senderLogoUrl = baseUIState.photoUrl,
                 role = baseUIState.userRole,
-                senderAddress = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address else selectedUser?.address ?: "",
+                senderAddress = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address else selectedUser?.address
+                  ?: "",
                 addressId = currentAddressId,
                 osbbId = currentOsbbId,
                 recipientTokens = selectedUser?.tokens ?: emptyList(),
@@ -345,7 +325,7 @@ fun RootNavGraph(
 
               // 2. ЗАПУСКАЕМ AI АВТОМАТИЧЕСКИ
               Log.d("YkisLog", "Camera: Авто-запуск AI для сделанного фото")
-              chatViewModel.analyzePhotoWithGemini(uri, context,baseUIState.address)
+              chatViewModel.analyzePhotoWithGemini(uri, context, baseUIState.address)
 
               // 3. Навигация на экран подтверждения уже обычно зашита в CameraScreen,
               // но если нет — добавь navController.navigate(SendImageScreenDest.route)
@@ -367,13 +347,13 @@ fun RootNavGraph(
 }
 
 
-
 /**
  * Расширение для навигации в WebView
  */
 private fun NavHostController.navigateToWebView(uri: String) {
   this.navigate("${WebViewScreenDest.route}/$uri")
 }
+
 fun cleanNavigateTo(navController: NavController, route: String) {
   Log.d("YkisLog", "Nav: [CLEAN_START] Полная очистка стека и переход на $route")
   navController.navigate(route) {

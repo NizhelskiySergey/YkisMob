@@ -25,7 +25,6 @@ import com.ykis.mob.core.ext.isValidPassword
 import com.ykis.mob.core.ext.passwordMatches
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.firebase.messaging.addFcmToken
-import com.ykis.mob.firebase.service.repo.ConfigurationService
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.firebase.service.repo.LogService
 import com.ykis.mob.firebase.service.repo.ReloadUserResponse
@@ -38,7 +37,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.ykis.mob.R.string as AppText
 class SignUpViewModel(
   private val firebaseService: FirebaseService,
-  private val configurationService: ConfigurationService,
   logService: LogService
 ) : BaseViewModel(logService) {
 
@@ -69,7 +67,7 @@ class SignUpViewModel(
     val methodName = "SignUpVM.init"
     launchCatching {
       Log.d("YkisLog", "$methodName: [START] Загрузка Remote Config")
-      configurationService.fetchConfiguration()
+      firebaseService.fetchConfiguration()
       Log.d("YkisLog", "$methodName: [SUCCESS] Конфигурация готова")
     }
   }

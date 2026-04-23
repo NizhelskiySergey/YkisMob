@@ -131,40 +131,47 @@ class SignInViewModel(
 
   fun onSignUpWithGoogle(credential: Credential, openAndPopUp: () -> Unit) {
     val methodName = "SignInVM.onGoogleLogin"
-    signInWithGoogleResponse = Resource.Loading()
+
     viewModelScope.launch {
       try {
-        // 1. ВКЛЮЧАЕМ ЛОАДЕР
-        Log.d("YkisLog", "$methodName: [START] Получены учетные данные Google")
-
+        // 1. ВКЛЮЧАЕМ ЛОАДЕР (Гарантируем состояние Loading в UI)
+        signInWithGoogleResponse = Resource.Loading()
+        Log.d("YkisLog", "$methodName: [START] Лоадер включен. Обработка данных Google...")
 
         if (credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
           val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
 
           // 2. Входим/Линкуем в Firebase
-          Log.d("YkisLog", "$methodName: [PROCESS] Выполнение signInAndLinkWithGoogle")
+          Log.d("YkisLog", "$methodName: [PROCESS] Шаг 1: Авторизация Firebase...")
           signInAndLinkWithGoogle(googleIdTokenCredential.idToken)
 
-          // 3. Сохраняем в Firestore
-          Log.d("YkisLog", "$methodName: [PROCESS] Обновление профиля в БД")
-          firebaseService.addUserFirestore()
+          // 3. Сохраняем в Firestore (Здесь была задержка 8 секунд, лоадер продолжит крутиться)
+          Log.d("YkisLog", "$methodName: [PROCESS] Шаг 2: Синхронизация БД и профиля...")
+          val dbResult = firebaseService.addUserFirestore()
 
-          // 4. УСПЕХ
-          Log.d("YkisLog", "$methodName: [SUCCESS] Переход к добавлению квартиры")
+          if (dbResult is Resource.Error) {
+            Log.e("YkisLog", "$methodName: [ERROR] Ошибка при сохранении профиля")
+            signInWithGoogleResponse = dbResult
+            return@launch
+          }
+
+          // 4. ПОЛНЫЙ УСПЕХ (Лоадер выключится только сейчас)
+          Log.d("YkisLog", "$methodName: [SUCCESS] Все проверки пройдены. Переход...")
           signInWithGoogleResponse = Resource.Success(true)
           openAndPopUp()
 
         } else {
-          Log.e("YkisLog", "$methodName: [ERROR] Неверный тип Credential")
+          Log.e("YkisLog", "$methodName: [ERROR] Неверный тип данных от Google")
           signInWithGoogleResponse = Resource.Error("Помилка типу даних Google")
-          SnackbarManager.showMessage("Невдалося зареєструватись з Google аккаунтом")
+          SnackbarManager.showMessage("Помилка: невірний формат облікових даних")
         }
       } catch (e: Exception) {
-        // 5. КРИТИЧЕСКАЯ ОШИБКА
-        Log.e("YkisLog", "$methodName: [CRITICAL] ${e.message}")
-        signInWithGoogleResponse = Resource.Error(e.localizedMessage ?: "Unknown Error")
+        // 5. ОБРАБОТКА ОШИБОК
+        Log.e("YkisLog", "$methodName: [CRITICAL] Ошибка: ${e.message}")
+        signInWithGoogleResponse = Resource.Error(e.localizedMessage ?: "Невідома помилка")
         SnackbarManager.showMessage("Помилка входу Google: ${e.localizedMessage}")
       }
     }
   }
+
 }
