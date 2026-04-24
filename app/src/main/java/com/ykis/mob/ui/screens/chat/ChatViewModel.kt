@@ -1115,6 +1115,13 @@ class ChatViewModel(
    */
   fun trackUserIdentifiersWithRole(role: UserRole, osbbId: Int?) {
     val methodName = "ChatViewModel.trackUserIdentifiersWithRole"
+    // 1. КРИТИЧЕСКИЙ ФИКС: Очищаем списки ПЕРЕД запуском нового трекера
+    // Это мгновенно уберет квартиры старого ОСББ с экрана
+    _userIdentifiersWithRole.value = emptyList()
+    _userList.value = emptyList()
+    _unreadCounts.value = emptyMap()
+    Log.d("YkisLog", "$methodName: [CLEAN] Списки старого ОСББ очищены")
+
     val ref = chatsReference // Ссылка на /chats/
 
     // 1. Формируем префикс для фильтрации (например, "OSBB_3_")
@@ -1214,57 +1221,81 @@ class ChatViewModel(
 
 
   fun getUsers() {
-    val methodName = "ChatViewModel.getUsers()"
+    val methodName = "ChatViewModel.getUsers"
     val chatKeys = _userIdentifiersWithRole.value
 
     if (chatKeys.isEmpty()) {
-      Log.d("YkisLog", "$methodName: [CANCEL] Список ключей пуст.")
+      Log.d("YkisLog", "$methodName: [CANCEL] Список ключей пуст. Очистка списка пользователей.")
       _userList.value = emptyList()
       return
     }
 
     viewModelScope.launch {
       try {
-        Log.d("YkisLog", "$methodName: [START] Веток: ${chatKeys.size}")
+        Log.d("YkisLog", "$methodName: [START] Веток для обработки: ${chatKeys.size}")
 
-        val uidsToFetch = chatKeys.map { it.substringAfterLast("_") }.distinct()
+        // Извлекаем UID из ключей (последняя часть после "_")
+        val uidsToFetch = chatKeys.map { it.substringAfterLast("_") }
+          .filter { it.isNotEmpty() }
+          .distinct()
 
+        if (uidsToFetch.isEmpty()) {
+          Log.w("YkisLog", "$methodName: [SKIP] Не удалось извлечь UID из ключей")
+          return@launch
+        }
+
+        Log.d("YkisLog", "$methodName: [FETCH] Запрос профилей для ${uidsToFetch.size} UID")
+
+        // 1. Загрузка профилей из репозитория
         val fetchedProfiles = withContext(Dispatchers.IO) {
           chatRepo.fetchUsersByIds(uidsToFetch)
         }
 
-        // 1. СОБИРАЕМ ТОКЕНЫ ВСЕХ АДМИНОВ (ДЛЯ ПУША ЖИЛЬЦУ)
-        // Если мы сами админы, нам нужно знать токены коллег для уведомлений
+        Log.d("YkisLog", "$methodName: [DATA] Получено из БД: ${fetchedProfiles.size} профилей")
+
+        // 2. Сбор токенов админов (для push-уведомлений)
         val allAdminTokens = fetchedProfiles
           .filter { it.userRole != UserRole.StandardUser }
           .flatMap { it.tokens ?: emptyList() }
-        _recipientTokens.value = allAdminTokens
-        Log.d(
-          "YkisLog",
-          "$methodName: [TOKENS] Подготовлено токенов админов: ${allAdminTokens.size}"
-        )
+          .distinct()
 
+        _recipientTokens.value = allAdminTokens
+        Log.d("YkisLog", "$methodName: [TOKENS] Токенов админов собрано: ${allAdminTokens.size}")
+
+        // 3. Сопоставление профилей с ключами чатов (формируем финальный список для UI)
         val finalUserList = withContext(Dispatchers.Default) {
           chatKeys.mapNotNull { key ->
             val parts = key.split("_")
-            val uidFromKey = parts.lastOrNull() ?: ""
-            val addrIdFromKey = if (parts.size >= 3) parts[parts.size - 2].toIntOrNull() ?: 0 else 0
+            if (parts.size < 2) return@mapNotNull null
 
-            fetchedProfiles.find { it.uid == uidFromKey }?.copy(addressId = addrIdFromKey)
+            val uidFromKey = parts.last()
+            // Пытаемся взять адрес из предпоследней части (OSBB_3_1336_UID -> 1336)
+            val addrIdFromKey = parts.getOrNull(parts.size - 2)?.toIntOrNull() ?: 0
+
+            fetchedProfiles.find { it.uid == uidFromKey }?.let { profile ->
+              profile.copy(addressId = addrIdFromKey)
+            }
           }
         }
 
+        // 4. Обновление стейта и запуск слушателей
         withContext(Dispatchers.Main) {
           _userList.value = finalUserList
+
+          Log.d("YkisLog", "$methodName: [SYNC] Запуск подписок на сообщения и бейджи")
           subscribeToUnreadCount(chatKeys)
           subscribeToLastMessages(chatKeys)
-          Log.d("YkisLog", "$methodName: [SUCCESS] Список и счетчики готовы")
+
+          Log.d("YkisLog", "$methodName: [SUCCESS] Список из ${finalUserList.size} пользователей готов")
         }
+
       } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+        Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${e.localizedMessage}")
+        // Если ошибка PERMISSION_DENIED — проверьте, чтобы в запросе был фильтр по osbbId
       }
     }
   }
+
 
   fun subscribeToResidentCounters(uid: String, osbbId: Int, addressId: Int) {
     val methodName = "ChatViewModel.subscribeToResidentCounters()"

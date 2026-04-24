@@ -1,3 +1,4 @@
+import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -70,8 +72,21 @@ fun ModalNavigationDrawerContent(
   val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
 
   val isUserAdmin = baseUIState.userRole != UserRole.StandardUser
-  val focusRequester = remember { FocusRequester() } // 1. Создаем запросчик фокуса
+  val apartmentBadges = remember(unreadCounts) {
+    unreadCounts.map { (fullKey, count) ->
+      // Извлекаем ID: разбиваем строку по "_" и берем ту часть, которая является числом
+      // Для "OSBB_3_1336_izLMP..." -> части: [OSBB, 3, 1336, izLMP...]
+      // Нам нужно 1336
+      val parts = fullKey.split("_")
 
+      // Обычно ID квартиры — это третья часть в ОСББ (индекс 2)
+      // или вторая в службах. Чтобы не гадать, ищем первое длинное число:
+      val addressId = parts.find { it.length >= 3 && it.all { char -> char.isDigit() } } ?: ""
+
+      addressId to count
+    }.filter { it.first.isNotEmpty() }
+      .toMap()
+  }
   ModalDrawerSheet(
     modifier = modifier.width(320.dp),
     drawerContainerColor = MaterialTheme.colorScheme.surface
@@ -144,8 +159,19 @@ fun ModalNavigationDrawerContent(
         // Для админа используем фильтр, для жильца - весь список
         val displayList = if (isUserAdmin) apartments else baseUIState.apartments
 
-        items(displayList, key = { it.addressId }) { apartment ->
+        // Внутри LazyColumn в ModalNavigationDrawerContent
+        items(displayList) { apartment ->
           val isSelected = baseUIState.addressId == apartment.addressId
+          val addrIdStr = apartment.addressId.toString()
+
+          // 1. Используем подготовленную мапу (с чистыми ID)
+          // Она должна быть вычислена выше через remember(unreadCounts)
+          val badgeCount = apartmentBadges[addrIdStr] ?: 0
+
+          // Логируем процесс отрисовки уведомлений для шторки
+          if (unreadCounts.isNotEmpty()) {
+            Log.d("YkisLog", "DrawerItem: Check ID: $addrIdStr | Badge: $badgeCount | RawKeys: ${unreadCounts.keys}")
+          }
 
           NavigationDrawerItem(
             label = {
@@ -153,23 +179,21 @@ fun ModalNavigationDrawerContent(
                 Column(modifier = Modifier.weight(1f)) {
                   // ПЕРВАЯ СТРОКА: Адрес + о/р
                   Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Адрес (Жирный)
                     Text(
                       text = apartment.address,
                       fontWeight = FontWeight.Bold,
                       style = MaterialTheme.typography.bodyLarge
                     )
-                    // о/р (Шрифт как у фамилии)
                     Text(
-                      text = " о/р ${apartment.addressId}",
-                      style = MaterialTheme.typography.labelSmall, // Как у ФИО
+                      text = " о/р $addrIdStr",
+                      style = MaterialTheme.typography.labelSmall,
                       color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                       modifier = Modifier.padding(start = 4.dp)
                     )
                   }
 
-                  // ВТОРАЯ СТРОКА: ФИО (как и было)
+                  // ВТОРАЯ СТРОКА: ФИО
                   apartment.nanim?.let {
                     Text(
                       text = it,
@@ -179,21 +203,35 @@ fun ModalNavigationDrawerContent(
                     )
                   }
                 }
-                val count = unreadCounts[apartment.addressId.toString()] ?: 0
-                if (count > 0) {
-                  Badge { Text(count.toString()) }
+
+                // 2. ОТОБРАЖЕНИЕ BADGE (Красный кружок)
+                if (badgeCount > 0) {
+                  Badge(
+                    modifier = Modifier.padding(start = 8.dp),
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                  ) {
+                    Text(badgeCount.toString())
+                  }
                 }
               }
             },
             selected = isSelected,
             onClick = {
-              keyboardController?.hide() // <--- СКРЫВАЕМ КЛАВИАТУРУ
+              Log.d("YkisLog", "DrawerItem: [CLICK] Переход на квартиру ID: $addrIdStr")
+              keyboardController?.hide()
               navigateToApartment(apartment.addressId)
             },
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-            icon = { Icon(Icons.Default.Home, contentDescription = null) }
+            icon = {
+              Icon(
+                imageVector = if (isSelected) Icons.Filled.Home else Icons.Outlined.Home,
+                contentDescription = null
+              )
+            }
           )
         }
+
       }
 
       // 3. НИЖНЯЯ ПАНЕЛЬ (Для админа)
