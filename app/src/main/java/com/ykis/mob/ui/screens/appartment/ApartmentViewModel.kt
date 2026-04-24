@@ -201,6 +201,8 @@ class ApartmentViewModel(
               val apartments = result.data ?: emptyList()
               val firstFlatId = apartments.firstOrNull()?.addressId ?: 0
               Log.d("YkisLog", "$methodName: [FETCH_SUCCESS] Квартир: ${apartments.size}, osbbId: $currentOsbbId, firstAddressId: $firstFlatId")
+// Внутри observeUserProfile, после успешной загрузки списка квартир:
+
 
               if (apartments.isNotEmpty()) {
                 val currentSelectedId = _uiState.value.addressId
@@ -216,7 +218,8 @@ class ApartmentViewModel(
                   displayName = combinedName,
                   mainLoading = false
                 )}
-
+                val addrIds = apartments.map { it.addressId }
+                chatViewModel.subscribeToAllMyApartments(uid, target.osmdId, addrIds)
                 firebaseService.updateUserRoleAndPermissions(user.uid, target.addressId, currentUserRole, target.osmdId, combinedName)
                 chatViewModel.subscribeToResidentCounters(user.uid, target.osmdId, target.addressId)
               } else {

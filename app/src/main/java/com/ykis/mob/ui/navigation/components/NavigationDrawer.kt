@@ -69,24 +69,26 @@ fun ModalNavigationDrawerContent(
 
   val searchQuery by apartmentViewModel.searchQuery.collectAsStateWithLifecycle()
   val apartments by apartmentViewModel.filteredApartments.collectAsStateWithLifecycle()
-  val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
 
   val isUserAdmin = baseUIState.userRole != UserRole.StandardUser
+  // 1. Получаем сырую мапу из ViewModel
+  val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
+
+// 2. Группируем и суммируем по ID квартиры (ЗОЛОТОЙ ПАРСИНГ)
   val apartmentBadges = remember(unreadCounts) {
     unreadCounts.map { (fullKey, count) ->
-      // Извлекаем ID: разбиваем строку по "_" и берем ту часть, которая является числом
-      // Для "OSBB_3_1336_izLMP..." -> части: [OSBB, 3, 1336, izLMP...]
-      // Нам нужно 1336
-      val parts = fullKey.split("_")
-
-      // Обычно ID квартиры — это третья часть в ОСББ (индекс 2)
-      // или вторая в службах. Чтобы не гадать, ищем первое длинное число:
-      val addressId = parts.find { it.length >= 3 && it.all { char -> char.isDigit() } } ?: ""
-
+      // Извлекаем только числовой ID (напр. из OSBB_3_1336_UID вытащит 1336)
+      val addressId = fullKey.split("_").find { part ->
+        part.isNotEmpty() && part.all { it.isDigit() } && part.length >= 3
+      } ?: ""
       addressId to count
-    }.filter { it.first.isNotEmpty() }
-      .toMap()
+    }
+      .groupBy({ it.first }, { it.second }) // Группируем по ID
+      .mapValues { it.value.sum() }         // Суммируем все сообщения этой квартиры
   }
+
+
+//
   ModalDrawerSheet(
     modifier = modifier.width(320.dp),
     drawerContainerColor = MaterialTheme.colorScheme.surface
@@ -160,22 +162,29 @@ fun ModalNavigationDrawerContent(
         val displayList = if (isUserAdmin) apartments else baseUIState.apartments
 
         // Внутри LazyColumn в ModalNavigationDrawerContent
-        items(displayList) { apartment ->
+        items(displayList, key = { it.addressId }) { apartment ->
+          val methodName = "DrawerItem"
           val isSelected = baseUIState.addressId == apartment.addressId
           val addrIdStr = apartment.addressId.toString()
 
-          // 1. Используем подготовленную мапу (с чистыми ID)
-          // Она должна быть вычислена выше через remember(unreadCounts)
+          // 1. ПОЛУЧЕНИЕ BADGE
+          // Используем мапу badges, которая должна быть подготовлена через groupBy/sum
           val badgeCount = apartmentBadges[addrIdStr] ?: 0
 
-          // Логируем процесс отрисовки уведомлений для шторки
+          // ЛОГИРОВАНИЕ (Детальный аудит отрисовки каждого элемента)
+          Log.d("YkisLog", "$methodName: [RENDER] ID: $addrIdStr | Badge: $badgeCount")
+
           if (unreadCounts.isNotEmpty()) {
-            Log.d("YkisLog", "DrawerItem: Check ID: $addrIdStr | Badge: $badgeCount | RawKeys: ${unreadCounts.keys}")
+            val hasRawKey = unreadCounts.keys.any { it.contains("_$addrIdStr") }
+//            Log.d("YkisLog", "$methodName: [DEBUG] Check ID: $addrIdStr | Result: $badgeCount | RawMatchFound: $hasRawKey | AllKeys: ${unreadCounts.keys}")
           }
 
           NavigationDrawerItem(
             label = {
-              Row(verticalAlignment = Alignment.CenterVertically) {
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
                 Column(modifier = Modifier.weight(1f)) {
                   // ПЕРВАЯ СТРОКА: Адрес + о/р
                   Row(verticalAlignment = Alignment.CenterVertically) {
@@ -218,7 +227,7 @@ fun ModalNavigationDrawerContent(
             },
             selected = isSelected,
             onClick = {
-              Log.d("YkisLog", "DrawerItem: [CLICK] Переход на квартиру ID: $addrIdStr")
+              Log.d("YkisLog", "$methodName: [CLICK] Переход -> $addrIdStr")
               keyboardController?.hide()
               navigateToApartment(apartment.addressId)
             },
@@ -231,6 +240,7 @@ fun ModalNavigationDrawerContent(
             }
           )
         }
+
 
       }
 

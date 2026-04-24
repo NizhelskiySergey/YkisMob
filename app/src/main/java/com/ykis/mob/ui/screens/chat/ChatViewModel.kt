@@ -16,6 +16,7 @@ import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.PropertyName
 import com.google.firebase.database.Query
+import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
 import com.ykis.mob.R
 import com.ykis.mob.core.snackbar.SnackbarManager
@@ -38,6 +39,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -220,7 +222,25 @@ class ChatViewModel(
 
   private var typingJob: Job? = null
 
-  // В ChatViewModel.kt
+  // Группируем сообщения по ID квартиры (суммируем все службы для одного адреса)
+  fun subscribeToAllMyApartments(uid: String, osbbId: Int, apartments: List<Int>) {
+    val methodName = "ChatViewModel.subscribeToAll"
+    val allChatKeys = mutableListOf<String>()
+
+    apartments.forEach { addrId ->
+      // Добавляем все 4 службы для каждой квартиры
+      allChatKeys.add("OSBB_${osbbId}_${addrId}_$uid")
+      allChatKeys.add("WATER_SERVICE_${addrId}_$uid")
+      allChatKeys.add("WARM_SERVICE_${addrId}_$uid")
+      allChatKeys.add("GARBAGE_SERVICE_${addrId}_$uid")
+    }
+
+    Log.d("YkisLog", "$methodName: Запуск мониторинга для ${apartments.size} кв. (Всего веток: ${allChatKeys.size})")
+
+    // Твой стандартный метод, который ставит ValueEventListener на каждую ветку
+    subscribeToUnreadCount(allChatKeys)
+  }
+
   // В ChatViewModel.kt
   private val _forwardingMessage = MutableStateFlow<MessageEntity?>(null)
   val forwardingMessage = _forwardingMessage.asStateFlow()
@@ -608,46 +628,82 @@ class ChatViewModel(
 
   // Подписка на статус собеседника
 
+  fun initializeChatOnApartmentAdded(uid: String, osbbId: Int, addressId: Int, addressText: String) {
+    val methodName = "ChatViewModel.initializeChat"
+    viewModelScope.launch(Dispatchers.IO) {
+      try {
+        val chatPath = "OSBB_${osbbId}_${addressId}_$uid"
+        val chatRef = FirebaseDatabase.getInstance().getReference("chats").child(chatPath)
+
+        // Проверяем, есть ли там уже сообщения (чтобы не спамить при повторном добавлении)
+        val snapshot = chatRef.get().await()
+        if (!snapshot.exists()) {
+          Log.d("YkisLog", "$methodName: [INIT] Создание ветки чата для новой квартиры: $addressText")
+
+          val welcomeMessage = hashMapOf(
+            "senderUid" to "system", // Помечаем как системное
+            "text" to "Квартиру за адресою $addressText додано до системи. Тепер ви можете спілкуватися з диспетчером.",
+            "timestamp" to ServerValue.TIMESTAMP,
+            "read" to false,
+            "senderDisplayedName" to "Система",
+            "type" to "TEXT"
+          )
+
+          chatRef.push().setValue(welcomeMessage).await()
+          Log.d("YkisLog", "$methodName: [SUCCESS] Жилец теперь виден админу")
+        }
+      } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+      }
+    }
+  }
 
   fun subscribeToUnreadCount(chatKeys: List<String>) {
-    val methodName = "ChatViewModel.subscribeToUnreadCount()"
+    val methodName = "ChatViewModel.subscribeToUnreadCount"
     val myUid = chatRepo.currentUid ?: return
 
     chatKeys.forEach { chatId ->
-      // Проверяем, не слушаем ли мы уже этот чат (используем правильную карту)
-      if (unreadCountListeners.containsKey(chatsReference.child(chatId))) return@forEach
+      // 1. Проверяем наличие активного слушателя, чтобы не плодить дубликаты
+      val chatRef = chatsReference.child(chatId)
+      if (unreadCountListeners.containsKey(chatRef)) return@forEach
 
-      // Оптимизируем запрос: просим у Firebase только сообщения, где read == false
-      // ВНИМАНИЕ: Для этого в консоли Firebase в Rules должен быть индекс .indexOn: ["read"]
-      val query = chatsReference.child(chatId).orderByChild("read").equalTo(false)
+      Log.d("YkisLog", "$methodName: [WATCH] Регистрация слушателя для: $chatId")
+
+      // 2. Оптимизированный запрос: слушаем только непрочитанные (read == false)
+      val query = chatRef.orderByChild("read").equalTo(false)
 
       val listener = object : ValueEventListener {
         override fun onDataChange(snapshot: DataSnapshot) {
           viewModelScope.launch(Dispatchers.Default) {
-            // Считаем только те, что прислал собеседник
+            // 3. Подсчет входящих непрочитанных
             val count = snapshot.children.mapNotNull {
               it.getValue(MessageEntity::class.java)
             }.count { it.senderUid != myUid }
 
             withContext(Dispatchers.Main) {
-              _unreadCounts.update { it + (chatId to count) }
+              // 4. Обновляем мапу (важно: записываем даже 0, чтобы убрать бейдж в UI)
+              _unreadCounts.update { currentMap ->
+                currentMap + (chatId to count)
+              }
 
+              // 5. Логируем только реальные изменения или наличие сообщений
               if (count > 0) {
                 Log.d("YkisLog", "$methodName: [$chatId] -> непрочитано: $count")
+              } else {
+                Log.d("YkisLog", "$methodName: [$chatId] -> все прочитано (0)")
               }
             }
           }
         }
 
         override fun onCancelled(error: DatabaseError) {
-          // Если при удалении аккаунта вылетает 403, мы это увидим здесь
-          Log.e("YkisLog", "$methodName ERROR: ${error.message}")
+          Log.e("YkisLog", "$methodName: [ERROR] $chatId: ${error.message}")
         }
       }
 
+      // 6. Запуск и сохранение в реестр слушателей
       query.addValueEventListener(listener)
-      // Сохраняем в специальную карту для unread, чтобы stopAllTrackers мог это закрыть
-      unreadCountListeners[chatsReference.child(chatId)] = listener
+      unreadCountListeners[chatRef] = listener
     }
   }
 
@@ -1297,10 +1353,9 @@ class ChatViewModel(
   }
 
 
-  fun subscribeToResidentCounters(uid: String, osbbId: Int, addressId: Int) {
+  fun subscribeToResidentCounters(uid: String, osbbId: Int, addressId: Int, addressText: String = "") {
     val methodName = "ChatViewModel.subscribeToResidentCounters()"
 
-    // 1. Формируем список веток для мониторинга Badge
     val chatKeys = listOf(
       "OSBB_${osbbId}_${addressId}_$uid",
       "${ContentDetail.WATER_SERVICE.name}_${addressId}_$uid",
@@ -1310,27 +1365,46 @@ class ChatViewModel(
 
     Log.d("YkisLog", "$methodName: Мониторинг веток жильца: $chatKeys")
 
-    // 2. ПОДГОТОВКА ТОКЕНОВ ВСЕХ АДМИНОВ (для рассылки жильцом)
+    // --- НОВЫЙ БЛОК: Инициализация ветки чата, чтобы админ увидел жильца ---
     viewModelScope.launch(Dispatchers.IO) {
       try {
-        // Ищем всех админов этой организации в Firestore
-        val admins = chatRepo.fetchAdminsByOsbb(osbbId)
-        // Собираем их токены в плоский список List<String>
-        val adminTokens = admins.flatMap { it.tokens }
+        val mainChatPath = chatKeys.first() // Это "OSBB_${osbbId}_${addressId}_$uid"
+        val chatRef = chatsReference.child(mainChatPath)
 
-        _recipientTokens.value = adminTokens
-        Log.d(
-          "YkisLog",
-          "$methodName: [TOKENS] Найдено ${admins.size} админов. Токенов: ${adminTokens.size}"
-        )
+        val snapshot = chatRef.get().await()
+        if (!snapshot.exists()) {
+          Log.d("YkisLog", "$methodName: [INIT] Создание приветственного сообщения для админа")
+          val welcomeMsg = hashMapOf(
+            "senderUid" to "system",
+            "text" to "Квартиру додано. Чат активовано.",
+            "timestamp" to com.google.firebase.database.ServerValue.TIMESTAMP,
+            "read" to false,
+            "senderDisplayedName" to "Система",
+            "type" to "TEXT"
+          )
+          chatRef.push().setValue(welcomeMsg).await()
+        }
       } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [ERROR] Не удалось собрать токены админов", e)
+        Log.e("YkisLog", "$methodName: [INIT_ERROR] ${e.message}")
+      }
+    }
+    // -----------------------------------------------------------------------
+
+    // 2. ПОДГОТОВКА ТОКЕНОВ ВСЕХ АДМИНОВ
+    viewModelScope.launch(Dispatchers.IO) {
+      try {
+        val admins = chatRepo.fetchAdminsByOsbb(osbbId)
+        val adminTokens = admins.flatMap { it.tokens }
+        _recipientTokens.value = adminTokens
+        Log.d("YkisLog", "$methodName: [TOKENS] Найдено админов: ${admins.size}")
+      } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [ERROR] Не удалось собрать токены", e)
       }
     }
 
-    // Запускаем слушатели Realtime Database для красных кружков
     subscribeToUnreadCount(chatKeys)
   }
+
 
 
   fun setSelectedUser(user: UserEntity) {
