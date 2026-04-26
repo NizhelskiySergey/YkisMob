@@ -19,37 +19,6 @@ import kotlinx.coroutines.flow.flowOn // ДОБАВИТЬ
      * Загружает полный список жителей дома для отображения в Drawer.
      * Не кэширует данные в Room, чтобы избежать конфликтов.
      */
-//    operator fun invoke(osbbId: Int): Flow<Resource<List<ApartmentEntity>>> = flow {
-//      val methodName = "GetOsbbApartmentList.invoke(ADMIN_OSBB_ID)"
-//
-//      try {
-//        Log.d("YkisLog", "$methodName: [START] Запрос всех квартир ОСББ ID: $osbbId")
-//        emit(Resource.Loading())
-//
-//        // 1. Прямой запрос в репозиторий (только сеть)
-//        // ВАЖНО: убедитесь, что в репозитории метод возвращает все квартиры дома
-//        val response = repository.getOsbbApartmentsList(osbbId)
-//
-//        if (response.apartments.isNotEmpty()) {
-//          Log.d("YkisLog", "$methodName: [SUCCESS] Получено ${response.apartments.size} квартир")
-//          emit(Resource.Success(response.apartments))
-//        } else {
-//          Log.w("YkisLog", "$methodName: [EMPTY] Список квартир для ОСББ $osbbId пуст")
-//          emit(Resource.Success(emptyList()))
-//        }
-//
-//      } catch (e: Exception) {
-//        Log.e("YkisLog", "$methodName: [ERROR] Ошибка загрузки: ${e.localizedMessage}")
-//        emit(Resource.Error(e.localizedMessage ?: "Ошибка при получении списка квартир ОСББ"))
-//      }
-//    }.flowOn(Dispatchers.IO)
-//  }
-
-    /**
-     * ВЕРСИЯ ДЛЯ АДМИНА (по osbbId)
-     * Загружает полный список жителей дома для отображения в Drawer.
-     * Не кэширует данные в Room, чтобы избежать конфликтов.
-     */
     operator fun invoke(osbbId: Int): Flow<Resource<List<ApartmentEntity>>> = flow {
       val methodName = "GetOsbbApartmentList.invoke(ADMIN_OSBB_ID)"
       val addressIdList = mutableListOf<Int>()

@@ -15,8 +15,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddHome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Domain
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -40,11 +42,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ykis.mob.R
 import com.ykis.mob.core.ext.truncate
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.domain.apartment.ApartmentEntity
+import com.ykis.mob.domain.apartment.RaionEntity
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.navigation.AddApartmentScreen
 import com.ykis.mob.ui.navigation.NAV_RAIL_DESTINATIONS
+import com.ykis.mob.ui.navigation.RaionDropdownSelector
 import com.ykis.mob.ui.navigation.UserListScreen
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
+import com.ykis.mob.ui.screens.appartment.ListMode
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 
 @Composable
@@ -140,28 +146,55 @@ fun ApartmentNavigationRail(
       if (isRailExpanded) {
         Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
           if (isUserAdmin) {
-            // Компактное поле поиска
-            OutlinedTextField(
-              value = searchQuery,
-              onValueChange = { apartmentViewModel.onSearchQueryChanged(it) },
-              modifier = Modifier.fillMaxWidth().height(48.dp),
-              placeholder = { Text("Пошук кв.", fontSize = 11.sp) },
-              leadingIcon = { Icon(Icons.Default.Search, null, Modifier.size(16.dp)) },
-              trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                  IconButton(onClick = { apartmentViewModel.onSearchQueryChanged("") }) {
-                    Icon(Icons.Default.Close, null, Modifier.size(14.dp))
-                  }
+            // КРИТИЧЕСКИЙ ФИКС: Используем Column, чтобы Raion не налезал на Поиск
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+
+              // 1. Выбор района
+              RaionDropdownSelector(
+                raions = baseUIState.raions,
+                onRaionSelected = { raion ->
+                  Log.d("YkisLog", "Rail: [SELECT_RAION] Name: ${raion.raion}, ID: ${raion.raionId}")
+                  apartmentViewModel.onRaionSelected(raion)
                 }
-              },
-              singleLine = true,
-              shape = RoundedCornerShape(8.dp),
-              textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
-            )
+              )
+
+              HorizontalDivider(
+                modifier = Modifier.padding(vertical = 2.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+              )
+
+              // 2. Поле поиска
+              OutlinedTextField(
+                value = searchQuery,
+                onValueChange = {
+                  Log.d("YkisLog", "Rail: [SEARCH_INPUT] Query: $it")
+                  apartmentViewModel.onSearchQueryChanged(it)
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                placeholder = { Text("Пошук кв.", fontSize = 11.sp) },
+                leadingIcon = { Icon(Icons.Default.Search, null, Modifier.size(16.dp)) },
+                trailingIcon = {
+                  if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = {
+                      Log.d("YkisLog", "Rail: [SEARCH_CLEAR]")
+                      apartmentViewModel.onSearchQueryChanged("")
+                    }) {
+                      Icon(Icons.Default.Close, null, Modifier.size(14.dp))
+                    }
+                  }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(8.dp),
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
+              )
+            }
           } else {
-            // Компактная кнопка добавления
+            // Компактная кнопка добавления для жильца
             FloatingActionButton(
-              onClick = { navigateToDestination(AddApartmentScreen.route) },
+              onClick = {
+                Log.d("YkisLog", "Rail: [ADD_APARTMENT_CLICK]")
+                navigateToDestination(AddApartmentScreen.route)
+              },
               modifier = Modifier.fillMaxWidth().height(40.dp),
               containerColor = MaterialTheme.colorScheme.primaryContainer,
               elevation = FloatingActionButtonDefaults.elevation(0.dp)
@@ -176,39 +209,60 @@ fun ApartmentNavigationRail(
           }
         }
       }
+
     }
   ) {
     Column(modifier = Modifier.fillMaxSize()) {
 
-      // --- СПИСОК КВАРТИР (Занимает все свободное место) ---
-      if (!isApartmentsEmpty && isRailExpanded) {
+      // --- ДИНАМИЧЕСКИЙ СПИСОК (Районы / Дома / Квартиры) ---
+      val listMode = baseUIState.listMode
+      val isOrgAdmin = baseUIState.userRole != UserRole.StandardUser && baseUIState.userRole != UserRole.OsbbUser
+
+// Определяем, что именно мы сейчас показываем в списке
+      val listToDisplay: List<Any> = when {
+        listMode == ListMode.RAIONS && isOrgAdmin -> baseUIState.raions
+        isUserAdmin -> apartments // Твой список для админа ОСББ
+        else -> baseUIState.apartments
+      }
+
+      if (listToDisplay.isNotEmpty() && isRailExpanded) {
         Column(
           modifier = Modifier
             .fillMaxWidth()
-            .weight(1f) // ОТДАЕМ ПРИОРИТЕТ СПИСКУ
+            .weight(1f)
         ) {
+          // Динамический заголовок
           Text(
-            text = stringResource(id = R.string.list_apartment),
+            text = when(listMode) {
+              ListMode.RAIONS -> "Оберіть район міста"
+              ListMode.HOUSES -> "Оберіть будинок"
+              else -> stringResource(id = R.string.list_apartment)
+            },
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             color = MaterialTheme.colorScheme.primary
           )
 
-          val listToDisplay = if (isUserAdmin) apartments else baseUIState.apartments
-
           LazyColumn(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(bottom = 8.dp)
           ) {
-            items(listToDisplay, key = { it.addressId }) { apartment ->
-              val isSelected = baseUIState.addressId == apartment.addressId
-              val addrIdStr = apartment.addressId.toString()
-              // 1. ПОИСК BADGE: ищем количество сообщений для этой квартиры
-              // Мы берем apartmentBadges (которую подготовили выше через remember)
-              val badgeCount = apartmentBadges[apartment.addressId.toString()] ?: 0
-              if (unreadCounts.isNotEmpty()) {
-                Log.d("YkisLog", "RailList: Check ID: $addrIdStr | Found Badge: $badgeCount | RawMapKeys: ${unreadCounts.keys}")
+            items(listToDisplay) { item ->
+              // Определяем тип элемента для корректного отображения
+              val isRaion = item is RaionEntity
+              val apartment = item as? ApartmentEntity
+
+              val label = if (isRaion) (item as RaionEntity).raion else apartment?.address ?: ""
+              val id = if (isRaion) (item as RaionEntity).raionId else apartment?.addressId ?: 0
+              val isSelected = !isRaion && baseUIState.addressId == id
+
+              // Логика Badge (только для квартир)
+              val badgeCount = if (!isRaion) apartmentBadges[id.toString()] ?: 0 else 0
+
+              if (unreadCounts.isNotEmpty() && !isRaion) {
+                Log.d("YkisLog", "RailList: Render ID: $id | Badge: $badgeCount")
               }
+
               Box(
                 modifier = Modifier
                   .padding(horizontal = 8.dp, vertical = 1.dp)
@@ -217,48 +271,62 @@ fun ApartmentNavigationRail(
                   .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f) else Color.Transparent)
                   .clickable {
                     keyboardController?.hide()
-                    navigateToApartment(apartment.addressId)
+                    Log.d("YkisLog", "RailList: [CLICK] Mode: $listMode, ID: $id")
+                    if (item is RaionEntity) {
+                      // 1. Если это район — передаем String в метод выбора района
+                      Log.d("YkisLog", "Rail: Выбран район ${item.raionId}")
+                      apartmentViewModel.onRaionSelected(item)
+                    } else if (item is ApartmentEntity) {
+                      // 2. Если это квартира — передаем Int в навигацию
+                      Log.d("YkisLog", "Rail: Переход в квартиру ${item.addressId}")
+                      navigateToApartment(item.addressId)
+                    }
                   }
                   .padding(6.dp)
               ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                  // Динамическая иконка
                   Icon(
-                    Icons.Default.Home, null,
+                    imageVector = when {
+                      isRaion -> Icons.Default.Map
+                      listMode == ListMode.HOUSES -> Icons.Default.Domain
+                      else -> Icons.Default.Home
+                    },
+                    contentDescription = null,
                     tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                     modifier = Modifier.size(18.dp)
                   )
                   Spacer(Modifier.width(8.dp))
 
                   Column(modifier = Modifier.weight(1f)) {
-                    // ПЕРВАЯ СТРОКА: Адрес + о/р
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                      Text(
-                        text = apartment.address,
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyMedium
-                      )
-                      Text(
-                        text = " о/р ${apartment.addressId}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(start = 4.dp)
-                      )
-                    }
+                    // Название района или Адрес
+                    Text(
+                      text = label,
+                      fontWeight = if (isRaion) FontWeight.Medium else FontWeight.Bold,
+                      style = MaterialTheme.typography.bodyMedium
+                    )
 
-                    // ВТОРАЯ СТРОКА: ФИО
-                    apartment.nanim?.let {
-                      Text(
-                        text = it,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                      )
+                    // Вторая строка (только для квартир)
+                    if (!isRaion && apartment != null) {
+                      Row {
+                        Text(
+                          text = " о/р $id",
+                          style = MaterialTheme.typography.labelSmall,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                        apartment.nanim?.let {
+                          Text(
+                            text = " | $it",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                          )
+                        }
+                      }
                     }
                   }
 
-                  // 2. ОТОБРАЖЕНИЕ BADGE (Красный кружок)
+                  // Показываем Badge только для квартир
                   if (badgeCount > 0) {
                     Badge(
                       modifier = Modifier.padding(start = 4.dp),
@@ -272,9 +340,9 @@ fun ApartmentNavigationRail(
               }
             }
           }
-
         }
       }
+
 
       // --- НИЖНЕЕ МЕНЮ (Минимальная высота) ---
       Column(

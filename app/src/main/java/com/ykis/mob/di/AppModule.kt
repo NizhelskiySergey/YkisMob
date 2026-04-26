@@ -59,7 +59,9 @@ import com.ykis.mob.domain.apartment.request.DeleteApartment
 import com.ykis.mob.domain.apartment.request.DeleteUserAccount
 import com.ykis.mob.domain.apartment.request.GetApartment
 import com.ykis.mob.domain.apartment.request.GetApartmentList
+import com.ykis.mob.domain.apartment.request.GetHouseList
 import com.ykis.mob.domain.apartment.request.GetOsbbApartmentsList
+import com.ykis.mob.domain.apartment.request.GetRaionList
 import com.ykis.mob.domain.apartment.request.SaveUserUid
 import com.ykis.mob.domain.apartment.request.UpdateBti
 import com.ykis.mob.domain.apartment.request.VerifyAdminCode
@@ -105,6 +107,7 @@ import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.http.ContentType
+import io.ktor.http.HttpMethod.Companion.Get
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -185,6 +188,8 @@ val domainModule = module {
   factory { GetApartmentList(get(), get()) }
   factory { GetOsbbApartmentsList(get(), get()) }
   single { GetApartment(get(), get()) }
+  single { GetRaionList(get(), get()) }
+  single { GetHouseList(get(), get()) }
   single { DeleteApartment(get(), get()) }
   single { AddApartment(get()) }
   single { UpdateBti(get()) }
@@ -224,6 +229,8 @@ val domainModule = module {
     ApartmentService(
       getApartmentList = get(),
       getOsbbApartmentsList = get(),
+      getRaionList = get(),
+      getHouseList = get(),
       getApartment = get(),
       addApartment = get(),
       verifyAdminCode = get(), // Теперь Koin точно найдет этот UseCase
@@ -243,6 +250,7 @@ val dataModule = module {
 
   // 2. DAOs (используем ранее созданный AppDatabase)
 
+  single { get<AppDatabase>().raionDao() }
   single { get<AppDatabase>().apartmentDao() }
   single { get<AppDatabase>().familyDao() }
   single { get<AppDatabase>().serviceDao() }

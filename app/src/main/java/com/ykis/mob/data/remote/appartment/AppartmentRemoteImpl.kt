@@ -3,6 +3,7 @@ package com.ykis.mob.data.remote.appartment
 import com.ykis.mob.core.Constants.ADDRESS_ID
 import com.ykis.mob.core.Constants.CODE
 import com.ykis.mob.core.Constants.EMAIL
+import com.ykis.mob.core.Constants.HOUSE_ID
 import com.ykis.mob.core.Constants.OSBB_ID
 import com.ykis.mob.core.Constants.PARAM_ADDRESS_ID
 import com.ykis.mob.core.Constants.PHONE
@@ -27,7 +28,14 @@ class ApartmentRemoteImpl(
     return ktorApiService.getOsbbApartmentsList(createGetOsbbApartmentsListMap(osbbId))
   }
 
-  override suspend fun updateBti(params: ApartmentEntity): BaseResponse {
+  override suspend fun getHouseList(houseId: Int): GetHousesResponse {
+    return ktorApiService.getHouseList(createGetHouseListMap(houseId))
+  }
+  override suspend fun getRaionList(uid: String): GetRaionsResponse {
+    return ktorApiService.getRaionList(createGetRaionListMap(uid))
+  }
+
+    override suspend fun updateBti(params: ApartmentEntity): BaseResponse {
     return ktorApiService.updateBti(
       createUpdateBti(
         addressId = params.addressId,
@@ -108,9 +116,19 @@ class ApartmentRemoteImpl(
     map[UID] = uid
     return map
   }
+  private fun createGetRaionListMap(uid: String): Map<String, String> {
+    val map = HashMap<String, String>()
+    map[UID] = uid
+    return map
+  }
   private fun createGetOsbbApartmentsListMap(osbbId: Int): Map<String, String> {
     val map = HashMap<String, String>()
     map[OSBB_ID] = osbbId.toString()
+    return map
+  }
+  private fun createGetHouseListMap(houseId: Int): Map<String, String> {
+    val map = HashMap<String, String>()
+    map[HOUSE_ID] = houseId.toString()
     return map
   }
 

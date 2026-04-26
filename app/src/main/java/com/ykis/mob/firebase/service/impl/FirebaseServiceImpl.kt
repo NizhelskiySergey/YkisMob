@@ -168,24 +168,49 @@ class FirebaseServiceImpl(
   }
 
 
-  override suspend fun updateUserRoleAndPermissions(uid: String, addressId: Int?, userRole: UserRole, osbbId: Int?, displayName: String?) {
+  override suspend fun updateUserRoleAndPermissions(
+    uid: String,
+    addressId: Int?,
+    userRole: UserRole,
+    osbbId: Int?,
+    displayName: String?
+  ) {
     val methodName = "FirebaseServiceImpl.updateUserRoleAndPermissions"
-    if (osbbId == 0) {
-      Log.w("YkisLog", "$methodName: [PROTECT] Попытка записи osbbId=0 заблокирована.")
+
+    // 1. УМНЫЙ ПРЕДОХРАНИТЕЛЬ
+    // Блокируем запись osbbId=0 ТОЛЬКО если роль — админ конкретного дома (OsbbUser)
+    // Для VodokanalUser, TboUser и др. osbbId=0 — это норма (работа по всему городу)
+    if (userRole == UserRole.OsbbUser && osbbId == 0) {
+      Log.w("YkisLog", "$methodName: [PROTECT] Запись заблокирована: OsbbUser не может иметь osbbId=0")
       return
     }
+
     try {
+      Log.d("YkisLog", "$methodName: [START] UID: $uid, Role: $userRole, osbbId: $osbbId, Name: $displayName")
+
+      // 2. ПОДГОТОВКА ДАННЫХ
       val updates = mutableMapOf<String, Any>(
         "userRole" to userRole.name,
-        "osbbId" to (osbbId ?: FieldValue.delete())
+        // Если osbbId null, используем 0 как дефолт для организаций
+        "osbbId" to (osbbId ?: 0)
       )
+
       displayName?.let { updates["displayName"] = it }
       addressId?.let { updates["addressId"] = it }
 
-      db.collection("users").document(uid).set(updates, SetOptions.merge()).await()
-      Log.d("YkisLog", "$methodName: [SUCCESS] Profile updated for $uid")
-    } catch (e: Exception) { Log.e("YkisLog", "$methodName: [ERROR] ${e.message}") }
+      // 3. ЗАПИСЬ В FIRESTORE
+      db.collection("users")
+        .document(uid)
+        .set(updates, SetOptions.merge())
+        .await()
+
+      Log.d("YkisLog", "$methodName: [SUCCESS] Профиль обновлен в облаке для $uid")
+
+    } catch (e: Exception) {
+      Log.e("YkisLog", "$methodName: [ERROR] Ошибка Firestore: ${e.message}")
+    }
   }
+
 
   override suspend fun getUserProfile(): UserFirebase = withContext(Dispatchers.IO) {
     try {

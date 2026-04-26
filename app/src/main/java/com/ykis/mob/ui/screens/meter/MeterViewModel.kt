@@ -27,35 +27,37 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
-class MeterViewModel (
+class MeterViewModel(
   private val waterMeterRepository: WaterMeterRepository,
   private val heatMeterRepository: HeatMeterRepository,
   logService: LogService
 
 ) : BaseViewModel(logService) {
 
-    private val _waterMeterState = MutableStateFlow(WaterMeterState())
-    val waterMeterState = _waterMeterState.asStateFlow()
+  private val _waterMeterState = MutableStateFlow(WaterMeterState())
+  val waterMeterState = _waterMeterState.asStateFlow()
 
-    private val _heatMeterState = MutableStateFlow(HeatMeterState())
-    val heatMeterState = _heatMeterState.asStateFlow()
+  private val _heatMeterState = MutableStateFlow(HeatMeterState())
+  val heatMeterState = _heatMeterState.asStateFlow()
 
-    private val _showDetail = MutableStateFlow(false)
-    val showDetail = _showDetail.asStateFlow()
+  private val _showDetail = MutableStateFlow(false)
+  val showDetail = _showDetail.asStateFlow()
 
-    private val _contentDetail = MutableStateFlow(ContentDetail.WATER_METER)
-    val contentDetail = _contentDetail.asStateFlow()
+  private val _contentDetail = MutableStateFlow(ContentDetail.WATER_METER)
+  val contentDetail = _contentDetail.asStateFlow()
 
   fun getWaterMeterList(uid: String, addressId: Int) {
     viewModelScope.launch {
       // Очищаем старый список и включаем лоадер
-      _waterMeterState.update { it.copy(
-        waterMeterList = emptyList(), // Добавь это
-        isMetersLoading = true
-      )}
+      _waterMeterState.update {
+        it.copy(
+          waterMeterList = emptyList(), // Добавь это
+          isMetersLoading = true
+        )
+      }
       try {
         // Прямой вызов репозитория (Resolution Time упадет до 2-5 мс)
-        val response = waterMeterRepository.getWaterMeterList( uid,addressId)
+        val response = waterMeterRepository.getWaterMeterList(uid, addressId)
 
         // ИСПОЛЬЗУЕМ ВАШЕ ПОЛЕ waterMeters
         val metersList = response.waterMeters ?: emptyList()
@@ -74,19 +76,20 @@ class MeterViewModel (
   }
 
 
-
   fun getHeatMeterList(uid: String, addressId: Int) {
     viewModelScope.launch {
       // 1. Включаем индикатор загрузки
       // Очищаем старый список и включаем лоадер
-      _heatMeterState.update { it.copy(
-        heatMeterList = emptyList(), // Добавь это
-        isMetersLoading = true
-      )}
+      _heatMeterState.update {
+        it.copy(
+          heatMeterList = emptyList(), // Добавь это
+          isMetersLoading = true
+        )
+      }
 
       try {
         // 2. Прямой вызов репозитория (Resolution Time упадет до 2-5 мс)
-        val response = heatMeterRepository.getHeatMeterList(uid,addressId)
+        val response = heatMeterRepository.getHeatMeterList(uid, addressId)
 
         // 3. Обновляем состояние (замените .heatMeters на ваше поле из ответа)
         _heatMeterState.value = _heatMeterState.value.copy(
@@ -105,26 +108,25 @@ class MeterViewModel (
   }
 
 
-
   fun setWaterMeterDetail(waterMeterEntity: WaterMeterEntity) {
-        _waterMeterState.value = _waterMeterState.value.copy(
-            selectedWaterMeter = waterMeterEntity
-        )
-        _contentDetail.value = ContentDetail.WATER_METER
-        _showDetail.value = true
-    }
+    _waterMeterState.value = _waterMeterState.value.copy(
+      selectedWaterMeter = waterMeterEntity
+    )
+    _contentDetail.value = ContentDetail.WATER_METER
+    _showDetail.value = true
+  }
 
-    fun setHeatMeterDetail(heatMeterEntity: HeatMeterEntity) {
-        _heatMeterState.value = _heatMeterState.value.copy(
-            selectedHeatMeter = heatMeterEntity
-        )
-        _contentDetail.value = ContentDetail.HEAT_METER
-        _showDetail.value = true
-    }
+  fun setHeatMeterDetail(heatMeterEntity: HeatMeterEntity) {
+    _heatMeterState.value = _heatMeterState.value.copy(
+      selectedHeatMeter = heatMeterEntity
+    )
+    _contentDetail.value = ContentDetail.HEAT_METER
+    _showDetail.value = true
+  }
 
-    fun closeContentDetail() {
-        _showDetail.value = false
-    }
+  fun closeContentDetail() {
+    _showDetail.value = false
+  }
 
   fun getWaterReadings(uid: String, vodomerId: Int) {
     viewModelScope.launch {
@@ -155,7 +157,6 @@ class MeterViewModel (
   }
 
 
-
   fun getLastWaterReading(uid: String, vodomerId: Int) {
     viewModelScope.launch {
       // 1. Включаем индикатор загрузки
@@ -163,7 +164,7 @@ class MeterViewModel (
 
       try {
         // 2. Прямой вызов репозитория (Resolution Time упадет до 2-5 мс)
-        val response = waterMeterRepository.getLastWaterReading(uid,vodomerId)
+        val response = waterMeterRepository.getLastWaterReading(uid, vodomerId)
 
         // 3. Обновляем состояние (замените .waterReading на актуальное поле вашего ответа)
         _waterMeterState.value = _waterMeterState.value.copy(
@@ -190,7 +191,7 @@ class MeterViewModel (
 
       try {
         // 2. Прямой вызов репозитория (вместо UseCase)
-        val response = heatMeterRepository.getHeatReadings(uid,teplomerId)
+        val response = heatMeterRepository.getHeatReadings(uid, teplomerId)
 
         // 3. Обновляем состояние (замените .heatReadings на ваше поле из ответа)
         _heatMeterState.value = _heatMeterState.value.copy(
@@ -217,7 +218,7 @@ class MeterViewModel (
 
       try {
         // 2. Прямой вызов репозитория (Resolution Time упадет до минимума)
-        val response = heatMeterRepository.getLastHeatReading(uid,teplomerId)
+        val response = heatMeterRepository.getLastHeatReading(uid, teplomerId)
 
         // 3. Обновляем состояние (замените .heatReading на актуальное поле вашего ответа)
         _heatMeterState.value = _heatMeterState.value.copy(
@@ -289,7 +290,7 @@ class MeterViewModel (
 
       try {
         // 2. Прямой вызов репозитория (убираем deleteLastWaterReadingUseCse)
-        val response = waterMeterRepository.deleteLastWaterReading(uid,readingId)
+        val response = waterMeterRepository.deleteLastWaterReading(uid, readingId)
 
         // 3. Проверяем успех (предполагаем поле .success == 1 из BaseResponse)
         if (response.success == 1) {
@@ -322,7 +323,7 @@ class MeterViewModel (
 
       try {
         // 2. Прямой вызов репозитория (Resolution Time упадет до минимума)
-        val response = heatMeterRepository.deleteLastHeatReading(uid,readingId)
+        val response = heatMeterRepository.deleteLastHeatReading(uid, readingId)
 
         // 3. Проверяем успех (предполагаем поле .success == 1 из ответа)
         if (response.success == 1) {
@@ -385,18 +386,18 @@ class MeterViewModel (
   }
 
   fun onNewWaterReadingChange(newValue: String) {
-        _waterMeterState.value = _waterMeterState.value.copy(
-            newWaterReading = newValue
-        )
-    }
+    _waterMeterState.value = _waterMeterState.value.copy(
+      newWaterReading = newValue
+    )
+  }
 
-    fun onNewHeatReadingChange(newValue: String) {
-        _heatMeterState.value = heatMeterState.value.copy(
-            newHeatReading = newValue
-        )
-    }
+  fun onNewHeatReadingChange(newValue: String) {
+    _heatMeterState.value = heatMeterState.value.copy(
+      newHeatReading = newValue
+    )
+  }
 
-    fun setContentDetail(contentDetail: ContentDetail) {
-        _contentDetail.value = contentDetail
-    }
+  fun setContentDetail(contentDetail: ContentDetail) {
+    _contentDetail.value = contentDetail
+  }
 }

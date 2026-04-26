@@ -25,6 +25,7 @@ import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.domain.apartment.ApartmentEntity
+import com.ykis.mob.domain.apartment.RaionEntity
 import com.ykis.mob.firebase.service.repo.AuthStateResponse
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.firebase.service.repo.LogService
@@ -48,6 +49,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+enum class ListMode { RAIONS, HOUSES, APARTMENTS }
+
 
 class ApartmentViewModel(
   private val firebaseService: FirebaseService,
@@ -116,6 +120,22 @@ class ApartmentViewModel(
   }
 
 
+  // 1. Загрузка районов (вызываем, например, в init или при входе админа организации)
+
+
+  // 2. Обработка выбора Района в Dropdown
+  fun onRaionSelected(raion: RaionEntity) {
+    Log.d("YkisLog", "ApartmentVM: Выбран район ${raion.raion} (ID: ${raion.raionId})")
+
+    _uiState.update { it.copy(
+      selectedRegionId = raion.raionId,
+      listMode = ListMode.HOUSES, // Переключаем режим на список домов
+      mainLoading = true
+    )}
+
+    // Здесь вызываем загрузку домов для этого района
+    // loadHouses(raion.raionId)
+  }
 
 
   fun onSecretCodeChanged(newCode: String) {
@@ -167,7 +187,10 @@ class ApartmentViewModel(
       }
 
       // 2. ПОЛУЧЕНИЕ ПРОФИЛЯ (Firestore)
+      // В начале observeJob
       val user = withContext(Dispatchers.IO) { firebaseService.getUserProfile() }
+      _uiState.update { it.copy(uid = user.uid) } // <--- СРАЗУ ОБНОВЛЯЕМ UID ЗДЕСЬ
+
 
       if (firebaseService.currentUser == null) {
         Log.d("YkisLog", "$methodName: [ABORT] Сессия закрыта во время запроса.")
@@ -236,35 +259,78 @@ class ApartmentViewModel(
           }
         }
       } else {
-        // 4. ЛОГИКА АДМИНА
-        Log.d("YkisLog", "$methodName: [ADMIN_MODE] Запрос для osbbId: $currentOsbbId")
+        // 4. ЛОГИКА АДМИНА (Разделение: ОСББ vs ОРГАНИЗАЦИИ)
+        val methodName = "ApartmentViewModel.AdminBranch"
 
-        apartmentService.getOsbbApartmentsList(currentOsbbId).collect { result ->
-          if (firebaseService.currentUser == null) return@collect
+        if (currentUserRole == UserRole.OsbbUser) {
+          // --- ВЕТКА АДМИНА ОСББ ---
+          Log.d("YkisLog", "$methodName: [OSBB_ADMIN] Прямая загрузка квартир для osbbId: $currentOsbbId")
 
-          when (result) {
-            is Resource.Success -> {
-              val allApartments = result.data ?: emptyList()
-              Log.d("YkisLog", "$methodName: [ADMIN_SUCCESS] Квартир: ${allApartments.size}, osbbId: $currentOsbbId")
+          apartmentService.getOsbbApartmentsList(currentOsbbId).collect { result ->
+            if (firebaseService.currentUser == null) return@collect
 
-              _uiState.update { it.copy(
-                apartments = allApartments,
-                mainLoading = false
-              )}
+            _uiState.update { state ->
+              when (result) {
+                is Resource.Success -> {
+                  val allApartments = result.data ?: emptyList()
+                  Log.d("YkisLog", "$methodName: [OSBB_SUCCESS] Квартир: ${allApartments.size}")
+                  state.copy(
+                    apartments = allApartments,
+                    listMode = ListMode.APARTMENTS, // Для ОСББ режим всегда "Квартиры"
+                    mainLoading = false
+                  )
+                }
+                is Resource.Error -> {
+                  Log.e("YkisLog", "$methodName: [OSBB_ERROR] Msg: ${result.message}")
+                  state.copy(mainLoading = false, error = result.message)
+                }
+                is Resource.Loading -> state.copy(mainLoading = true)
+              }
+            }
 
+            if (result is Resource.Success) {
               firebaseService.updateUserRoleAndPermissions(user.uid, 0, currentUserRole, currentOsbbId, user.name ?: "Адмін")
               chatViewModel.trackUserIdentifiersWithRole(currentUserRole, currentOsbbId)
             }
-            is Resource.Error -> {
-              Log.e("YkisLog", "$methodName: [ADMIN_ERROR] osbbId: $currentOsbbId, Msg: ${result.message}")
-              _uiState.update { it.copy(mainLoading = false) }
+          }
+        } else {
+          // --- ВЕТКА АДМИНА ОРГАНИЗАЦИИ (Водоканал, Тепло и т.д.) ---
+          Log.d("YkisLog", "$methodName: [ORG_ADMIN] Начальная загрузка районов для Role: $currentUserRole")
+
+          apartmentService.getRaionList(user.uid).collect { result ->
+            if (firebaseService.currentUser == null) return@collect
+
+            _uiState.update { state ->
+              when (result) {
+                is Resource.Success -> {
+                  val raionList = result.data ?: emptyList()
+                  Log.d("YkisLog", "$methodName: [RAIONS_LOADED] Получено: ${raionList.size} районов")
+                  state.copy(
+                    raions = raionList, // Заполняем список районов в стейте
+                    apartments = emptyList(), // Список квартир пока пуст
+                    listMode = ListMode.RAIONS, // Переключаем UI в режим выбора района
+                    mainLoading = false,
+                    apartmentLoading = false
+
+                  )
+                }
+                is Resource.Error -> {
+                  Log.e("YkisLog", "$methodName: [RAIONS_ERROR] Msg: ${result.message}")
+                  state.copy(mainLoading = false, error = result.message)
+                }
+                is Resource.Loading -> state.copy(mainLoading = true)
+              }
             }
-            is Resource.Loading -> {
-              Log.d("YkisLog", "$methodName: [ADMIN_LOADING] osbbId: $currentOsbbId")
+
+            if (result is Resource.Success) {
+              // Синхронизируем профиль и запускаем трекер чатов (пока по роли)
+              firebaseService.updateUserRoleAndPermissions(user.uid, 0, currentUserRole, currentOsbbId, user.name ?: "Організація")
+              chatViewModel.trackUserIdentifiersWithRole(currentUserRole, currentOsbbId)
             }
           }
         }
       }
+
     }
   }
 
@@ -291,44 +357,7 @@ class ApartmentViewModel(
     observeUserProfile()
   }
 
-  fun switchToResidentMode(targetApartment: ApartmentEntity) {
-    val methodName = "ApartmentViewModel.switchToResidentMode()"
-    Log.d("YkisLog", "$methodName: [SWITCH] Переход в режим жильца для квартиры: ${targetApartment.address}")
-
-    viewModelScope.launch {
-      val combinedName = "${targetApartment.address} | ${targetApartment.nanim ?: ""}"
-
-      // 1. Обновляем UI стейт так, будто мы StandardUser
-      _uiState.update { currentState ->
-        currentState.copy(
-          userRole = UserRole.StandardUser, // UI теперь думает, что мы жилец
-          addressId = targetApartment.addressId,
-          osbbId = targetApartment.osmdId,
-          osmdId = targetApartment.osmdId,
-          houseId = targetApartment.houseId,
-          address = targetApartment.address,
-          displayName = combinedName,
-          apartment = targetApartment,
-          mainLoading = false
-        )
-      }
-
-      // 2. Запускаем мониторинг счетчиков именно этой квартиры  Используем UID админа, но addressId выбранной квартиры
-      chatViewModel.subscribeToResidentCounters(
-        uid = _uiState.value.uid ?: "",
-        osbbId = targetApartment.osmdId,
-        addressId = targetApartment.addressId
-      )
-
-      Log.d("YkisLog", "$methodName: [SUCCESS] Интерфейс переключен на квартиру ${targetApartment.addressId}")
-    }
-  }
-
-
-
-
-
-  fun onSecretCodeChange(newValue: String) {
+    fun onSecretCodeChange(newValue: String) {
     _secretCode.value = newValue
   }
   fun addApartment(restartApp: () -> Unit) {
@@ -655,9 +684,6 @@ class ApartmentViewModel(
       }
     }.launchIn(this.viewModelScope)
   }
-
-
-
 
 
 

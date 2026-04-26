@@ -3,6 +3,8 @@ package com.ykis.mob.data.remote.api
 import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.appartment.GetApartmentResponse
 import com.ykis.mob.data.remote.appartment.GetApartmentsResponse
+import com.ykis.mob.data.remote.appartment.GetHousesResponse
+import com.ykis.mob.data.remote.appartment.GetRaionsResponse
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.data.remote.family.GetFamilyResponse
 import com.ykis.mob.data.remote.heat.GetHeatMeterResponse
@@ -20,6 +22,7 @@ import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.header
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod.Companion.Get
 import io.ktor.http.parameters
 
 // ... импортируй остальные Response модели
@@ -51,6 +54,11 @@ class KtorApiService(private val client: HttpClient) {
   suspend fun getOsbbApartmentsList(params: Map<String, String>) =
     postForm<GetApartmentsResponse>("getOsbbApartmentsList.php", params)
 
+  suspend fun getRaionList(params: Map<String, String>) =
+    postForm<GetRaionsResponse>("getRaionList.php", params )
+
+  suspend fun getHouseList(params: Map<String, String>) =
+    postForm<GetHousesResponse>("getHouseList.php", params )
 
   suspend fun getApartment(params: Map<String, String>) =
     postForm<GetApartmentResponse>("getFlatById.php", params)

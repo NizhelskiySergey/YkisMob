@@ -5,6 +5,7 @@ import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.appartment.ApartmentRemote
 import com.ykis.mob.data.remote.appartment.GetApartmentResponse
 import com.ykis.mob.data.remote.appartment.GetApartmentsResponse
+import com.ykis.mob.data.remote.appartment.GetRaionsResponse
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
 import com.ykis.mob.domain.apartment.ApartmentRepository
@@ -18,6 +19,9 @@ class ApartmentRepositoryImpl(
   }
   override suspend fun getOsbbApartmentsList(osbbId:Int): GetApartmentsResponse{
     return apartmentRemote.getOsbbApartmentsList(osbbId)
+  }
+  override suspend fun getRaionList(uid: String): GetRaionsResponse{
+    return apartmentRemote.getRaionList(uid)
   }
 
   override suspend fun updateBti(params: ApartmentEntity): BaseResponse {

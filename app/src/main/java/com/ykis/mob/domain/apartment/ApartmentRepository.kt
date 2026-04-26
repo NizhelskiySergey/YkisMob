@@ -3,7 +3,10 @@ package com.ykis.mob.domain.apartment
 import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.appartment.GetApartmentResponse
 import com.ykis.mob.data.remote.appartment.GetApartmentsResponse
+import com.ykis.mob.data.remote.appartment.GetHousesResponse
+import com.ykis.mob.data.remote.appartment.GetRaionsResponse
 import com.ykis.mob.data.remote.core.BaseResponse
+import com.ykis.mob.domain.apartment.request.GetRaionList
 
 interface ApartmentRepository {
   suspend fun getApartmentList(uid: String): GetApartmentsResponse
@@ -16,5 +19,7 @@ interface ApartmentRepository {
   suspend fun deleteUserAccount(uid: String,email: String): GetSimpleResponse
   // В ApartmentRepository
   suspend fun getOsbbApartmentsList(osbbId: Int): GetApartmentsResponse // Твой формат ответа
+  suspend fun getRaionList(uid: String): GetRaionsResponse // Твой формат ответа
+  suspend fun getHouseList(uid: String): GetHousesResponse // Твой формат ответа
 
 }

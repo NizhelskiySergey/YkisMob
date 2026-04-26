@@ -49,6 +49,7 @@ import com.ykis.mob.core.ext.truncate
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.navigation.AddApartmentScreen
+import com.ykis.mob.ui.navigation.RaionDropdownSelector
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import kotlinx.coroutines.delay
@@ -69,6 +70,7 @@ fun ModalNavigationDrawerContent(
 
   val searchQuery by apartmentViewModel.searchQuery.collectAsStateWithLifecycle()
   val apartments by apartmentViewModel.filteredApartments.collectAsStateWithLifecycle()
+//  val isOrgAdmin = baseUIState.userRole != UserRole.StandardUser && baseUIState.userRole != UserRole.OsbbUser
 
   val isUserAdmin = baseUIState.userRole != UserRole.StandardUser
   // 1. Получаем сырую мапу из ViewModel
@@ -111,6 +113,14 @@ fun ModalNavigationDrawerContent(
         Spacer(modifier = Modifier.height(12.dp))
 
         if (isUserAdmin) {
+          RaionDropdownSelector(
+            raions = baseUIState.raions,
+            onRaionSelected = { raion ->
+              Log.d("YkisLog", "Drawer: Выбран район ${raion.raion}")
+              apartmentViewModel.onRaionSelected(raion)
+            }
+          )
+          HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
           // --- ПОИСК ДЛЯ АДМИНА ---
           OutlinedTextField(
             value = searchQuery,

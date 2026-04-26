@@ -1,6 +1,7 @@
 package com.ykis.mob.data.cache.database
 
 
+import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -8,11 +9,15 @@ import com.ykis.mob.data.cache.dao.ApartmentDao
 import com.ykis.mob.data.cache.dao.FamilyDao
 import com.ykis.mob.data.cache.dao.HeatMeterDao
 import com.ykis.mob.data.cache.dao.HeatReadingDao
+import com.ykis.mob.data.cache.dao.HouseDao
 import com.ykis.mob.data.cache.dao.PaymentDao
+import com.ykis.mob.data.cache.dao.RaionDao
 import com.ykis.mob.data.cache.dao.ServiceDao
 import com.ykis.mob.data.cache.dao.WaterMeterDao
 import com.ykis.mob.data.cache.dao.WaterReadingDao
 import com.ykis.mob.domain.apartment.ApartmentEntity
+import com.ykis.mob.domain.apartment.HouseEntity
+import com.ykis.mob.domain.apartment.RaionEntity
 import com.ykis.mob.domain.family.FamilyEntity
 import com.ykis.mob.domain.meter.heat.meter.HeatMeterEntity
 import com.ykis.mob.domain.meter.heat.reading.HeatReadingEntity
@@ -31,13 +36,18 @@ import kotlinx.coroutines.CoroutineScope
     WaterMeterEntity::class,
     WaterReadingEntity::class,
     HeatMeterEntity::class,
-    HeatReadingEntity::class
+    HeatReadingEntity::class,
+    RaionEntity::class,
+    HouseEntity::class,
+
   ],
-  version = 4,
+  version = 5,
   exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
   abstract fun apartmentDao(): ApartmentDao
+  abstract fun raionDao(): RaionDao
+  abstract fun houseDao(): HouseDao
   abstract fun familyDao(): FamilyDao
   abstract fun serviceDao(): ServiceDao
   abstract fun paymentDao(): PaymentDao

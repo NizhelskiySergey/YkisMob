@@ -14,7 +14,9 @@ class GetApartmentList(
   private val repository: ApartmentRepository,
   private val database: AppDatabase
 ) {
-  operator fun invoke(uid: String): Flow<Resource<List<ApartmentEntity>>> = flow {
+  operator fun invoke(
+    uid: String
+  ): Flow<Resource<List<ApartmentEntity>>> = flow {
     val methodName = "UseCase.GetApartmentList"
 
     // Защита от пустого UID
