@@ -94,17 +94,20 @@ fun ChatScreenStateful(
   val selectedUser by chatViewModel.selectedUser.collectAsStateWithLifecycle()
   val selectedService by chatViewModel.selectedService.collectAsStateWithLifecycle()
 
-  // Логика определения chatUid
-  val chatUid = remember(baseUIState.userRole, selectedUser, selectedService) {
-    when (baseUIState.userRole) {
-      UserRole.YtkeUser -> "9997"
-      UserRole.VodokanalUser -> "9998"
-      UserRole.TboUser -> "9999"
-      UserRole.OsbbUser -> selectedUser?.uid ?: ""
-      UserRole.StandardUser -> baseUIState.uid.toString()
-      else -> ""
+  // Логика определения chatUid.
+  // Извлекаем конкретное значение UID, чтобы remember реагировал на смену пользователя
+  val targetUid = selectedUser.uid ?: ""
+
+  val chatUid = remember(baseUIState.userRole, targetUid, baseUIState.uid) {
+    Log.d("YkisLog", "RootNavGraph.chatUid: [CALC] Role: ${baseUIState.userRole} | TargetUID: $targetUid")
+    if (baseUIState.userRole == UserRole.StandardUser) {
+      baseUIState.uid.toString()
+    } else {
+      targetUid // Для админа ТБО это будет qf2p7ogvjn...
     }
   }
+
+
 
   // ВЫЗОВ В СТРОГОМ СООТВЕТСТВИИ С КОНСТРУКТОРОМ ChatScreenContent
   ChatScreenContent(
@@ -159,9 +162,9 @@ fun ChatScreenContent(
   // --- 1. ЛОГИКА ФОРМИРОВАНИЯ КОНТЕНТА ---
   val currentChatOsbbId = remember(baseUIState.userRole, baseUIState.osbbId) {
     when (baseUIState.userRole) {
-      UserRole.YtkeUser -> 9997
-      UserRole.VodokanalUser -> 9998
-      UserRole.TboUser -> 9999
+      UserRole.YtkeUser -> 9998
+      UserRole.VodokanalUser -> 9999
+      UserRole.TboUser -> 9997
       UserRole.OsbbUser -> baseUIState.osbbId ?: 0
       else -> baseUIState.osmdId
     }
@@ -177,6 +180,7 @@ fun ChatScreenContent(
   }
 
   // --- 2. ЭФФЕКТЫ ---
+  // --- 2. ЭФФЕКТЫ ---
   DisposableEffect(Unit) {
     onDispose {
       Log.d("YkisLog", "Chat: [DISPOSE] Очистка пути чата")
@@ -184,17 +188,27 @@ fun ChatScreenContent(
     }
   }
 
-  LaunchedEffect(chatUid) {
-    if (chatUid.isNotEmpty() && baseUIState.userRole == UserRole.StandardUser) {
-      Log.d("YkisLog", "Chat: [INIT] Загрузка сообщений для AddressID: ${baseUIState.addressId}")
-      chatViewModel.readFromDatabase(
-        role = baseUIState.userRole,
-        senderUid = chatUid,
-        osbbId = currentChatOsbbId,
-        addressId = baseUIState.addressId
-      )
+  // КРИТИЧЕСКИЙ ФИКС: Эта загрузка должна срабатывать ТОЛЬКО для жильца.
+  // Админ уже вызвал readFromDatabase в методе openChatWithUser при клике в списке.
+  LaunchedEffect(chatUid, baseUIState.addressId) {
+    val role = baseUIState.userRole
+
+    if (role == UserRole.StandardUser) {
+      if (chatUid.isNotEmpty() && baseUIState.addressId > 0) {
+        Log.d("YkisLog", "Chat: [INIT_RESIDENT] Загрузка сообщений для о/р: ${baseUIState.addressId}")
+        chatViewModel.readFromDatabase(
+          role = role,
+          senderUid = chatUid,
+          osbbId = currentChatOsbbId,
+          addressId = baseUIState.addressId
+        )
+      }
+    } else {
+      // Для админа просто подтверждаем в логах, что мы на экране
+      Log.d("YkisLog", "Chat: [INIT_ADMIN] Экран открыт для ${userEntity.displayName}")
     }
   }
+
 
   LaunchedEffect(chatItems.size) {
     if (chatItems.isNotEmpty()) {
@@ -341,7 +355,7 @@ fun ChatScreenContent(
       chatItems.forEach { chatItem ->
         when (chatItem) {
           is ChatItem.DateHeader -> stickyHeader { DateChip(date = chatItem.date) }
-          is ChatItem.MessageItem -> item(key = chatItem.message.id) {
+          is ChatItem.MessageItem -> item(key = "${chatItem.message.id}_${chatItem.message.timestamp}") {
             MessageListItem(
               uid = myUid,
               isUserAdmin = baseUIState.userRole != UserRole.StandardUser,

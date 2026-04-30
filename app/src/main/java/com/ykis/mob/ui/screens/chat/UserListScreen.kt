@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Info
@@ -29,7 +30,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -37,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ykis.mob.R
 import com.ykis.mob.domain.UserRole
@@ -47,10 +51,11 @@ import com.ykis.mob.ui.navigation.NavigationType
 import com.ykis.mob.ui.screens.service.list.TotalDebtState
 import com.ykis.mob.ui.screens.service.list.TotalServiceDebt
 import com.ykis.mob.ui.screens.service.list.assembleServiceList
+
 @Composable
 fun UserListScreen(
   modifier: Modifier = Modifier,
-  userList: List<UserEntity>,
+  userList: List<UserEntity>, // Список от админа (уже отфильтрованный/реактивный из NavGraph)
   baseUIState: BaseUIState,
   onUserClicked: (UserEntity) -> Unit,
   onServiceClick: (TotalServiceDebt) -> Unit,
@@ -58,27 +63,35 @@ fun UserListScreen(
   navigationType: NavigationType,
   chatViewModel: ChatViewModel
 ) {
+  val methodName = "UserListScreen"
   val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
   val isForwardingMode by chatViewModel.isForwardingMode.collectAsStateWithLifecycle()
+  val lastMessages by chatViewModel.lastMessages.collectAsStateWithLifecycle()
   val messageToForward by chatViewModel.forwardingMessage.collectAsStateWithLifecycle()
+
+  // Лог при входе или смене роли
+  LaunchedEffect(baseUIState.userRole, baseUIState.addressId) {
+    Log.d(
+      "YkisLog",
+      "$methodName: [ENTER] Role: ${baseUIState.userRole} | Address: ${baseUIState.addressId}"
+    )
+  }
 
   Column(modifier = modifier.fillMaxSize()) {
     // 1. ВЕРХНЯЯ ПАНЕЛЬ
     DefaultAppBar(
-      title =  stringResource(id = R.string.chat),
-      subtitle =  if (baseUIState.userRole== UserRole.StandardUser) baseUIState.address else "", // Добавили адрес текущей квартиры
+      title = stringResource(id = R.string.chat),
+      subtitle = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address else "",
       onDrawerClick = onDrawerClicked,
-      canNavigateBack = isForwardingMode, // В режиме пересылки можно нажать "назад"
-      onBackClick = { chatViewModel.cancelForwarding() },
+      canNavigateBack = isForwardingMode,
+      onBackClick = {
+        Log.d("YkisLog", "$methodName: [CANCEL_FORWARD]")
+        chatViewModel.cancelForwarding()
+      },
       navigationType = navigationType
     )
 
-
-
     // 2. ИНДИКАТОР РЕЖИМА ПЕРЕСЫЛКИ
-    // 1. Подписываемся на само сообщение (это уберет Warning "never used")
-    val messageToForward by chatViewModel.forwardingMessage.collectAsStateWithLifecycle()
-
     AnimatedVisibility(
       visible = isForwardingMode,
       enter = expandVertically(),
@@ -87,20 +100,18 @@ fun UserListScreen(
       Surface(
         color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = Modifier.fillMaxWidth(),
-        tonalElevation = 4.dp // Добавим немного глубины
+        tonalElevation = 4.dp
       ) {
         Row(
           modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
           verticalAlignment = Alignment.CenterVertically
         ) {
-          // Иконка пересылки
           Icon(
             imageVector = Icons.AutoMirrored.Filled.Reply,
             contentDescription = null,
             modifier = Modifier.size(20.dp),
             tint = MaterialTheme.colorScheme.primary
           )
-
           Column(
             modifier = Modifier
               .padding(start = 12.dp)
@@ -111,19 +122,15 @@ fun UserListScreen(
               style = MaterialTheme.typography.labelLarge,
               color = MaterialTheme.colorScheme.primary
             )
-            // ПРЕВЬЮ: показываем текст или пометку "Фото"
             Text(
-              text = if (!messageToForward?.imageUrl.isNullOrEmpty())
-                "🖼 Фотография"
-              else
-                messageToForward?.text ?: "",
+              text = if (!messageToForward?.imageUrl.isNullOrEmpty()) "🖼 Фотографія"
+              else messageToForward?.text ?: "",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
               maxLines = 1,
               overflow = TextOverflow.Ellipsis
             )
           }
-
           TextButton(onClick = { chatViewModel.cancelForwarding() }) {
             Text(stringResource(R.string.cancel))
           }
@@ -131,7 +138,7 @@ fun UserListScreen(
       }
     }
 
-
+    // 3. КОНТЕНТ (АДМИН vs ЖИТЕЛЬ)
     if (baseUIState.userRole != UserRole.StandardUser) {
       // --- РЕЖИМ АДМИНА ---
       UserList(
@@ -139,8 +146,10 @@ fun UserListScreen(
         baseUIState = baseUIState,
         onUserClick = { user ->
           if (isForwardingMode) {
+            Log.d("YkisLog", "$methodName: [FORWARD_TO_USER] UID: ${user.uid}")
             chatViewModel.confirmForward(user)
           } else {
+            Log.d("YkisLog", "$methodName: [OPEN_USER_CHAT] UID: ${user.uid}")
             onUserClicked(user)
           }
         },
@@ -155,15 +164,21 @@ fun UserListScreen(
             .padding(horizontal = 16.dp),
           verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-          assembleServiceList(
-            totalDebtState = TotalDebtState(),
-            baseUIState = baseUIState
-          ).forEach { service ->
-            val servicePrefix = service.contentDetail.name
-            val chatId = if (service.contentDetail == ContentDetail.OSBB) {
-              "OSBB_${baseUIState.osbbId}_${baseUIState.addressId}_${baseUIState.uid}"
-            } else {
-              "${servicePrefix}_${baseUIState.addressId}_${baseUIState.uid}"
+          // Генерируем список служб с учетом актуального ОСББ
+          val residentServices =     assembleServiceList(
+              totalDebtState = TotalDebtState(),
+              baseUIState = baseUIState
+            )
+
+
+          residentServices.forEach { service ->
+            // ФОРМИРУЕМ УНИФИЦИРОВАННЫЙ ПУТЬ ДЛЯ БЕЙДЖЕЙ
+            val chatId = when (service.contentDetail) {
+              ContentDetail.OSBB -> "OSBB_${baseUIState.osmdId ?: baseUIState.osbbId}_${baseUIState.addressId}_${baseUIState.uid}"
+              ContentDetail.WATER_SERVICE -> "WATER_SERVICE_9999_${baseUIState.addressId}_${baseUIState.uid}"
+              ContentDetail.WARM_SERVICE -> "WARM_SERVICE_9998_${baseUIState.addressId}_${baseUIState.uid}"
+              ContentDetail.GARBAGE_SERVICE -> "GARBAGE_SERVICE_9997_${baseUIState.addressId}_${baseUIState.uid}"
+              else -> "${service.contentDetail.name}_${baseUIState.addressId}_${baseUIState.uid}"
             }
 
             val count = unreadCounts[chatId] ?: 0
@@ -171,21 +186,28 @@ fun UserListScreen(
             Box(modifier = Modifier.fillMaxWidth()) {
               Button(
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
                 onClick = {
                   if (isForwardingMode) {
+                    Log.d("YkisLog", "$methodName: [FORWARD_TO_SERVICE] ${service.contentDetail}")
                     chatViewModel.confirmForwardToService(service.contentDetail, baseUIState)
                   } else {
+                    Log.d("YkisLog", "$methodName: [OPEN_SERVICE_CHAT] Path: $chatId")
                     onServiceClick(service)
                   }
-                },
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                }
               ) {
                 Row(
                   modifier = Modifier.fillMaxWidth(),
                   horizontalArrangement = Arrangement.spacedBy(12.dp),
                   verticalAlignment = Alignment.CenterVertically
                 ) {
-                  Icon(imageVector = service.icon, contentDescription = null)
+                  Icon(
+                    imageVector = service.icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp)
+                  )
                   Text(
                     modifier = Modifier.weight(1f),
                     text = service.name,
@@ -195,17 +217,20 @@ fun UserListScreen(
                 }
               }
 
-              // BADGE
+              // БЕЙДЖ НЕПРОЧИТАННЫХ
               if (count > 0 && !isForwardingMode) {
                 Surface(
-                  modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp),
+                  modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 6.dp, y = (-6).dp),
                   shape = CircleShape,
-                  color = MaterialTheme.colorScheme.error
+                  color = MaterialTheme.colorScheme.error,
+                  tonalElevation = 4.dp
                 ) {
                   Text(
                     text = if (count > 9) "9+" else count.toString(),
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                     color = MaterialTheme.colorScheme.onError,
                     fontWeight = FontWeight.Bold
                   )
@@ -218,6 +243,7 @@ fun UserListScreen(
     }
   }
 }
+
 
 
 

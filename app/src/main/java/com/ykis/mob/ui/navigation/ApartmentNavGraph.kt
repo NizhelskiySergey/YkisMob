@@ -26,7 +26,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -38,7 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -60,16 +59,15 @@ import com.ykis.mob.ui.screens.chat.ChatViewModel
 import com.ykis.mob.ui.screens.chat.UserListScreen
 import com.ykis.mob.ui.screens.meter.MainMeterScreen
 import com.ykis.mob.ui.screens.meter.MeterViewModel
-import com.ykis.mob.ui.screens.profile.ProfileScreen
-import com.ykis.mob.ui.screens.profile.ProfileViewModel
 import com.ykis.mob.ui.screens.service.MainServiceScreen
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.service.list.TotalServiceDebt
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
 import com.ykis.mob.ui.screens.settings.SettingsScreenStateful
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
+
 @Composable
 fun MainApartmentScreen(
   contentType: ContentType,
@@ -103,96 +101,95 @@ fun MainApartmentScreen(
   )
   val currentFirebaseUid = firebaseService.uid
 
-  // 1. КОНТРОЛЬ СОСТОЯНИЯ (Для логов и блокировки графа)
-  val stateLog = "UID: ${baseUIState.uid}, Role: ${baseUIState.userRole}, OSBB: ${baseUIState.osbbId}, Addr: ${baseUIState.addressId}"
-
+  // 1. КОНТРОЛЬ ГОТОВНОСТИ ДАННЫХ
   val isDataReady = remember(baseUIState.uid, currentFirebaseUid, baseUIState.mainLoading) {
-    // Готовы, если UID совпали и загрузка завершена, ИЛИ если юзера вообще нет (для редиректа)
-    (baseUIState.uid == currentFirebaseUid && !baseUIState.mainLoading) || currentFirebaseUid == null
+    baseUIState.uid == currentFirebaseUid && !baseUIState.mainLoading
   }
 
-  // 2. ВЫЧИСЛЕНИЕ МАРШРУТА
-  val firstDestination = remember(baseUIState.userRole, baseUIState.apartments, isDataReady) {
-    val methodName = "MainApartmentScreen.firstDestination"
-
-    // Пока не готовы, не считаем маршрут, чтобы не спровоцировать краш NavHost
+  // 2. ВЫЧИСЛЕНИЕ СТАРТОВОГО МАРШРУТА
+  val firstDestination = remember(baseUIState.userRole, baseUIState.apartment, isDataReady) {
     if (!isDataReady) return@remember "loading_buffer"
 
     val hasApartments = baseUIState.apartments.isNotEmpty()
-    val role = baseUIState.userRole
-
-    val route = when (role) {
+    when (baseUIState.userRole) {
       UserRole.VodokanalUser, UserRole.YtkeUser, UserRole.TboUser -> UserListScreen.route
       UserRole.OsbbUser -> if (hasApartments) InfoApartmentScreenDest.route else UserListScreen.route
       UserRole.StandardUser -> if (!hasApartments) AddApartmentScreen.route else InfoApartmentScreenDest.route
       else -> InfoApartmentScreenDest.route
     }
-
-    Log.d("YkisLog", "$methodName: [DECISION] Route: $route | $stateLog")
-    route
   }
 
-  // 3. СИНХРОНИЗАЦИЯ И ЗАЩИТА
-  LaunchedEffect(baseUIState.uid, currentFirebaseUid) {
-    val methodName = "MainApartmentScreen.LaunchedEffect"
+  // 3. ФУНКЦИЯ ФИНАЛЬНОГО ВЫБОРА КВАРТИРЫ (Золотой фонд)
+  val finalizeApartmentSelection: (Int) -> Unit = { id ->
+    Log.d("YkisLog", "Main: [FINAL_SELECT] ID: $id")
 
-    // ШАГ 0: Жесткий редирект, если сессия потеряна
-    if (currentFirebaseUid == null) {
-      Log.e("YkisLog", "$methodName: [FATAL] Экран открыт без авторизации. Уходим.")
-      rootNavController.navigate(Graph.AUTHENTICATION) {
-        popUpTo(0) { inclusive = true }
+    serviceViewModel.resetState()
+    apartmentViewModel.setAddressId(id)
+
+    // 1. Сначала полностью обнуляем стек
+    cleanNavigateTo(navController, Graph.APARTMENT)
+
+    coroutineScope.launch {
+      if (drawerState.isOpen) drawerState.close()
+
+      // 2. Даем навигатору "вздохнуть" после чистки стека
+      delay(200)
+
+      // 3. Переходим на Инфо БЕЗ попыток что-либо восстановить
+      navController.navigate(InfoApartmentScreenDest.route) {
+        popUpTo(navController.graph.startDestinationId) { inclusive = true }
+        launchSingleTop = true
+        restoreState = false // Гарантируем чистоту
       }
-      return@LaunchedEffect
     }
+  }
 
-    // БАРЬЕР №2: Синхронизация для залогиненных
-    if (baseUIState.uid != currentFirebaseUid) {
-      Log.w("YkisLog", "$methodName: [UID_MISMATCH] Стейт: ${baseUIState.uid} != Auth: $currentFirebaseUid")
-      apartmentViewModel.observeUserProfile()
-      return@LaunchedEffect
-    }
 
-    // ШАГ 2: Проверка данных
-    if (baseUIState.apartments.isEmpty() && !baseUIState.mainLoading) {
-      Log.d("YkisLog", "$methodName: [INIT_LOAD] Список пуст, обновляем данные. ($stateLog)")
+
+
+  // Инициализация профиля
+  LaunchedEffect(currentFirebaseUid) {
+    if (baseUIState.uid == null && currentFirebaseUid != null) {
       apartmentViewModel.observeUserProfile()
     }
   }
 
-  // 4. ГРАФ НАВИГАЦИИ (Обернут в проверку готовности)
-  val movableApartmentNavGraph = remember(baseUIState, contentType, navigationType, firstDestination, isDataReady) {
-    movableContentOf {
-      if (!isDataReady || firstDestination == "loading_buffer") {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-          CircularProgressIndicator()
+  // 4. ГРАФ НАВИГАЦИИ (MovableContent для плавности переходов)
+  val movableApartmentNavGraph =
+    remember(baseUIState, contentType, navigationType, firstDestination, isDataReady) {
+      movableContentOf {
+        if (!isDataReady || firstDestination == "loading_buffer") {
+          Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+          }
+        } else {
+          ApartmentNavGraph(
+            modifier = Modifier.fillMaxSize(),
+            contentType = contentType,
+            navigationType = navigationType,
+            displayFeatures = displayFeatures,
+            baseUIState = baseUIState,
+            navController = navController,
+            onDrawerClicked = { coroutineScope.launch { drawerState.open() } },
+            apartmentViewModel = apartmentViewModel,
+            rootNavController = rootNavController,
+            firstDestination = firstDestination,
+            meterViewModel = meterViewModel,
+            serviceViewModel = serviceViewModel,
+            chatViewModel = chatViewModel,
+            newSettingsViewModel = newSettingsViewModel,
+            closeContentDetail = {
+              meterViewModel.closeContentDetail()
+              serviceViewModel.closeContentDetail()
+            },
+            navigateToWebView = navigateToWebView,
+          )
         }
-      } else {
-        ApartmentNavGraph(
-          modifier = Modifier.fillMaxSize(),
-          contentType = contentType,
-          navigationType = navigationType,
-          displayFeatures = displayFeatures,
-          baseUIState = baseUIState,
-          navController = navController,
-          onDrawerClicked = { coroutineScope.launch { drawerState.open() } },
-          apartmentViewModel = apartmentViewModel,
-          rootNavController = rootNavController,
-          firstDestination = firstDestination,
-          meterViewModel = meterViewModel,
-          serviceViewModel = serviceViewModel,
-          chatViewModel = chatViewModel,
-          newSettingsViewModel = newSettingsViewModel,
-          closeContentDetail = {
-            meterViewModel.closeContentDetail()
-            serviceViewModel.closeContentDetail()
-          },
-          navigateToWebView = navigateToWebView,
-        )
       }
     }
-  }
+
+  // 5. UI СТРУКТУРА (Телефон vs Планшет)
   if (navigationType == NavigationType.BOTTOM_NAVIGATION) {
-    // --- ТЕЛЕФОН (Шторка с поиском + Нижняя панель) ---
     ModalNavigationDrawer(
       drawerState = drawerState,
       drawerContent = {
@@ -200,7 +197,7 @@ fun MainApartmentScreen(
           baseUIState = baseUIState,
           selectedDestination = selectedDestination,
           chatViewModel = chatViewModel,
-          apartmentViewModel = apartmentViewModel, // Для поиска и списка всех квартир
+          apartmentViewModel = apartmentViewModel,
           navigateToDestination = { dest ->
             coroutineScope.launch {
               drawerState.close()
@@ -208,24 +205,17 @@ fun MainApartmentScreen(
             }
           },
           onMenuClick = { coroutineScope.launch { drawerState.close() } },
-          navigateToApartment = { id ->
-            apartmentViewModel.setAddressId(id)
-            coroutineScope.launch {
-              drawerState.close()
-              // После выбора квартиры админом - перекидываем его на экран этой квартиры
-              navController.navigate(InfoApartmentScreenDest.route) {
-                popUpTo(0) { inclusive = true }
-              }
-            }
-          },
-          isApartmentsEmpty = baseUIState.apartments.isEmpty()
+          navigateToApartment = finalizeApartmentSelection,
+          isApartmentsEmpty = baseUIState.addressId == 0
         )
       }
     ) {
       Scaffold(
         bottomBar = {
-          // Нижняя панель только если есть квартиры или если мы админ
-          if (baseUIState.apartments.isNotEmpty() || baseUIState.userRole != UserRole.StandardUser) {
+          // Показываем нижнее меню, если выбрана квартира ИЛИ если это админ в списке чатов
+          val showBottomBar =
+            baseUIState.addressId != 0 || baseUIState.userRole != UserRole.StandardUser
+          if (showBottomBar) {
             BottomNavigationBar(
               selectedDestination = selectedDestination,
               chatViewModel = chatViewModel,
@@ -242,7 +232,6 @@ fun MainApartmentScreen(
       }
     }
   } else {
-    // --- ПЛАНШЕТ (Боковая панель с поиском) ---
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
       Row(modifier = Modifier.fillMaxSize()) {
         ApartmentNavigationRail(
@@ -250,33 +239,34 @@ fun MainApartmentScreen(
           baseUIState = baseUIState,
           selectedDestination = selectedDestination,
           chatViewModel = chatViewModel,
-          apartmentViewModel = apartmentViewModel, // Передаем для поиска на планшете
+          apartmentViewModel = apartmentViewModel,
           isRailExpanded = isRailExpanded,
           onMenuClick = onMenuClick,
           navigateToDestination = { dest ->
-            navController.navigateWithPopUp(dest, firstDestination)
-          },
-          navigateToApartment = { id ->
-            apartmentViewModel.setAddressId(id)
-            // На планшете просто обновляем текущий контент
-            navController.navigate(InfoApartmentScreenDest.route) {
-              popUpTo(InfoApartmentScreenDest.route) { inclusive = true }
+            Log.d("YkisLog", "Rail: [NAV_SAFE] Переход на $dest")
+            navController.navigate(dest) {
+              // Очищаем стек до корня, чтобы не плодить копии
+              popUpTo(navController.graph.findStartDestination().id) {
+                saveState = false // ЗАПРЕЩАЕМ сохранять битое состояние
+              }
+              launchSingleTop = true
+              restoreState = false // КРИТИЧЕСКИЙ ФИКС: отключаем восстановление
             }
           },
-          isApartmentsEmpty = baseUIState.apartments.isEmpty(),
+          navigateToApartment = finalizeApartmentSelection,
+          isApartmentsEmpty = baseUIState.addressId == 0,
           railWidth = railWidth
         )
-
         VerticalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-
-        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+        Box(modifier = Modifier
+          .weight(1f)
+          .fillMaxHeight()) {
           movableApartmentNavGraph()
         }
       }
     }
   }
 }
-
 
 @Composable
 fun ApartmentNavGraph(
@@ -319,17 +309,19 @@ fun ApartmentNavGraph(
         route = Graph.APARTMENT,
         startDestination = firstDestination
       ) {
-
         composable(UserListScreen.route) {
-          // 1. Автоматический запуск отслеживания чатов для админа при входе на экран
+          // 1. Мониторинг веток для админа (с учетом системных ID служб)
           LaunchedEffect(baseUIState.userRole, baseUIState.osbbId) {
             val role = baseUIState.userRole
-            val osbbId = baseUIState.osbbId ?: 0
-
-            if (role != UserRole.StandardUser) {
-              Log.d("YkisLog", "NavGraph: Admin ($role) tracking for OSBB: $osbbId")
-              chatViewModel.trackUserIdentifiersWithRole(role, osbbId)
+            val effectiveOsbbId = when (role) {
+              UserRole.VodokanalUser -> 9999
+              UserRole.YtkeUser -> 9998
+              UserRole.TboUser -> 9997
+              else -> baseUIState.osbbId ?: 0
             }
+
+            Log.d("YkisLog", "NavGraph: [TRACKING_START] Role: $role, ID: $effectiveOsbbId")
+            chatViewModel.trackUserIdentifiersWithRole(role, effectiveOsbbId)
           }
 
           UserListScreen(
@@ -339,50 +331,54 @@ fun ApartmentNavGraph(
             navigationType = navigationType,
             onDrawerClicked = onDrawerClicked,
 
-            // КЛИК АДМИНА: Используем новую функцию openChatWithUser
+            // КЛИК АДМИНА: Открываем чат и ПРИНУДИТЕЛЬНО меняем адрес в Rail/Инфо
             onUserClicked = { resident ->
-              // Определяем правильный osbbId для формирования пути chatId
-              val effectiveOsbbId = when (baseUIState.userRole) {
-                UserRole.OsbbUser -> baseUIState.osbbId ?: 0
-                // Для сервисных служб (Водоканал и т.д.) osbbId в пути не участвует,
-                // но метод требует Int. Передаем 0 или то, что ожидает getChatPath
-                else -> 0
+              val role = baseUIState.userRole
+              val sysId = when (role) {
+                UserRole.VodokanalUser -> 9999
+                UserRole.YtkeUser -> 9998
+                UserRole.TboUser -> 9997
+                else -> baseUIState.osbbId ?: 0
               }
+
+              Log.d(
+                "YkisLog",
+                "NavGraph: [ADMIN_ACTION] Клик по жильцу: ${resident.displayName}, о/р: ${resident.addressId}"
+              )
 
               chatViewModel.openChatWithUser(
                 user = resident,
-                currentRole = baseUIState.userRole,
-                currentOsbbId = effectiveOsbbId
+                currentRole = role,
+                currentOsbbId = sysId
               )
               rootNavController.navigate(ChatScreenDest.route)
             },
 
-
-            // КЛИК ЖИЛЬЦА: Передаем addressId текущей выбранной квартиры
+            // КЛИК ЖИЛЬЦА: Пишем в конкретную службу из своей квартиры
             onServiceClick = { service ->
+              Log.d(
+                "YkisLog",
+                "NavGraph: [USER_ACTION] Чат со службой: ${service.contentDetail.name}"
+              )
               chatViewModel.setSelectedService(service)
               chatViewModel.readFromDatabase(
                 role = baseUIState.userRole,
                 senderUid = baseUIState.uid ?: "",
                 osbbId = baseUIState.osbbId ?: 0,
-                addressId = baseUIState.addressId // Передаем ID текущей квартиры жильца
+                addressId = baseUIState.addressId
               )
               rootNavController.navigate(ChatScreenDest.route)
             }
           )
         }
 
-
         composable(AddApartmentScreen.route) {
           AddApartmentScreenContent(
             viewModel = apartmentViewModel,
             navController = navController,
-            canNavigateBack = navController.previousBackStackEntry != null,
             onDrawerClicked = onDrawerClicked,
             navigationType = navigationType,
-            closeContentDetail = {
-              closeContentDetail()
-            }
+            closeContentDetail = { closeContentDetail() }
           )
         }
 
@@ -390,12 +386,11 @@ fun ApartmentNavGraph(
           SettingsScreenStateful(
             navigationType = navigationType,
             newSettingsViewModel = newSettingsViewModel,
-            navigateToAuthGraph = {
-              rootNavController.cleanNavigateTo(Graph.AUTHENTICATION)
-            },
+            navigateToAuthGraph = { rootNavController.cleanNavigateTo(Graph.AUTHENTICATION) },
             onDrawerClick = onDrawerClicked
           )
         }
+
         composable(MeterScreen.route) {
           MainMeterScreen(
             baseUIState = baseUIState,
@@ -406,6 +401,7 @@ fun ApartmentNavGraph(
             viewModel = meterViewModel
           )
         }
+
         composable(ServiceListScreen.route) {
           MainServiceScreen(
             baseUIState = baseUIState,
@@ -418,7 +414,7 @@ fun ApartmentNavGraph(
           )
         }
 
-        composable(InfoApartmentScreenDest.route){
+        composable(InfoApartmentScreenDest.route) {
           key(baseUIState.addressId) {
             InfoApartmentScreen(
               contentType = contentType,
@@ -426,13 +422,10 @@ fun ApartmentNavGraph(
               baseUIState = baseUIState,
               apartmentViewModel = apartmentViewModel,
               deleteApartment = {
-                // ПЕРЕДАЕМ ЛОГИКУ НАВИГАЦИИ ВО VIEWMODEL
                 apartmentViewModel.deleteApartment { route ->
                   navController.navigate(route) {
-                    // Очищаем текущий экран из стека, чтобы нельзя было вернуться назад к удаленной квартире
                     popUpTo(InfoApartmentScreenDest.route) { inclusive = true }
                   }
-
                 }
               },
               onDrawerClicked = onDrawerClicked,
@@ -441,74 +434,59 @@ fun ApartmentNavGraph(
             )
           }
         }
+
         composable(ChatScreenDest.route) {
-          // Инициализируем данные чата при входе для админов
-          LaunchedEffect(baseUIState.userRole, baseUIState.osbbId) {
+          // Инициализация сервисного контекста для админов (чтобы ИИ понимал, кто спрашивает)
+          LaunchedEffect(baseUIState.userRole) {
             when (baseUIState.userRole) {
-              // Теплосеть (9997)
-              UserRole.YtkeUser -> {
-                chatViewModel.setSelectedService(
-                  TotalServiceDebt(
-                    name = "Теплосеть",
-                    contentDetail = ContentDetail.WARM_SERVICE,
-                    icon = Icons.Default.HotTub, // Любая иконка-заглушка
-                    color = Color.Red,
-                    debt = 0.0
-                  )
+              UserRole.YtkeUser -> chatViewModel.setSelectedService(
+                TotalServiceDebt(
+                  "Теплосеть",
+                  ContentDetail.WARM_SERVICE,
+                  Icons.Default.HotTub,
+                  Color.Red,
+                  0.0
                 )
-              }
+              )
 
-              // Водоканал (9998)
-              UserRole.VodokanalUser -> {
-                chatViewModel.setSelectedService(
-                  TotalServiceDebt(
-                    name = "Водоканал",
-                    contentDetail = ContentDetail.WATER_SERVICE,
-                    icon = Icons.Default.WaterDrop,
-                    color = Color.Blue,
-                    debt = 0.0
-                  )
+              UserRole.VodokanalUser -> chatViewModel.setSelectedService(
+                TotalServiceDebt(
+                  "Водоканал",
+                  ContentDetail.WATER_SERVICE,
+                  Icons.Default.WaterDrop,
+                  Color.Blue,
+                  0.0
                 )
-              }
+              )
 
-              // Вывоз мусора (9999)
-              UserRole.TboUser -> {
-                chatViewModel.setSelectedService(
-                  TotalServiceDebt(
-                    name = "Вывоз мусора",
-                    contentDetail = ContentDetail.GARBAGE_SERVICE,
-                    icon = Icons.Default.Delete,
-                    color = Color.Gray,
-                    debt = 0.0
-                  )
+              UserRole.TboUser -> chatViewModel.setSelectedService(
+                TotalServiceDebt(
+                  "Вивіз сміття",
+                  ContentDetail.GARBAGE_SERVICE,
+                  Icons.Default.Delete,
+                  Color.Gray,
+                  0.0
                 )
-              }
+              )
 
-              // Админ ОСББ
-              UserRole.OsbbUser -> {
-                chatViewModel.trackUserIdentifiersWithRole(
-                  baseUIState.userRole,
-                  baseUIState.osbbId
-                )
-              }
+              UserRole.OsbbUser -> chatViewModel.trackUserIdentifiersWithRole(
+                baseUIState.userRole,
+                baseUIState.osbbId ?: 0
+              )
 
-              else -> { /* Для StandardUser выборка уже сделана при клике */
-              }
+              else -> {}
             }
           }
 
-          // Вызываем экран (здесь используй Stateful версию или передавай все 10 параметров)
           ChatScreenStateful(
             chatViewModel = chatViewModel,
             baseUIState = baseUIState,
             navigationType = navigationType,
             navController = navController,
-
-            )
+          )
         }
-
-
       }
+
     }
   }
 }

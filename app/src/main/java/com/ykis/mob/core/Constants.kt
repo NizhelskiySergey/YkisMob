@@ -10,8 +10,9 @@ object Constants {
     const val PARAM_ADDRESS_ID = "address_id"
   const val UID = "uid"
   const val YEAR = "year"
-  const val STREET_ID = "street_id"
+  const val RAION_ID = "raion_id"
   const val HOUSE_ID = "house_id"
+
   const val OSBB_ID = "osbb_id"
   const val ADDRESS_ID = "address_id"
   const val VODOMER_ID = "vodomer_id"

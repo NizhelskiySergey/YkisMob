@@ -6,6 +6,7 @@ import com.ykis.mob.core.Resource
 import com.ykis.mob.domain.payment.request.GetPaymentList
 import com.ykis.mob.domain.payment.request.InsertPayment
 import com.ykis.mob.domain.payment.request.InsertPaymentParams
+import com.ykis.mob.domain.service.ServiceEntity
 import com.ykis.mob.domain.service.request.GetFlatServices
 import com.ykis.mob.domain.service.request.GetTotalDebtServices
 import com.ykis.mob.domain.service.request.ServiceParams
@@ -163,4 +164,18 @@ class ServiceViewModel (
             }
         }.launchIn(this.viewModelScope)
     }
+  // В ServiceViewModel
+  fun resetState() {
+    Log.d("YkisLog", "ServiceVM: [RESET] Очистка данных для новой квартиры")
+    _totalDebtState.update {
+      it.copy(
+        totalDebt = ServiceEntity(), // Обнуляем долги
+        isLoading = true,            // Включаем лоадер
+        showDetail = false,          // Скрываем подробности
+        error = ""                   // Чистим ошибки
+      )
+    }
+  }
+
+
 }

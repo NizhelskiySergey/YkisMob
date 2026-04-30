@@ -12,8 +12,11 @@ import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.ValueEventListener
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.remoteconfig.get
 import com.google.firebase.remoteconfig.remoteConfig
@@ -54,6 +57,11 @@ class FirebaseServiceImpl(
   private val credentialManager by lazy { CredentialManager.create(context) }
   private val sharedPrefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
   private val remoteConfig get() = Firebase.remoteConfig
+  // Список для слушателей Firestore
+  private val snapshotListeners = mutableListOf<ListenerRegistration>()
+
+  // Карта для слушателей Realtime Database (чтобы знать, какой откуда удалять)
+  private val dbListeners = mutableMapOf<DatabaseReference, ValueEventListener>()
 
   // --- Свойства пользователя ---
   override val isUserAuthenticatedInFirebase: Boolean get() = auth.currentUser != null
@@ -180,10 +188,10 @@ class FirebaseServiceImpl(
     // 1. УМНЫЙ ПРЕДОХРАНИТЕЛЬ
     // Блокируем запись osbbId=0 ТОЛЬКО если роль — админ конкретного дома (OsbbUser)
     // Для VodokanalUser, TboUser и др. osbbId=0 — это норма (работа по всему городу)
-    if (userRole == UserRole.OsbbUser && osbbId == 0) {
-      Log.w("YkisLog", "$methodName: [PROTECT] Запись заблокирована: OsbbUser не может иметь osbbId=0")
-      return
-    }
+//    if (userRole == UserRole.OsbbUser && osbbId == 0) {
+//      Log.w("YkisLog", "$methodName: [PROTECT] Запись заблокирована: OsbbUser не может иметь osbbId=0")
+//      return
+//    }
 
     try {
       Log.d("YkisLog", "$methodName: [START] UID: $uid, Role: $userRole, osbbId: $osbbId, Name: $displayName")
@@ -279,6 +287,30 @@ class FirebaseServiceImpl(
   override suspend fun getUid() = uid
   override suspend fun getEmail() = email
   override suspend fun getDisplayName() = displayName
+
+  override fun stopAllListeners() {
+    val methodName = "FirebaseService.stopAllListeners"
+    Log.d("YkisLog", "$methodName: [START] Очистка всех активных соединений")
+
+    try {
+      // 1. Очистка Firestore слушателей (профиль, настройки и т.д.)
+      snapshotListeners.forEach { it.remove() }
+      snapshotListeners.clear()
+      Log.d("YkisLog", "$methodName: Firestore слушатели удалены")
+
+      // 2. Очистка Realtime Database (чаты, счетчики непрочитанных)
+      dbListeners.forEach { (ref, listener) ->
+        ref.removeEventListener(listener)
+      }
+      dbListeners.clear()
+      Log.d("YkisLog", "$methodName: Realtime Database слушатели удалены")
+
+    } catch (e: Exception) {
+      Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+    }
+  }
+
+
   override suspend fun reloadFirebaseUser(): ReloadUserResponse = try { auth.currentUser?.reload()?.await(); Resource.Success(true) } catch (e: Exception) { Resource.Error(e.message) }
 // --- Реализация пропущенных методов ---
 

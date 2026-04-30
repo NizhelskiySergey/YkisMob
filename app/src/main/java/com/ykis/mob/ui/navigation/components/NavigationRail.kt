@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddHome
+import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Domain
 import androidx.compose.material.icons.filled.ExpandMore
@@ -103,14 +104,19 @@ fun ApartmentNavigationRail(
   val apartments by apartmentViewModel.filteredApartments.collectAsStateWithLifecycle()
   val isUserAdmin = baseUIState.userRole != UserRole.StandardUser
   val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
+  val listMode = baseUIState.listMode
+  val isOrgAdmin = baseUIState.userRole != UserRole.StandardUser && baseUIState.userRole != UserRole.OsbbUser
+  val raions = baseUIState.raions // Просто берем из уже готового стейта
 
+  // 1. ПОДПИСЫВАЕМСЯ НА ВСЕ ТРИ СПИСКА
+  val houses by apartmentViewModel.drawerHouses.collectAsStateWithLifecycle() // Список домов (новый)
+  val drawerApartments by apartmentViewModel.drawerApartments.collectAsStateWithLifecycle() // Список квартир (новый)
   // 2. РЕАКТИВНЫЙ ПЕРЕСЧЕТ: Как только мапа unreadCounts меняется,
   // эти переменные пересчитаются автоматически
   val totalUnread = remember(unreadCounts) { unreadCounts.values.sum() }
   LaunchedEffect(totalUnread) {
     Log.d("YkisLog", "RailMenu: Total sum calculated: $totalUnread")
   }
-
   // Внутри ApartmentNavigationRail
   val apartmentBadges = remember(unreadCounts) {
     unreadCounts.map { (fullKey, count) ->
@@ -118,17 +124,13 @@ fun ApartmentNavigationRail(
       // Для "OSBB_3_1336_izLMP..." -> части: [OSBB, 3, 1336, izLMP...]
       // Нам нужно 1336
       val parts = fullKey.split("_")
-
       // Обычно ID квартиры — это третья часть в ОСББ (индекс 2)
       // или вторая в службах. Чтобы не гадать, ищем первое длинное число:
       val addressId = parts.find { it.length >= 3 && it.all { char -> char.isDigit() } } ?: ""
-
       addressId to count
     }.filter { it.first.isNotEmpty() }
       .toMap()
   }
-
-
   CustomNavigationRail(
     modifier = modifier,
     currentWidth = railWidth,
@@ -142,28 +144,11 @@ fun ApartmentNavigationRail(
           Icon(Icons.Default.Menu, contentDescription = "Menu")
         }
       }
-
       if (isRailExpanded) {
         Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
           if (isUserAdmin) {
-            // КРИТИЧЕСКИЙ ФИКС: Используем Column, чтобы Raion не налезал на Поиск
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-
-              // 1. Выбор района
-              RaionDropdownSelector(
-                raions = baseUIState.raions,
-                onRaionSelected = { raion ->
-                  Log.d("YkisLog", "Rail: [SELECT_RAION] Name: ${raion.raion}, ID: ${raion.raionId}")
-                  apartmentViewModel.onRaionSelected(raion)
-                }
-              )
-
-              HorizontalDivider(
-                modifier = Modifier.padding(vertical = 2.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-              )
-
-              // 2. Поле поиска
+              // Поле поиска
               OutlinedTextField(
                 value = searchQuery,
                 onValueChange = {
@@ -171,12 +156,11 @@ fun ApartmentNavigationRail(
                   apartmentViewModel.onSearchQueryChanged(it)
                 },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
-                placeholder = { Text("Пошук кв.", fontSize = 11.sp) },
+                placeholder = { Text("Пошук...", fontSize = 11.sp) },
                 leadingIcon = { Icon(Icons.Default.Search, null, Modifier.size(16.dp)) },
                 trailingIcon = {
                   if (searchQuery.isNotEmpty()) {
                     IconButton(onClick = {
-                      Log.d("YkisLog", "Rail: [SEARCH_CLEAR]")
                       apartmentViewModel.onSearchQueryChanged("")
                     }) {
                       Icon(Icons.Default.Close, null, Modifier.size(14.dp))
@@ -189,12 +173,8 @@ fun ApartmentNavigationRail(
               )
             }
           } else {
-            // Компактная кнопка добавления для жильца
             FloatingActionButton(
-              onClick = {
-                Log.d("YkisLog", "Rail: [ADD_APARTMENT_CLICK]")
-                navigateToDestination(AddApartmentScreen.route)
-              },
+              onClick = { navigateToDestination(AddApartmentScreen.route) },
               modifier = Modifier.fillMaxWidth().height(40.dp),
               containerColor = MaterialTheme.colorScheme.primaryContainer,
               elevation = FloatingActionButtonDefaults.elevation(0.dp)
@@ -209,211 +189,208 @@ fun ApartmentNavigationRail(
           }
         }
       }
-
     }
   ) {
     Column(modifier = Modifier.fillMaxSize()) {
-
-      // --- ДИНАМИЧЕСКИЙ СПИСОК (Районы / Дома / Квартиры) ---
-      val listMode = baseUIState.listMode
-      val isOrgAdmin = baseUIState.userRole != UserRole.StandardUser && baseUIState.userRole != UserRole.OsbbUser
-
-// Определяем, что именно мы сейчас показываем в списке
-      val listToDisplay: List<Any> = when {
-        listMode == ListMode.RAIONS && isOrgAdmin -> baseUIState.raions
-        isUserAdmin -> apartments // Твой список для админа ОСББ
-        else -> baseUIState.apartments
-      }
-
-      if (listToDisplay.isNotEmpty() && isRailExpanded) {
-        Column(
-          modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f)
-        ) {
-          // Динамический заголовок
-          Text(
-            text = when(listMode) {
-              ListMode.RAIONS -> "Оберіть район міста"
-              ListMode.HOUSES -> "Оберіть будинок"
-              else -> stringResource(id = R.string.list_apartment)
-            },
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-            color = MaterialTheme.colorScheme.primary
-          )
-
-          LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(bottom = 8.dp)
-          ) {
-            items(listToDisplay) { item ->
-              // Определяем тип элемента для корректного отображения
-              val isRaion = item is RaionEntity
-              val apartment = item as? ApartmentEntity
-
-              val label = if (isRaion) (item as RaionEntity).raion else apartment?.address ?: ""
-              val id = if (isRaion) (item as RaionEntity).raionId else apartment?.addressId ?: 0
-              val isSelected = !isRaion && baseUIState.addressId == id
-
-              // Логика Badge (только для квартир)
-              val badgeCount = if (!isRaion) apartmentBadges[id.toString()] ?: 0 else 0
-
-              if (unreadCounts.isNotEmpty() && !isRaion) {
-                Log.d("YkisLog", "RailList: Render ID: $id | Badge: $badgeCount")
-              }
-
-              Box(
-                modifier = Modifier
-                  .padding(horizontal = 8.dp, vertical = 1.dp)
-                  .fillMaxWidth()
-                  .clip(RoundedCornerShape(8.dp))
-                  .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f) else Color.Transparent)
-                  .clickable {
-                    keyboardController?.hide()
-                    Log.d("YkisLog", "RailList: [CLICK] Mode: $listMode, ID: $id")
-                    if (item is RaionEntity) {
-                      // 1. Если это район — передаем String в метод выбора района
-                      Log.d("YkisLog", "Rail: Выбран район ${item.raionId}")
-                      apartmentViewModel.onRaionSelected(item)
-                    } else if (item is ApartmentEntity) {
-                      // 2. Если это квартира — передаем Int в навигацию
-                      Log.d("YkisLog", "Rail: Переход в квартиру ${item.addressId}")
-                      navigateToApartment(item.addressId)
-                    }
-                  }
-                  .padding(6.dp)
-              ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                  // Динамическая иконка
-                  Icon(
-                    imageVector = when {
-                      isRaion -> Icons.Default.Map
-                      listMode == ListMode.HOUSES -> Icons.Default.Domain
-                      else -> Icons.Default.Home
-                    },
-                    contentDescription = null,
-                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(18.dp)
-                  )
-                  Spacer(Modifier.width(8.dp))
-
-                  Column(modifier = Modifier.weight(1f)) {
-                    // Название района или Адрес
-                    Text(
-                      text = label,
-                      fontWeight = if (isRaion) FontWeight.Medium else FontWeight.Bold,
-                      style = MaterialTheme.typography.bodyMedium
-                    )
-
-                    // Вторая строка (только для квартир)
-                    if (!isRaion && apartment != null) {
-                      Row {
-                        Text(
-                          text = " о/р $id",
-                          style = MaterialTheme.typography.labelSmall,
-                          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                        apartment.nanim?.let {
-                          Text(
-                            text = " | $it",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                          )
-                        }
-                      }
-                    }
-                  }
-
-                  // Показываем Badge только для квартир
-                  if (badgeCount > 0) {
-                    Badge(
-                      modifier = Modifier.padding(start = 4.dp),
-                      containerColor = MaterialTheme.colorScheme.error,
-                      contentColor = MaterialTheme.colorScheme.onError
-                    ) {
-                      Text(badgeCount.toString())
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-
-
-      // --- НИЖНЕЕ МЕНЮ (Минимальная высота) ---
+      // --- 1. ВЕРХНЯЯ ЧАСТЬ (СПИСКИ + ПОИСК) ---
       Column(
         modifier = Modifier
           .fillMaxWidth()
-          .wrapContentHeight() // Не занимает лишнего места
-          .padding(vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+          .weight(1f)
       ) {
-        HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
-
-
-        NAV_RAIL_DESTINATIONS.forEach { destination ->
-          Log.d("YkisLog", "RailCheck: Current route is '${destination.route}'")
-
-          if (destination.alwaysVisible || !isApartmentsEmpty) {
-            val isSelected = selectedDestination.substringBefore("/") == destination.route.substringBefore("/")
-
-            // Компактный пункт навигации (высота 40dp вместо 56dp)
-            Box(
-              modifier = Modifier
-                .padding(horizontal = 8.dp)
-                .fillMaxWidth()
-                .height(40.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                .clickable { navigateToDestination(destination.route) }
-                .padding(horizontal = 12.dp),
-              contentAlignment = Alignment.CenterStart
+        if (isRailExpanded) {
+          // Кнопка назад (скрываем при активном поиске)
+          if (listMode != ListMode.RAIONS && isOrgAdmin && searchQuery.isEmpty()) {
+            TextButton(
+              onClick = { apartmentViewModel.goBackLevel() },
+              modifier = Modifier.padding(start = 8.dp, top = 8.dp)
             ) {
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                Log.d("YkisLog", "RailCheck: Current route is '${destination.route}'")
-
-                BadgedBox(
-                  badge = {
-                    // Проверяем: если это экран списка пользователей (админский чат)
-                    // ИЛИ любой другой роут, содержащий "chat"
-                    val isChatDestination = destination.route == "UserListScreen" ||
-                      destination.route.contains("chat", ignoreCase = true)
-
-                    if (isChatDestination && totalUnread > 0) {
-                      Badge {
-                        Text(text = totalUnread.toString())
-                      }
+              Icon(Icons.Default.ArrowBackIosNew, null, modifier = Modifier.size(16.dp))
+              Spacer(Modifier.width(8.dp))
+              Text("Назад")
+            }
+          }
+          LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 8.dp)
+          ) {
+            // ПРОВЕРКА: Если есть текст поиска — показываем фильтрованный список
+            if (searchQuery.isNotEmpty()) {
+              items(apartments, key = { "search_${it.addressId}" }) { item ->
+                RailItemContent(
+                  title = item.address,
+                  subtitle = item.nanim,
+                  extraInfo = "о/р ${item.addressId}",
+                  icon = if (listMode == ListMode.HOUSES) Icons.Default.Domain else Icons.Default.Home,
+                  isSelected = baseUIState.addressId == item.addressId,
+                  onClick = {
+                    keyboardController?.hide()
+                    if (listMode == ListMode.HOUSES) {
+                      apartmentViewModel.onHouseSelected(item.addressId)
+                    } else {
+                      navigateToApartment(item.addressId)
                     }
                   }
-                ) {
-                  Icon(
-                    imageVector = destination.selectedIcon,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                  )
+                )
+              }
+            } else {
+              // ОБЫЧНЫЙ РЕЖИМ (Золотой фонд)
+              when (listMode) {
+                ListMode.RAIONS -> {
+                  items(raions, key = { "r_${it.raionId}" }) { raion ->
+                    RailItemContent(
+                      title = raion.raion ?: "",
+                      icon = Icons.Default.Map,
+                      isSelected = baseUIState.selectedRegionId == raion.raionId,
+                      onClick = { apartmentViewModel.onRaionSelected(raion) }
+                    )
+                  }
                 }
-                if (isRailExpanded) {
-                  Text(
-                    text = stringResource(destination.labelId),
-                    modifier = Modifier.padding(start = 12.dp),
-                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
-                    maxLines = 1,
-                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                  )
+                ListMode.HOUSES -> {
+                  items(houses, key = { "h_${it.houseId}" }) { house ->
+                    RailItemContent(
+                      title = house.house ?: "",
+                      icon = Icons.Default.Domain,
+                      isSelected = baseUIState.selectedHouseId == house.houseId,
+                      onClick = { apartmentViewModel.onHouseSelected(house.houseId) }
+                    )
+                  }
+                }
+                ListMode.APARTMENTS -> {
+                  val aptList = if (isOrgAdmin) drawerApartments else baseUIState.apartments
+                  items(aptList, key = { "a_${it.addressId}" }) { apartment ->
+                    val isSelected = baseUIState.addressId == apartment.addressId
+                    val badgeCount = apartmentBadges[apartment.addressId.toString()] ?: 0
+
+                    RailItemContent(
+                      title = "кв. ${apartment.address}",
+                      subtitle = apartment.nanim,
+                      extraInfo = "о/р ${apartment.addressId}",
+                      icon = Icons.Default.Home,
+                      isSelected = isSelected,
+                      badgeCount = badgeCount,
+                      onClick = {
+                        keyboardController?.hide()
+                        navigateToApartment(apartment.addressId)
+                      }
+                    )
+                  }
                 }
               }
             }
           }
         }
+      }
+
+  // --- 2. НИЖНЯЯ ЧАСТЬ (МЕНЮ) ---
+      // Теперь блок всегда внизу, но элементы внутри фильтруются по твоему правилу
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .wrapContentHeight()
+          .padding(bottom = 16.dp)
+      ) {
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+
+        NAV_RAIL_DESTINATIONS.forEach { destination ->
+          // Условие видимости
+          val shouldShow = destination.alwaysVisible || !isApartmentsEmpty
+
+          if (shouldShow) {
+            val isSelected =
+              selectedDestination.substringBefore("/") == destination.route.substringBefore("/")
+
+            NavigationRailItem(
+              selected = isSelected,
+              onClick = {
+                // ЛОГ КЛИКА: это покажет, доходит ли нажатие до системы
+                Log.d(
+                  "YkisLog",
+                  "Rail: [CLICK] Target: ${destination.route} | Current: $selectedDestination | isSelected: $isSelected"
+                )
+
+                // Вызываем навигацию
+                navigateToDestination(destination.route)
+              },
+              icon = {
+                BadgedBox(
+                  badge = {
+                    val isChat =
+                      destination.route == "UserListScreen" || destination.route.contains(
+                        "chat",
+                        true
+                      )
+                    if (isChat && totalUnread > 0) {
+                      Badge { Text(totalUnread.toString()) }
+                    }
+                  }
+                ) {
+                  // Меняем иконку на закрашенную при выборе для наглядности
+                  Icon(
+                    imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
+                    contentDescription = null
+                  )
+                }
+              },
+              label = if (isRailExpanded) {
+                { Text(stringResource(destination.labelId), fontSize = 11.sp) }
+              } else null,
+              alwaysShowLabel = false
+            )
+          } else {
+            // Лог для скрытых элементов (поможет понять, почему кнопка исчезла, если вдруг исчезнет)
+            // Log.v("YkisLog", "Rail: [HIDDEN] ${destination.route} (isApartmentsEmpty: $isApartmentsEmpty)")
+          }
+        }
+      }
+    }
+
+
+    }
+}
+
+@Composable
+fun RailItemContent(
+  title: String,
+  subtitle: String? = null,
+  extraInfo: String? = null,
+  icon: ImageVector,
+  isSelected: Boolean,
+  badgeCount: Int = 0,
+  onClick: () -> Unit
+) {
+  Box(
+    modifier = Modifier
+      .padding(horizontal = 8.dp, vertical = 2.dp)
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(8.dp))
+      .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f) else Color.Transparent)
+      .clickable { onClick() }
+      .padding(8.dp)
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        modifier = Modifier.size(20.dp)
+      )
+      Spacer(Modifier.width(12.dp))
+      Column(modifier = Modifier.weight(1f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+          if (extraInfo != null) {
+            Text(" $extraInfo", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+          }
+        }
+        subtitle?.let {
+          Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
+      }
+      if (badgeCount > 0) {
+        Badge { Text(badgeCount.toString()) }
       }
     }
   }
 }
-
-
 

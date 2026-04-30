@@ -87,5 +87,6 @@ interface FirebaseService {
   suspend fun getUid(): String
   suspend fun getEmail(): String
   suspend fun getDisplayName(): String
+  fun stopAllListeners()
 }
 

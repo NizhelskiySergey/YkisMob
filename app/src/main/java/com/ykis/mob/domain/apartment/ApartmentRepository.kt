@@ -18,8 +18,8 @@ interface ApartmentRepository {
   suspend fun saveUserUid(uid: String,email: String): GetSimpleResponse
   suspend fun deleteUserAccount(uid: String,email: String): GetSimpleResponse
   // В ApartmentRepository
-  suspend fun getOsbbApartmentsList(osbbId: Int): GetApartmentsResponse // Твой формат ответа
+  suspend fun getOsbbApartmentsList(targetId: Int,isHouse: Boolean): GetApartmentsResponse // Твой формат ответа
   suspend fun getRaionList(uid: String): GetRaionsResponse // Твой формат ответа
-  suspend fun getHouseList(uid: String): GetHousesResponse // Твой формат ответа
+  suspend fun getHouseByRaionList(raionId: Int): GetHousesResponse // Твой формат ответа
 
 }

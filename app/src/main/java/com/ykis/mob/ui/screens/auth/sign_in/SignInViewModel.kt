@@ -54,7 +54,9 @@ class SignInViewModel(
     private set
 
   private val isEmailVerified get() = firebaseService.currentUser?.isEmailVerified ?: false
-
+  init {
+    Log.d("YkisLog", "SignInViewModel: [INIT_START]")
+  }
   fun onEmailChange(newValue: String) {
     singInUiState = singInUiState.copy(email = newValue)
   }

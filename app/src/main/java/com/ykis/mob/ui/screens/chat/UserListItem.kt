@@ -61,12 +61,14 @@ fun UserListItem(
   modifier: Modifier = Modifier,
   it: UserEntity,
   onUserClick: (UserEntity) -> Unit,
-  lastMessage: MessageEntity,
+  lastMessage: MessageEntity?, // Теперь может быть null, если сообщений еще нет
   currentUid: String = ""
 ) {
-  // Разрезаем строку "Адрес | Фамилия"
-  val parts = remember(it.displayName) { it.displayName?.split("|") ?: emptyList() }
-  val displayAddress = parts.getOrNull(0)?.trim() ?: it.displayName ?: "Нет адреса"
+  // 1. ПАРСИНГ ИМЕНИ И АДРЕСА
+  // Если в объекте пользователя адрес пустой, пытаемся взять его из последнего сообщения (админ-логика)
+  val displayName = it.displayName ?: lastMessage?.senderAddress ?: "Користувач"
+  val parts = remember(displayName) { displayName.split("|") }
+  val displayAddress = parts.getOrNull(0)?.trim() ?: displayName
   val residentName = parts.getOrNull(1)?.trim() ?: ""
 
   Column(
@@ -89,11 +91,10 @@ fun UserListItem(
           .padding(start = 12.dp),
         verticalArrangement = Arrangement.spacedBy(1.dp)
       ) {
-        // 1. ПЕРВАЯ СТРОКА: АДРЕС И ВРЕМЯ
+        // --- СТРОКА 1: АДРЕС И ВРЕМЯ ---
         Row(
           modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween
+          verticalAlignment = Alignment.CenterVertically
         ) {
           Text(
             modifier = Modifier.weight(1f),
@@ -104,16 +105,17 @@ fun UserListItem(
             overflow = TextOverflow.Ellipsis
           )
 
-          if (lastMessage.timestamp > 0) {
+          // Показываем время только если сообщение реально существует
+          if (lastMessage != null && lastMessage.timestamp > 0) {
             Text(
-              text = formatTime24H(lastMessage.timestamp), // Используем твой формат
+              text = formatTime24H(lastMessage.timestamp),
               style = MaterialTheme.typography.labelSmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
           }
         }
 
-        // 2. ВТОРАЯ СТРОКА: ФИО ЖИЛЬЦА
+        // --- СТРОКА 2: ФИО ЖИЛЬЦА ---
         if (residentName.isNotEmpty()) {
           Text(
             text = residentName,
@@ -124,18 +126,23 @@ fun UserListItem(
           )
         }
 
-        // 3. ТРЕТЬЯ СТРОКА: ПОСЛЕДНЕЕ СООБЩЕНИЕ
-        val prefix = if (lastMessage.senderUid == currentUid) "Вы: " else ""
+        // --- СТРОКА 3: ПРЕВЬЮ СООБЩЕНИЯ ---
+        val prefix = if (lastMessage?.senderUid == currentUid) "Ви: " else ""
         val displayText = when {
-          lastMessage.text.isNotBlank() -> "$prefix${lastMessage.text}"
-          lastMessage.imageUrl != null -> "$prefix📷 Фотография"
-          else -> "Нет сообщений"
+          lastMessage == null -> "Немає повідомлень"
+          !lastMessage.text.isNullOrBlank() -> "$prefix${lastMessage.text}"
+          lastMessage.imageUrl != null -> "$prefix📷 Фотографія"
+          lastMessage.fileUrl != null -> "$prefix📎 Файл"
+          else -> "Немає повідомлень"
         }
 
         Text(
           text = displayText,
           style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+          color = if (lastMessage == null)
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+          else
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
           maxLines = 1,
           overflow = TextOverflow.Ellipsis
         )
@@ -149,6 +156,7 @@ fun UserListItem(
     )
   }
 }
+
 
 
 

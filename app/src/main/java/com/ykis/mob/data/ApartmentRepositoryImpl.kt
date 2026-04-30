@@ -1,14 +1,17 @@
 package com.ykis.mob.data
 
+import android.R.attr.targetId
 import com.google.android.play.integrity.internal.u
 import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.appartment.ApartmentRemote
 import com.ykis.mob.data.remote.appartment.GetApartmentResponse
 import com.ykis.mob.data.remote.appartment.GetApartmentsResponse
+import com.ykis.mob.data.remote.appartment.GetHousesResponse
 import com.ykis.mob.data.remote.appartment.GetRaionsResponse
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
 import com.ykis.mob.domain.apartment.ApartmentRepository
+import com.ykis.mob.domain.apartment.request.GetHouseList
 
 class ApartmentRepositoryImpl(
   private val apartmentRemote: ApartmentRemote
@@ -17,8 +20,11 @@ class ApartmentRepositoryImpl(
   override suspend fun getApartmentList(uid: String): GetApartmentsResponse {
     return apartmentRemote.getApartmentList(uid)
   }
-  override suspend fun getOsbbApartmentsList(osbbId:Int): GetApartmentsResponse{
-    return apartmentRemote.getOsbbApartmentsList(osbbId)
+  override suspend fun getOsbbApartmentsList(targetId:Int,isHouse: Boolean): GetApartmentsResponse{
+    return apartmentRemote.getOsbbApartmentsList(targetId,isHouse)
+  }
+  override suspend fun getHouseByRaionList(raionId:Int): GetHousesResponse {
+    return apartmentRemote.getHouseByRaionList(raionId)
   }
   override suspend fun getRaionList(uid: String): GetRaionsResponse{
     return apartmentRemote.getRaionList(uid)

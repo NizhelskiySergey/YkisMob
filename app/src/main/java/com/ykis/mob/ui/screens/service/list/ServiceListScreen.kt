@@ -96,24 +96,40 @@ fun ServiceListScreen(
 ) {
   // 1. ТРИГГЕР ЗАГРУЗКИ С ЛОГАМИ
   LaunchedEffect(key1 = baseUIState.addressId) {
-    if (baseUIState.addressId > 0) {
-      Log.d("YkisLog", "ServiceListScreen: [LAUNCH] Вызов запроса для ID: ${baseUIState.addressId}")
-      Log.d("YkisLog", "ServiceListScreen: [PARAMS] HouseID: ${baseUIState.houseId}, OSBB: ${baseUIState.osmdId}")
+    val methodName = "ServiceListScreen.LaunchedEffect"
+    val addrId = baseUIState.addressId
+    val houseId = baseUIState.houseId
+    val osbbId = baseUIState.osmdId
+    val uid = baseUIState.uid ?: ""
 
+    Log.d("YkisLog", "$methodName: [TRIGGER] Сработал ключ addressId: $addrId")
+
+    if (addrId > 0) {
+      // КРИТИЧЕСКИЙ ЛОГ: Проверяем, не пустые ли другие обязательные поля
+      Log.d("YkisLog", "$methodName: [SEND_CHECK] UID: $uid, House: $houseId, OSBB: $osbbId")
+
+      if (houseId == 0) {
+        Log.e("YkisLog", "$methodName: [ERROR] HouseId равен 0! Запрос может вернуть пустой результат.")
+      }
+
+      // Вызываем загрузку данных
       getTotalServiceDebt(
         ServiceParams(
-          uid = baseUIState.uid ?: "",
-          addressId = baseUIState.addressId,
-          houseId = baseUIState.houseId, // ПРОВЕРЬ: если тут 0, данные не придут
+          uid = uid,
+          addressId = addrId,
+          houseId = houseId,
           service = 0,
           total = 1,
-          year = "2023"
+          year = "2023" // ПРОВЕРЬ: не пора ли сменить год на 2024?
         )
       )
+      Log.d("YkisLog", "$methodName: [FETCH_STARTED] Запрос отправлен в ViewModel")
+
     } else {
-      Log.w("YkisLog", "ServiceListScreen: [ABORT] AddressId равен 0")
+      Log.w("YkisLog", "$methodName: [ABORT] AddressId <= 0, загрузка отменена")
     }
   }
+
 
   Column(
     horizontalAlignment = Alignment.CenterHorizontally,

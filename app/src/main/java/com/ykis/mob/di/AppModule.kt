@@ -1,6 +1,5 @@
 package com.ykis.mob.di
 
-
 import android.util.Log
 import androidx.room.Room
 import com.google.firebase.Firebase
@@ -107,7 +106,6 @@ import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.http.ContentType
-import io.ktor.http.HttpMethod.Companion.Get
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -140,7 +138,7 @@ val appModule = module {
       }
 
       install(Logging) {
-        // 2. ИСПОЛЬЗУЙ КАСТОМНЫЙ ЛОГЕР вместо Logger.ANDROID
+        // 2. ИСПОЛЬЗУЙ КАСТОМНЫЙ logger вместо Logger.ANDROID
         // Это решит проблему с обрезанием длинных JSON в Logcat
         logger = object : Logger {
           override fun log(message: String) {
@@ -355,8 +353,8 @@ val viewModelsModule = module {
       application = get(), // Теперь get() сам найдет MainApplication, зарегистрированный строкой выше
       clearDatabase = get(),
       firebaseService = get(),
-      chatViewModel = get(),
-      apartmentViewModel = get()
+//      chatViewModel = get(),
+//      apartmentViewModel = get()
     )
   }
 
@@ -373,7 +371,7 @@ val viewModelsModule = module {
   viewModel { FamilyListViewModel(get(), get()) }
   single { ChatViewModel(get(), get()) }
   viewModel { SignInViewModel(get(), get()) }
-  viewModel { SignUpViewModel(get(),get()) }
+  viewModel { SignUpViewModel(get(), get()) }
 
   viewModel {
     MeterViewModel(

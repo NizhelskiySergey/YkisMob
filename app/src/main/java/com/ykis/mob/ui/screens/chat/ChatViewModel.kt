@@ -16,7 +16,6 @@ import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.PropertyName
 import com.google.firebase.database.Query
-import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
 import com.ykis.mob.R
 import com.ykis.mob.core.snackbar.SnackbarManager
@@ -43,7 +42,11 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlin.text.clear
+import kotlin.collections.forEach
+import androidx.core.graphics.scale
+import com.ykis.mob.domain.apartment.ApartmentEntity
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
 
 @Serializable
 data class SendNotificationArguments(
@@ -58,6 +61,7 @@ data class ServiceWithCodeName(
   val codeName: String = ""
 )
 
+@Serializable
 data class MessageEntity(
   val id: String = "",
   val senderUid: String = "",
@@ -65,21 +69,21 @@ data class MessageEntity(
   val senderLogoUrl: String? = null,
   val senderAddress: String = "",
   val text: String = "",
+  val type: String = "TEXT", // ДОБАВЬ ЭТО: Firebase ищет это поле
   val imageUrl: String? = null,
-  val fileUrl: String? = null, // Ссылка на PDF, Doc и др.
-  val fileName: String? = null, // ДОБАВЬ ЭТО ПОЛЕ
+  val fileUrl: String? = null,
+  val fileName: String? = null,
   val timestamp: Long = 0L,
   var read: Boolean = false,
   val edited: Boolean = false,
 
-  // Для списков в Firebase лучше использовать такой формат инициализации
-  val deletedFor: List<String>? = null,
+  // Используй пустой список по умолчанию для корректного парсинга
+  val deletedFor: List<String> = emptyList(),
 
   @get:PropertyName("forwarded")
   @set:PropertyName("forwarded")
   var isForwarded: Boolean = false
 )
-
 
 
 data class UserEntity(
@@ -90,6 +94,7 @@ data class UserEntity(
   val displayName: String? = "",
   val email: String? = "",
   val address: String = "", // ДОБАВИЛИ ПОЛЕ
+  val nanim: String = "", // ДОБАВИЛИ ПОЛЕ
   val osbbId: Int? = null,
   val addressId: Int = 0,
   val tokens: List<String> = emptyList()
@@ -175,9 +180,43 @@ class ChatViewModel(
 
   private val _messageText = MutableStateFlow("")
   val messageText = _messageText.asStateFlow()
+  private val _userIdentifiersWithRole = MutableStateFlow<List<String>>(emptyList())
+  private val _rawFetchedProfiles = MutableStateFlow<List<UserEntity>>(emptyList())
+// _lastMessages у тебя уже должен быть объявлен как MutableStateFlow<Map<String, MessageEntity>>(emptyMap())
 
   private val _userList = MutableStateFlow<List<UserEntity>>(emptyList())
-  val userList = _userList.asStateFlow()
+  val userList: StateFlow<List<UserEntity>> = combine(
+    _userIdentifiersWithRole, // Ключи веток (4 шт)
+    _rawFetchedProfiles,      // Загруженные профили
+    _lastMessages             // Тексты сообщений (те самые [UPDATE])
+  ) { keys, profiles, lastMsgs ->
+    keys.mapNotNull { key ->
+      val parts = key.split("_")
+      if (parts.size < 4) return@mapNotNull null
+
+      val uidFromKey = parts.last()
+      val addrIdFromKey = parts.getOrNull(parts.size - 2)?.toIntOrNull() ?: 0
+
+      val profile = profiles.find { it.uid == uidFromKey }
+      val lastMsg = lastMsgs[key]
+
+      // Формируем объект: если сообщения еще нет, пишем "Завантаження...", если есть - текст
+      val preview = lastMsg?.text ?: "Немає повідомлень"
+
+      profile?.copy(
+        addressId = addrIdFromKey,
+        address = preview, // Используем nanim как поле для превью
+        displayName = lastMsg?.senderAddress ?: profile.displayName
+      )
+          ?: UserEntity(
+            uid = uidFromKey,
+            addressId = addrIdFromKey,
+            displayName = "Користувач (о/р $addrIdFromKey)",
+            address = preview
+          )
+    }
+  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
 
   private val _selectedUser = MutableStateFlow<UserEntity>(UserEntity())
   val selectedUser = _selectedUser.asStateFlow()
@@ -185,8 +224,6 @@ class ChatViewModel(
   private val _selectedService = MutableStateFlow(ServiceWithCodeName())
   val selectedService = _selectedService.asStateFlow()
 
-  private val _userIdentifiersWithRole = MutableStateFlow<List<String>>(emptyList())
-  val userIdentifiersWithRole = _userIdentifiersWithRole.asStateFlow()
 
   private val _selectedImageUri = MutableStateFlow(Uri.EMPTY)
   val selectedImageUri = _selectedImageUri.asStateFlow()
@@ -199,8 +236,12 @@ class ChatViewModel(
   private var currentChatPath: String? = null // Храним путь текущего открытого чата
 
   // В ChatViewModel.kt
+
   private val typingReference = FirebaseDatabase.getInstance().getReference("typing")
 
+  // Ссылки для управления активным трекером списка чатов
+  private var activeTrackerQuery: Query? = null
+  private var activeTrackerListener: ValueEventListener? = null
 
   // ChatViewModel.kt
 
@@ -223,23 +264,7 @@ class ChatViewModel(
   private var typingJob: Job? = null
 
   // Группируем сообщения по ID квартиры (суммируем все службы для одного адреса)
-  fun subscribeToAllMyApartments(uid: String, osbbId: Int, apartments: List<Int>) {
-    val methodName = "ChatViewModel.subscribeToAll"
-    val allChatKeys = mutableListOf<String>()
 
-    apartments.forEach { addrId ->
-      // Добавляем все 4 службы для каждой квартиры
-      allChatKeys.add("OSBB_${osbbId}_${addrId}_$uid")
-      allChatKeys.add("WATER_SERVICE_${addrId}_$uid")
-      allChatKeys.add("WARM_SERVICE_${addrId}_$uid")
-      allChatKeys.add("GARBAGE_SERVICE_${addrId}_$uid")
-    }
-
-    Log.d("YkisLog", "$methodName: Запуск мониторинга для ${apartments.size} кв. (Всего веток: ${allChatKeys.size})")
-
-    // Твой стандартный метод, который ставит ValueEventListener на каждую ветку
-    subscribeToUnreadCount(allChatKeys)
-  }
 
   // В ChatViewModel.kt
   private val _forwardingMessage = MutableStateFlow<MessageEntity?>(null)
@@ -249,33 +274,49 @@ class ChatViewModel(
   val isForwardingMode =
     _forwardingMessage.map { it != null }.stateIn(viewModelScope, SharingStarted.Lazily, false)
 
-  fun stopAllTrackers() {
-    val methodName = "ChatViewModel.stopAllTrackers()"
-    Log.d("YkisLog", "$methodName: [CLEANUP] Остановка всех слушателей чата")
+  fun subscribeToAllMyApartments(uid: String, osbbId: Int, apartments: List<Int>) {
+    val methodName = "ChatViewModel.subscribeToAll"
 
-    // 1. Снимаем слушатели сообщений
-    listeners.forEach { (reference, listener) ->
-      reference.removeEventListener(listener)
+    if (uid.isBlank()) {
+      Log.e("YkisLog", "$methodName: [ABORT] UID is empty")
+      return
     }
-    listeners.clear()
 
-    // 2. Снимаем слушатели счетчиков (unreadCounts)
-    unreadCountListeners.forEach { (reference, listener) ->
-      reference.removeEventListener(listener)
+    val allChatKeys = mutableListOf<String>()
+
+    // 1. Формируем ключи согласно нашей УНИФИЦИРОВАННОЙ схеме
+    apartments.forEach { addrId ->
+      // Ветка ОСББ (динамический ID дома)
+      allChatKeys.add("OSBB_${osbbId}_${addrId}_$uid")
+
+      // Ветки городских служб (СТРОГО системные ID: 9999, 9998, 9997)
+      // Это гарантирует, что жилец и диспетчер ТБО/Водоканала видят одну и ту же ветку
+      allChatKeys.add("WATER_SERVICE_9999_${addrId}_$uid")
+      allChatKeys.add("WARM_SERVICE_9998_${addrId}_$uid")
+      allChatKeys.add("GARBAGE_SERVICE_9997_${addrId}_$uid")
     }
-    unreadCountListeners.clear()
 
-    // 3. Снимаем слушатели статуса "печатает"
-    typingListeners.forEach { (reference, listener) ->
-      reference.removeEventListener(listener)
+    Log.d(
+      "YkisLog",
+      "$methodName: [START] Житель: $uid | Квартир: ${apartments.size} | Веток для мониторинга: ${allChatKeys.size}"
+    )
+
+    // Выводим пару ключей для самопроверки в консоль
+    if (allChatKeys.isNotEmpty()) {
+      Log.d("YkisLog", "$methodName: [SAMPLE] Первый ключ: ${allChatKeys.first()}")
     }
-    typingListeners.clear()
 
-    // 4. Очищаем локальные данные, чтобы UI не показывал старье
-    _firebaseTest.value = emptyList()
-    _unreadCounts.value = emptyMap()
-    currentChatPath = null
+    // 2. Запускаем слушатели непрочитанных сообщений
+    // subscribeToUnreadCount внутри уже имеет защиту containsKey, так что дубли не страшны
+    if (allChatKeys.isNotEmpty()) {
+      subscribeToUnreadCount(allChatKeys)
+      Log.d("YkisLog", "$methodName: [SUCCESS] Слушатели бейджей активированы")
+    } else {
+      Log.w("YkisLog", "$methodName: [SKIP] Список квартир пуст, подписка невозможна")
+    }
   }
+
+
   private fun getFileName(context: Context, uri: Uri): String {
     var name = "file"
     context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -295,50 +336,95 @@ class ChatViewModel(
   fun confirmForwardToService(
     service: ContentDetail,
     baseState: BaseUIState,
-    targetUser: UserEntity? = null // Добавляем целевого юзера для админа
+    targetUser: UserEntity? = null
   ) {
-    val chatId = if (baseState.userRole == UserRole.StandardUser) {
-      // Логика ЖИЛЬЦА (без изменений)
-      if (service == ContentDetail.OSBB) {
-        "OSBB_${baseState.osbbId}_${baseState.addressId}_${baseState.uid}"
-      } else {
-        "${service.name}_${baseState.addressId}_${baseState.uid}"
-      }
-    } else {
-      // Логика АДМИНА (берем данные жильца из targetUser)
-      val tUser = targetUser ?: return // Если юзер не передан, выходим
-      val prefix = if (service == ContentDetail.OSBB) "OSBB_${baseState.osbbId}" else service.name
+    val methodName = "ChatViewModel.confirmForwardToService"
 
-      "${prefix}_${tUser.addressId}_${tUser.uid}"
+    // 1. ОПРЕДЕЛЯЕМ ПРЕФИКС И СИСТЕМНЫЙ ID (Единый стандарт для всех)
+    val (servicePrefix, systemId) = when (service) {
+      ContentDetail.OSBB -> "OSBB" to (baseState.osmdId ?: baseState.osbbId ?: 0)
+      ContentDetail.WATER_SERVICE -> "WATER_SERVICE" to 9999
+      ContentDetail.WARM_SERVICE -> "WARM_SERVICE" to 9998
+      ContentDetail.GARBAGE_SERVICE -> "GARBAGE_SERVICE" to 9997
+      else -> service.name to 0
     }
 
-    Log.d("YkisLog", "confirmForward: Назначение -> $chatId")
+    val chatId = if (baseState.userRole == UserRole.StandardUser) {
+      // 2. Логика ЖИТЕЛЯ (Пересылка из своего кабинета в службу)
+      if (baseState.addressId == 0) {
+        Log.e("YkisLog", "$methodName: [ABORT] AddressId жильца равен 0")
+        return
+      }
+      "${servicePrefix}_${systemId}_${baseState.addressId}_${baseState.uid}"
+    } else {
+      // 3. Логика АДМИНА (Пересылка конкретному жильцу)
+      // Пытаемся взять целевого юзера из аргумента или из активного чата
+      val tUser = targetUser ?: _selectedUser.value ?: run {
+        Log.e("YkisLog", "$methodName: [ERROR] Целевой пользователь (targetUser) не определен")
+        return
+      }
+
+      val targetAddrId = tUser.addressId ?: 0
+      if (targetAddrId == 0) {
+        Log.e("YkisLog", "$methodName: [ABORT] У целевого пользователя отсутствует addressId")
+        return
+      }
+
+      // Если админ пересылает в ОСББ, берем ID дома именно этого жильца
+      val finalSysId = if (service == ContentDetail.OSBB) {
+        tUser.osbbId ?: systemId
+      } else {
+        systemId
+      }
+
+      "${servicePrefix}_${finalSysId}_${targetAddrId}_${tUser.uid}"
+    }
+
+    Log.d("YkisLog", "$methodName: [FORWARD_TARGET] $chatId (Service: $servicePrefix)")
+
+    // 4. ФИЗИЧЕСКАЯ ОТПРАВКА
+    // В методе sendForwardedMessage убедись, что вызываешь clearForwardingMode() после успеха
     sendForwardedMessage(chatId)
   }
+
 
 
   fun cancelForwarding() {
     _forwardingMessage.value = null
   }
 
-  // Метод самой пересылки
-  /**
-   * Шаг 2а: Пересылка конкретному пользователю (используется Админом)
-   */
   fun confirmForward(targetUser: UserEntity) {
-    val methodName = "ChatViewModel.confirmForward()"
+    val methodName = "ChatViewModel.confirmForward"
+    val state = _uiState.value
 
-    // Исправляем: принудительно используем логику пути для Жильца,
-    // так как мы пишем в его ветку чата
+    // 1. Определяем, в какую именно службу (или ОСББ) мы пересылаем.
+    // Если админ уже находится в режиме конкретной службы (напр. Водоканал),
+    // берем её префикс. Если нет — по умолчанию ОСББ.
+    val currentRole = state.userRole
+
     val targetChatId = getChatPath(
-      role = UserRole.StandardUser, // Гарантируем формат пути "Служба_Дом_Кв_Юзер"
-      osbbId = targetUser.osbbId ?: 0,
+      role = currentRole, // Передаем реальную роль админа
+      osbbId = targetUser.osbbId ?: state.osbbId,
       addressId = targetUser.addressId,
       targetUserUid = targetUser.uid
     )
 
-    Log.d("YkisLog", "$methodName: [TARGET] Path: $targetChatId")
-    sendForwardedMessage(targetChatId)
+    Log.d("YkisLog", "$methodName: [TARGET] Role: $currentRole | Path: $targetChatId")
+
+    // 2. Выполняем физическую пересылку
+    viewModelScope.launch(Dispatchers.IO) {
+      try {
+        sendForwardedMessage(targetChatId)
+
+        // 3. После пересылки сбрасываем режим
+        withContext(Dispatchers.Main) {
+          cancelForwarding()
+          SnackbarManager.showMessage("Повідомлення переслано")
+        }
+      } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+      }
+    }
   }
 
 
@@ -346,43 +432,48 @@ class ChatViewModel(
    * Вспомогательный метод для физической копии сообщения в Firebase
    */
   private fun sendForwardedMessage(targetChatId: String) {
-    val methodName = "ChatViewModel.sendForwardedMessage()"
+    val methodName = "ChatViewModel.sendForwardedMessage"
     val messageToForward = _forwardingMessage.value ?: return
     val myUid = chatRepo.currentUid ?: ""
 
     Log.d(
       "YkisLog",
-      "$methodName: [START] Исходное сообщение: ${messageToForward.id}, Есть фото: ${!messageToForward.imageUrl.isNullOrEmpty()}"
+      "$methodName: [START] Пересылка сообщения ${messageToForward.id} -> $targetChatId"
     )
 
     viewModelScope.launch(Dispatchers.IO) {
       // 1. Создаем уникальный ключ в целевой ветке
       val newMsgKey = chatsReference.child(targetChatId).push().key
       if (newMsgKey == null) {
-        Log.e("YkisLog", "$methodName: [ERROR] Не удалось сгенерировать ключ для Firebase")
+        Log.e("YkisLog", "$methodName: [ERROR] Не удалось сгенерировать ключ")
         return@launch
       }
 
       // 2. Подготовка копии сообщения
-      // Явно прописываем imageUrl, чтобы он гарантированно перенесся в новый объект
+      // КРИТИЧНО: Явно копируем type, imageUrl, fileUrl и fileName
       val forwardedMsg = messageToForward.copy(
         id = newMsgKey,
         senderUid = myUid,
         timestamp = System.currentTimeMillis(),
         read = false,
         isForwarded = true,
-        imageUrl = messageToForward.imageUrl // КРИТИЧЕСКИ ВАЖНО: сохраняем ссылку на фото
+        // Сохраняем все медиа-данные
+        type = messageToForward.type,
+        imageUrl = messageToForward.imageUrl,
+        fileUrl = messageToForward.fileUrl,
+        fileName = messageToForward.fileName,
+        senderDisplayedName = _uiState.value.displayName ?: "Користувач"
       )
 
       Log.d(
         "YkisLog",
-        "$methodName: [PREPARE] Путь: $targetChatId | URL фото: ${forwardedMsg.imageUrl ?: "null"}"
+        "$methodName: [PREPARE] Тип: ${forwardedMsg.type} | Фото: ${forwardedMsg.imageUrl != null}"
       )
 
-      // 3. Отправка в Realtime Database
+      // 3. Запись в Firebase
       chatsReference.child(targetChatId).child(newMsgKey).setValue(forwardedMsg)
         .addOnSuccessListener {
-          Log.d("YkisLog", "$methodName: [SUCCESS] Переслано в $targetChatId. ID: $newMsgKey")
+          Log.d("YkisLog", "$methodName: [SUCCESS] Переслано. Новый ID: $newMsgKey")
 
           // Сбрасываем состояние пересылки в Main потоке
           viewModelScope.launch(Dispatchers.Main) {
@@ -391,9 +482,9 @@ class ChatViewModel(
           }
         }
         .addOnFailureListener { e ->
-          Log.e("YkisLog", "$methodName: [FAILED] Ошибка записи: ${e.message}")
+          Log.e("YkisLog", "$methodName: [FAILED] ${e.message}")
           viewModelScope.launch(Dispatchers.Main) {
-            SnackbarManager.showMessage(R.string.error_send_message)
+            SnackbarManager.showMessage("Помилка пересилання")
           }
         }
     }
@@ -401,94 +492,110 @@ class ChatViewModel(
 
 
   fun deleteForMe(messageId: String) {
-    val methodName = "ChatViewModel.deleteForMe()"
-    val chatId = currentChatPath ?: return
+    val methodName = "ChatViewModel.deleteForMe"
+    val chatId = currentChatPath // Используем твою переменную пути (убедись, что она не null)
     val myUid = chatRepo.currentUid ?: return
 
+    if (chatId.isNullOrEmpty()) {
+      Log.e("YkisLog", "$methodName: [ERROR] Путь чата (chatId) не определен")
+      return
+    }
+
     viewModelScope.launch(Dispatchers.IO) {
-      Log.d("YkisLog", "$methodName: [START] Скрытие сообщения $messageId для пользователя $myUid")
+      try {
+        Log.d("YkisLog", "$methodName: [START] Скрытие $messageId для $myUid")
 
-      // Путь: chats/chatId/messageId/deletedFor
-      val deletedForRef = chatsReference.child(chatId).child(messageId).child("deletedFor")
+        // Ссылка на узел deletedFor конкретного сообщения
+        val deletedForRef = chatsReference.child(chatId).child(messageId).child("deletedFor")
 
-      // Получаем текущий список, добавляем свой UID и сохраняем обратно
-      deletedForRef.get().addOnSuccessListener { snapshot ->
+        // 1. Получаем текущий список тех, кто скрыл сообщение
+        val snapshot = deletedForRef.get().await()
         val currentList =
           snapshot.children.mapNotNull { it.getValue(String::class.java) }.toMutableList()
 
+        // 2. Если нашего UID еще нет в списке — добавляем
         if (!currentList.contains(myUid)) {
           currentList.add(myUid)
-          deletedForRef.setValue(currentList).addOnSuccessListener {
-            Log.d("YkisLog", "$methodName: [SUCCESS] Сообщение $messageId скрыто локально")
-          }.addOnFailureListener { e ->
-            Log.e("YkisLog", "$methodName: [ERROR] Ошибка записи: ${e.message}")
-          }
+
+          // 3. Сохраняем обновленный список обратно в Firebase
+          deletedForRef.setValue(currentList).await()
+
+          Log.d("YkisLog", "$methodName: [SUCCESS] Сообщение скрыто в ветке $chatId")
         } else {
-          Log.d("YkisLog", "$methodName: [SKIP] UID уже в списке скрытых")
+          Log.d("YkisLog", "$methodName: [SKIP] Сообщение уже было скрыто ранее")
         }
-      }.addOnFailureListener { e ->
-        Log.e("YkisLog", "$methodName: [CRITICAL] Ошибка получения данных: ${e.message}")
+      } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [FATAL] Ошибка удаления: ${e.message}")
       }
     }
   }
 
+
   fun observeTypingStatus(chatId: String) {
-    val methodName = "ChatViewModel.observeTypingStatus()"
-    val myUid = chatRepo.currentUid ?: return // Используем return, если нет юзера
+    val methodName = "ChatViewModel.observeTypingStatus"
+    val myUid = chatRepo.currentUid ?: return
+
+    // Если chatId пустой, выходим
+    if (chatId.isBlank()) {
+      Log.e("YkisLog", "$methodName: [ERROR] Пустой chatId")
+      return
+    }
 
     val ref = typingReference.child(chatId)
 
-    // Сброс состояния
+    // Сброс текущего состояния
     _isPartnerTyping.value = false
     typingJob?.cancel()
 
-    // 1. Очистка старого слушателя именно для ТИПИНГА
+    // 1. ОЧИСТКА: Удаляем старый слушатель для этой ветки, если он был
     typingListeners[ref]?.let {
       ref.removeEventListener(it)
-      Log.d("YkisLog", "$methodName: Удален старый слушатель для $chatId")
+      typingListeners.remove(ref)
+      Log.d("YkisLog", "$methodName: [CLEANUP] Старый слушатель удален для $chatId")
     }
 
     val listener = object : ValueEventListener {
       override fun onDataChange(snapshot: DataSnapshot) {
         val now = System.currentTimeMillis()
 
+        // Проверяем: печатает ли кто-то, кроме меня, за последние 7 секунд
         val isTyping = snapshot.children.any { child ->
-          val rawValue = child.value
-          val timestamp = when (rawValue) {
-            is Long -> rawValue
-            is Double -> rawValue.toLong()
-            is Number -> rawValue.toLong() // Универсальный вариант
+          val timestamp = when (val value = child.value) {
+            is Long -> value
+            is Number -> value.toLong()
             else -> 0L
           }
-          // Собеседник печатал в последние 5-7 секунд
           child.key != myUid && (now - timestamp) < 7000
         }
 
-        // Обновляем UI только если статус реально изменился
+        // Обновляем UI только при реальной смене статуса
         if (_isPartnerTyping.value != isTyping) {
           _isPartnerTyping.value = isTyping
-          Log.d("YkisLog", "$methodName: [SYNC] Печатает: $isTyping")
+          Log.d("YkisLog", "$methodName: [EVENT] Partner is typing: $isTyping (Chat: $chatId)")
         }
 
-        // Автосброс через 3 секунды, если данные перестали приходить
+        // Автосброс: если пакеты данных перестали приходить, гасим статус через 3.5 сек
         if (isTyping) {
           typingJob?.cancel()
           typingJob = viewModelScope.launch {
             delay(3500)
-            _isPartnerTyping.value = false
+            if (_isPartnerTyping.value) {
+              _isPartnerTyping.value = false
+              Log.d("YkisLog", "$methodName: [TIMEOUT] Статус сброшен")
+            }
           }
         }
       }
 
       override fun onCancelled(e: DatabaseError) {
-        Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+        Log.e("YkisLog", "$methodName: [CANCELLED] ${e.message}")
       }
     }
 
-    // 2. Регистрация в специальную карту typingListeners
+    // 2. РЕГИСТРАЦИЯ: Добавляем новый слушатель в карту
     ref.addValueEventListener(listener)
     typingListeners[ref] = listener
-    Log.d("YkisLog", "$methodName: [ACTIVE] Слушаем статус печати для $chatId")
+    Log.d("YkisLog", "$methodName: [READY] Мониторинг запущен для ветки $chatId")
   }
 
 
@@ -503,56 +610,55 @@ class ChatViewModel(
 
   // 2. Обновленный метод изменения текста (с отправкой статуса печати)
   fun onMessageTextChanged(newText: String) {
+    val oldText = _messageText.value
     _messageText.value = newText
 
-    // Если мы НЕ в режиме редактирования, отправляем "печатает"
-    // (При редактировании старого сообщения "печатает" обычно не показывают)
+    // Обновляем статус в базе только если мы НЕ редактируем старое сообщение
+    // и если изменился сам факт наличия текста (чтобы не спамить в сеть)
     if (_editingMessage.value == null) {
-      setTypingStatus(newText.isNotBlank())
+      if (oldText.isBlank() != newText.isBlank()) {
+        setTypingStatus(newText.isNotBlank())
+      }
     }
   }
+
 
   // 3. Метод сохранения исправленного сообщения
   fun updateMessage(newText: String) {
+    val methodName = "ChatViewModel.updateMessage"
     val msg = _editingMessage.value ?: return
-    val chatId = currentChatPath ?: return
+    val chatId = currentChatPath // Если это String?, Kotlin может ругаться ниже
 
-    viewModelScope.launch(Dispatchers.IO) {
-      val updates = mapOf(
-        "text" to newText,
-        "edited" to true // Пометка, что сообщение было изменено
-      )
-      chatsReference.child(chatId).child(msg.id).updateChildren(updates)
-        .addOnSuccessListener {
-          Log.d("YkisLog", "ChatViewModel: [SUCCESS] Сообщение ${msg.id} обновлено")
-          cancelEditing() // Сбрасываем режим правки и чистим поле
-        }
-        .addOnFailureListener { e ->
-          Log.e("YkisLog", "ChatViewModel: [ERROR] Не удалось обновить: ${e.message}")
-        }
+    // Проверка на null и пустоту пути
+    if (chatId.isNullOrEmpty()) {
+      Log.e("YkisLog", "$methodName: [ERROR] Путь чата не определен")
+      return
     }
-  }
-
-  fun fetchAndSelectUser(userUid: String, onComplete: () -> Unit) {
-    val methodName = "ChatViewModel.fetchAndSelectUser()"
-    Log.d("YkisLog", "$methodName: [START] Поиск данных пользователя: $userUid")
 
     viewModelScope.launch(Dispatchers.IO) {
       try {
-        // Запрашиваем документ напрямую из репозитория/Firestore
-        val user = chatRepo.getUserByUid(userUid)
+        Log.d("YkisLog", "$methodName: [START] Обновление сообщения ${msg.id}")
 
+        val updates = mapOf(
+          "text" to newText,
+          "edited" to true // Пометка "изменено" для UI
+        )
+
+        // Выполняем обновление в Firebase
+        chatsReference.child(chatId).child(msg.id).updateChildren(updates).await()
+
+        Log.d("YkisLog", "$methodName: [SUCCESS] Текст изменен")
+
+        // Возвращаемся в Main поток для сброса UI
         withContext(Dispatchers.Main) {
-          if (user != null) {
-            _selectedUser.value = user
-            Log.d("YkisLog", "$methodName: [SUCCESS] Пользователь найден: ${user.displayName}")
-            onComplete()
-          } else {
-            Log.e("YkisLog", "$methodName: [ERROR] Пользователь с UID $userUid не найден в базе")
-          }
+          cancelEditing() // Чистит поле и сбрасывает _editingMessage
+          SnackbarManager.showMessage("Повідомлення змінено")
         }
       } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [CRITICAL] Ошибка поиска: ${e.message}")
+        Log.e("YkisLog", "$methodName: [FATAL] ${e.message}")
+        withContext(Dispatchers.Main) {
+          SnackbarManager.showMessage("Помилка при редагуванні")
+        }
       }
     }
   }
@@ -577,120 +683,73 @@ class ChatViewModel(
     _messageText.value = ""
   }
 
-
-  // Добавляем логику в существующий метод подписки на сообщения
-  // В ChatViewModel.kt
-  // В ChatViewModel.kt
-  fun subscribeToAllResidentCounters(uid: String, osbbId: Int, addressId: Int) {
-    val methodName = "ChatViewModel.subscribeToAllResidentCounters()"
-
-    // Формируем список ключей для всех чатов, которые есть у жильца
-    val chatKeys = listOf(
-      "OSBB_${osbbId}_${addressId}_$uid",
-      "WATER_SERVICE_${addressId}_$uid",
-      "WARM_SERVICE_${addressId}_$uid",
-      "GARBAGE_SERVICE_${addressId}_$uid"
-    )
-
-    Log.d("YkisLog", "$methodName: Запуск счетчиков для $uid (Addr: $addressId)")
-
-    // Вызываем наш основной метод подсчета
-    subscribeToUnreadCount(chatKeys)
-  }
-
-  // Установка статуса (вызывать при наборе текста)
+  private var lastTypingSentTime = 0L // Добавь эту переменную в класс
 
   fun setTypingStatus(isTyping: Boolean) {
-    val methodName = "ChatViewModel.setTypingStatus()"
-    val chatId = currentChatPath ?: return
+    val methodName = "ChatViewModel.setTypingStatus"
+
+    // 1. Безопасное извлечение chatId и UID
+    val chatId = currentChatPath
     val myUid = chatRepo.currentUid ?: return
+
+    if (chatId.isNullOrEmpty()) {
+      Log.e("YkisLog", "$methodName: [ERROR] Путь чата не определен")
+      return
+    }
+
     val ref = typingReference.child(chatId).child(myUid)
+    val now = System.currentTimeMillis()
 
     if (isTyping) {
-      // Мы убрали проверку lastTypingState, чтобы каждое нажатие
-      // обновляло метку времени и "будило" слушателя у собеседника.
-      val timestamp = System.currentTimeMillis()
-
-      ref.setValue(timestamp).addOnSuccessListener {
-        Log.d("YkisLog", "$methodName: [UPDATE] Метка времени $timestamp отправлена в $chatId")
-      }.addOnFailureListener { e ->
-        Log.e("YkisLog", "$methodName: [ERROR] Ошибка записи: ${e.message}")
+      // Обновляем метку времени только если прошло более 2.5 сек с последней отправки
+      // Это экономит трафик, но держит статус "активным" для собеседника
+      if (now - lastTypingSentTime > 2500) {
+        lastTypingSentTime = now
+        ref.setValue(now).addOnSuccessListener {
+          Log.d("YkisLog", "$methodName: [TYPING] Метка времени обновлена в $chatId")
+        }.addOnFailureListener { e ->
+          Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+        }
       }
     } else {
-      // Когда текст стерт полностью — удаляем узел
+      // Когда текст стерт полностью — мгновенно удаляем узел
+      lastTypingSentTime = 0L
       ref.removeValue().addOnSuccessListener {
-        Log.d("YkisLog", "$methodName: [STOP] Узел typing удален для $myUid")
-      }
-      // Сбрасываем локальный флаг, чтобы при следующем вводе сработал блок isTyping
-      lastTypingState = false
-    }
-  }
-
-  // Подписка на статус собеседника
-
-  fun initializeChatOnApartmentAdded(uid: String, osbbId: Int, addressId: Int, addressText: String) {
-    val methodName = "ChatViewModel.initializeChat"
-    viewModelScope.launch(Dispatchers.IO) {
-      try {
-        val chatPath = "OSBB_${osbbId}_${addressId}_$uid"
-        val chatRef = FirebaseDatabase.getInstance().getReference("chats").child(chatPath)
-
-        // Проверяем, есть ли там уже сообщения (чтобы не спамить при повторном добавлении)
-        val snapshot = chatRef.get().await()
-        if (!snapshot.exists()) {
-          Log.d("YkisLog", "$methodName: [INIT] Создание ветки чата для новой квартиры: $addressText")
-
-          val welcomeMessage = hashMapOf(
-            "senderUid" to "system", // Помечаем как системное
-            "text" to "Квартиру за адресою $addressText додано до системи. Тепер ви можете спілкуватися з диспетчером.",
-            "timestamp" to ServerValue.TIMESTAMP,
-            "read" to false,
-            "senderDisplayedName" to "Система",
-            "type" to "TEXT"
-          )
-
-          chatRef.push().setValue(welcomeMessage).await()
-          Log.d("YkisLog", "$methodName: [SUCCESS] Жилец теперь виден админу")
-        }
-      } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+        Log.d("YkisLog", "$methodName: [STOP] Статус печати удален")
       }
     }
   }
+
 
   fun subscribeToUnreadCount(chatKeys: List<String>) {
     val methodName = "ChatViewModel.subscribeToUnreadCount"
     val myUid = chatRepo.currentUid ?: return
 
     chatKeys.forEach { chatId ->
-      // 1. Проверяем наличие активного слушателя, чтобы не плодить дубликаты
+      if (chatId.isBlank()) return@forEach
+
+      // 1. Сначала формируем запрос (Query)
       val chatRef = chatsReference.child(chatId)
-      if (unreadCountListeners.containsKey(chatRef)) return@forEach
-
-      Log.d("YkisLog", "$methodName: [WATCH] Регистрация слушателя для: $chatId")
-
-      // 2. Оптимизированный запрос: слушаем только непрочитанные (read == false)
       val query = chatRef.orderByChild("read").equalTo(false)
+
+      // 2. Теперь проверяем карту, используя созданный Query как ключ
+      if (unreadCountListeners.containsKey(query)) {
+        Log.d("YkisLog", "$methodName: [SKIP] Слушатель для этого запроса уже активен: $chatId")
+        return@forEach
+      }
+
+      Log.d("YkisLog", "$methodName: [WATCH] Регистрация для: $chatId")
 
       val listener = object : ValueEventListener {
         override fun onDataChange(snapshot: DataSnapshot) {
           viewModelScope.launch(Dispatchers.Default) {
-            // 3. Подсчет входящих непрочитанных
-            val count = snapshot.children.mapNotNull {
-              it.getValue(MessageEntity::class.java)
+            val count = snapshot.children.mapNotNull { child ->
+              child.getValue(MessageEntity::class.java)
             }.count { it.senderUid != myUid }
 
             withContext(Dispatchers.Main) {
-              // 4. Обновляем мапу (важно: записываем даже 0, чтобы убрать бейдж в UI)
               _unreadCounts.update { currentMap ->
                 currentMap + (chatId to count)
-              }
-
-              // 5. Логируем только реальные изменения или наличие сообщений
-              if (count > 0) {
-                Log.d("YkisLog", "$methodName: [$chatId] -> непрочитано: $count")
-              } else {
-                Log.d("YkisLog", "$methodName: [$chatId] -> все прочитано (0)")
               }
             }
           }
@@ -701,40 +760,61 @@ class ChatViewModel(
         }
       }
 
-      // 6. Запуск и сохранение в реестр слушателей
+      // 3. Запуск и сохранение в карту именно QUERY
       query.addValueEventListener(listener)
-      unreadCountListeners[chatRef] = listener
+      unreadCountListeners[query] = listener
     }
   }
 
 
   // Метод для получения помощи от ИИ
   fun askAssistant(prompt: String) {
-    val methodName = "ChatViewModel.askAssistant()"
-    Log.d("YkisLog", "$methodName: [START] Вопрос: $prompt")
+    val methodName = "ChatViewModel.askAssistant"
+
+    // 1. Проверка на пустой запрос
+    if (prompt.isBlank()) return
 
     _isLoadingAfterSending.value = true
+    Log.d("YkisLog", "$methodName: [START] Prompt: $prompt")
 
     viewModelScope.launch(Dispatchers.IO) {
       try {
-        // Используйте текстовую модель (например, gemini-pro)
-        val response = generativeModel.generateContent(prompt)
+        // Формируем расширенный контекст для Gemini
+        val roleName = when (_uiState.value.userRole) {
+          UserRole.VodokanalUser -> "диспетчера Водоканалу"
+          UserRole.OsbbUser -> "голови ОСББ"
+          else -> "мешканця квартири"
+        }
+
+        val addressInfo = _uiState.value.address ?: ""
+        val fullPrompt = """
+                Ти помічник у мобільному додатку ЖКГ. 
+                Ти відповідаєш від імені $roleName. 
+                Контекст квартири: $addressInfo.
+                Запит користувача: $prompt
+            """.trimIndent()
+
+        // 2. Запрос к модели
+        val response = generativeModel.generateContent(fullPrompt)
         val responseText = response.text
 
         withContext(Dispatchers.Main) {
-          if (responseText != null) {
+          if (!responseText.isNullOrBlank()) {
             Log.d("YkisLog", "$methodName: [SUCCESS] Ответ получен")
             _assistantResponse.value = responseText
           } else {
-            Log.e("YkisLog", "$methodName: [ERROR] Ответ пустой (null)")
-            _assistantResponse.value = "AI connection error (Empty response)"
+            Log.e("YkisLog", "$methodName: [ERROR] Пустой ответ")
+            _assistantResponse.value = "Помилка зв'язку з ШІ (порожня відповідь)"
           }
-          _isLoadingAfterSending.value = false
         }
       } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [CRITICAL] ${e.message}")
         withContext(Dispatchers.Main) {
-          Log.e("YkisLog", "$methodName: [CRITICAL] ${e.message}")
-          _assistantResponse.value = "AI connection error: ${e.localizedMessage}"
+          _assistantResponse.value = "Помилка ШІ: ${e.localizedMessage}"
+        }
+      } finally {
+        // 3. Гарантированно выключаем лоадер
+        withContext(Dispatchers.Main) {
           _isLoadingAfterSending.value = false
         }
       }
@@ -743,87 +823,104 @@ class ChatViewModel(
 
 
   fun subscribeToLastMessages(chatKeys: List<String>) {
-    val methodName = "ChatViewModel.subscribeToLastMessages()"
+    val methodName = "ChatViewModel.subscribeToLastMessages"
 
     chatKeys.forEach { chatId ->
-      // Если мы уже слушаем эту ветку — пропускаем
+      if (chatId.isBlank()) return@forEach
+
+      // 1. Формируем запрос на последнее сообщение
+      val lastMsgQuery = chatsReference.child(chatId).orderByKey().limitToLast(1)
+
+      // 2. Проверяем, не слушаем ли мы уже этот конкретный Query
+      // (Используем chatId как ключ в мапе для простоты проверки)
       if (lastMessageListeners.containsKey(chatId)) return@forEach
 
-      val lastMsgRef = chatsReference.child(chatId).orderByKey().limitToLast(1)
+      Log.d("YkisLog", "$methodName: [WATCH] Подписка на последнее сообщение: $chatId")
 
       val listener = object : ValueEventListener {
         override fun onDataChange(snapshot: DataSnapshot) {
+          // Извлекаем единственный (последний) элемент из результата
           val message = snapshot.children.firstOrNull()?.getValue(MessageEntity::class.java)
+
           if (message != null) {
+            // Обновляем мапу последних сообщений для отображения в списке UserListScreen
             _lastMessages.update { currentMap ->
               currentMap + (chatId to message)
             }
-            Log.d("YkisLog", "$methodName: New msg in $chatId: ${message.text}")
+            Log.d("YkisLog", "$methodName: [UPDATE] $chatId -> ${message.text.take(20)}...")
           }
         }
 
-        override fun onCancelled(error: DatabaseError) {}
+        override fun onCancelled(error: DatabaseError) {
+          Log.e("YkisLog", "$methodName: [ERROR] $chatId: ${error.message}")
+        }
       }
 
-      lastMsgRef.addValueEventListener(listener)
+      // 3. Регистрация слушателя
+      lastMsgQuery.addValueEventListener(listener)
       lastMessageListeners[chatId] = listener
     }
   }
 
+
   fun markMessagesAsRead(chatId: String) {
-    val methodName = "ChatViewModel.markMessagesAsRead()"
-    val myUid = chatRepo.currentUid ?: ""
-    val ref = chatsReference.child(chatId)
+    val methodName = "ChatViewModel.markMessagesAsRead"
+    val myUid = chatRepo.currentUid ?: return
 
-    Log.d("YkisLog", "$methodName: [START] Проверка сообщений в $chatId")
+    if (chatId.isBlank()) {
+      Log.e("YkisLog", "$methodName: [ERROR] Пустой chatId")
+      return
+    }
 
-    // Берем последние 50, чтобы не качать всю историю
-    ref.limitToLast(50).get().addOnSuccessListener { snapshot ->
-      if (!snapshot.exists()) {
-        Log.d("YkisLog", "$methodName: Ветка чата пуста.")
-        return@addOnSuccessListener
-      }
+    viewModelScope.launch(Dispatchers.IO) {
+      try {
+        Log.d("YkisLog", "$methodName: [START] Проверка ветки $chatId")
 
-      val updates = mutableMapOf<String, Any?>()
-      var incomingCount = 0
+        val ref = chatsReference.child(chatId)
 
-      snapshot.children.forEach { child ->
-        val msg = child.getValue(MessageEntity::class.java)
-        val msgKey = child.key
+        // 1. Получаем последние 50 сообщений одним запросом
+        val snapshot = ref.limitToLast(50).get().await()
 
-        if (msg != null && msgKey != null) {
-          // Логика: если отправитель не я и сообщение помечено как НЕ прочитанное
-          if (msg.senderUid != myUid && !msg.read) {
-            updates["$msgKey/read"] = true
-            incomingCount++
-            Log.d(
-              "YkisLog",
-              "$methodName: Найдено непрочитанное от ${msg.senderDisplayedName} (ID: $msgKey)"
-            )
+        if (!snapshot.exists()) {
+          Log.d("YkisLog", "$methodName: [SKIP] Ветка пуста")
+          return@launch
+        }
+
+        val updates = mutableMapOf<String, Any>()
+        var incomingCount = 0
+
+        // 2. Ищем сообщения, которые прислали НАМ (senderUid != myUid) и которые еще не прочитаны
+        snapshot.children.forEach { child ->
+          val msg = child.getValue(MessageEntity::class.java)
+          val msgKey = child.key
+
+          if (msg != null && msgKey != null) {
+            if (msg.senderUid != myUid && !msg.read) {
+              updates["$msgKey/read"] = true
+              incomingCount++
+            }
           }
         }
-      }
 
-      if (updates.isNotEmpty()) {
-        Log.d("YkisLog", "$methodName: [PROCESS] Отправка обновлений в базу: $incomingCount шт.")
-        ref.updateChildren(updates).addOnSuccessListener {
-          Log.d(
-            "YkisLog",
-            "$methodName: [SUCCESS] Статус 'read' обновлен для $incomingCount сообщений"
-          )
+        // 3. Если есть что обновлять — пишем в базу
+        if (updates.isNotEmpty()) {
+          Log.d("YkisLog", "$methodName: [PROCESS] Читаем $incomingCount сообщ.")
+          ref.updateChildren(updates).await()
 
-          // Локально сбрасываем счетчик в UI сразу после успеха в базе
-          _unreadCounts.update { it + (chatId to 0) }
-        }.addOnFailureListener { e ->
-          Log.e("YkisLog", "$methodName: [ERROR] Ошибка записи: ${e.message}")
+          withContext(Dispatchers.Main) {
+            // Мгновенно обнуляем бейдж в UI
+            _unreadCounts.update { it + (chatId to 0) }
+            Log.d("YkisLog", "$methodName: [SUCCESS] Счетчик обнулен")
+          }
+        } else {
+          Log.d("YkisLog", "$methodName: [SKIP] Новых сообщений нет")
         }
-      } else {
-        Log.d("YkisLog", "$methodName: [SKIP] Все входящие сообщения уже прочитаны")
+      } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [FATAL] ${e.message}")
       }
-    }.addOnFailureListener { e ->
-      Log.e("YkisLog", "$methodName: [CRITICAL] Ошибка связи с сервером: ${e.message}")
     }
   }
+
 
   // ChatViewModel.kt
 
@@ -841,52 +938,46 @@ class ChatViewModel(
 
   // Шаг 3: Физическое удаление
   fun confirmDeletion() {
-    // 1. Берем сообщение целиком, чтобы получить imageUrl
+    val methodName = "ChatViewModel.confirmDeletion"
     val message = _messageToDelete.value
-    val chatId = currentChatPath
+    val chatId = currentChatPath // Убедись, что это String (не null)
 
-    if (chatId == null || message == null) {
-      Log.e("YkisLog", "ChatViewModel: [ERROR] Недостаточно данных для удаления")
+    if (chatId.isNullOrEmpty() || message == null) {
+      Log.e("YkisLog", "$methodName: [ERROR] Данные отсутствуют. Path: $chatId")
       return
     }
 
     viewModelScope.launch(Dispatchers.IO) {
-      // 2. Если в сообщении была фотография — удаляем её из Storage
-      if (!message.imageUrl.isNullOrBlank()) {
-        Log.d("YkisLog", "ChatViewModel: [STORAGE] Удаление фото: ${message.imageUrl}")
-        chatRepo.deleteImageFromStorage(message.imageUrl)
-      }
+      try {
+        Log.d("YkisLog", "$methodName: [START] Удаление сообщения ID: ${message.id}")
 
-      // 3. Удаляем само сообщение из Realtime Database
-      chatsReference.child(chatId).child(message.id).removeValue()
-        .addOnSuccessListener {
-          Log.d("YkisLog", "ChatViewModel: [SUCCESS] Сообщение ${message.id} удалено")
-          _messageToDelete.value = null // Закрываем диалог
+        // 1. Если есть медиа-файлы (фото или документы) — удаляем из Storage
+        if (!message.imageUrl.isNullOrBlank()) {
+          Log.d("YkisLog", "$methodName: [STORAGE] Удаление фото...")
+          chatRepo.deleteImageFromStorage(message.imageUrl)
         }
-        .addOnFailureListener { e ->
-          Log.e("YkisLog", "ChatViewModel: [FAILED] Ошибка: ${e.message}")
+
+        if (!message.fileUrl.isNullOrBlank()) {
+          Log.d("YkisLog", "$methodName: [STORAGE] Удаление файла...")
+          chatRepo.deleteImageFromStorage(message.fileUrl) // Используем тот же метод удаления ссылки
         }
-    }
-  }
 
+        // 2. Удаляем саму запись из Realtime Database
+        chatsReference.child(chatId).child(message.id).removeValue().await()
 
-  private fun analyzeIncomingMessage(message: MessageEntity, role: UserRole) {
-    // Анализируем только если текущий пользователь — Диспетчер (OsbbUser)
-    // и сообщение пришло от жильца
-//    if (role == UserRole.OsbbUser && message.senderUid != currentUserId) {
-    if (role == UserRole.OsbbUser) {
-      viewModelScope.launch {
-        try {
-          val analysisPrompt = """
-                    Проанализируй сообщение жильца: "${message.text}". 
-                    1. Определи категорию (Авария, Жалоба, Вопрос).
-                    2. Предложи краткий вариант ответа для диспетчера .
-                """.trimIndent()
+        Log.d("YkisLog", "$methodName: [SUCCESS] Сообщение полностью удалено")
 
-          val result = generativeModel.generateContent(analysisPrompt)
-          _quickHint.value = result.text
-        } catch (e: Exception) {
-          Log.e("Gemini", "Analysis failed")
+        // 3. Возвращаемся в Main поток для закрытия UI-диалога
+        withContext(Dispatchers.Main) {
+          _messageToDelete.value = null
+          SnackbarManager.showMessage("Повідомлення видалено")
+        }
+
+      } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [FATAL] Ошибка удаления: ${e.message}")
+        withContext(Dispatchers.Main) {
+          _messageToDelete.value = null
+          SnackbarManager.showMessage("Помилка при видаленні")
         }
       }
     }
@@ -897,48 +988,63 @@ class ChatViewModel(
   fun analyzePhotoWithGemini(uri: Uri, context: android.content.Context, address: String) {
     val methodName = "ChatViewModel.analyzeAI"
     Log.d("YkisLog", "$methodName: [START] Анализ фото для адреса: $address")
+
     _isLoadingAfterSending.value = true
 
     viewModelScope.launch(Dispatchers.IO) {
       try {
+        // 1. Подготовка изображения
         val imageData = compressImage(context, uri)
         val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
 
         val inputContent = content {
           image(bitmap)
-          text("""
-                    Ты — помощник ЖКХ. На фото счетчик воды по адресу: $address. 
-                    Найди его серийный номер и текущие показания (только черные цифры на табло). 
-                    Выведи в формате: Адрес: $address. Счетчик № [число]. Показания: [число].
-                    Если на фото не счетчик, кратко опиши что видишь.
-                """.trimIndent())
+          text(
+            """
+                    Ти — помічник системи ЖКГ. На фото — лічильник води за адресою: $address. 
+                    Твоє завдання:
+                    1. Знайти серійний номер лічильника.
+                    2. Знайти поточні показання (тільки цілі числа, зазвичай чорні цифри на білому фоні).
+                    3. Виведи результат суворо у форматі: 
+                       Адреса: $address. Лічильник № [номер]. Показники: [число].
+                    
+                    Якщо на фото не лічильник або цифри розмиті — напиши: "Не вдалося розпізнати дані, спробуйте зробити фото чіткіше".
+                    Відповідай тільки українською мовою.
+                    """.trimIndent()
+          )
         }
 
-        Log.d("YkisLog", "$methodName: [REQUEST] Отправка в Gemini...")
+        Log.d("YkisLog", "$methodName: [REQUEST] Відправка в Gemini...")
         val response = generativeModel.generateContent(inputContent)
-        val generatedText = response.text ?: ""
+        val generatedText = response.text
 
         withContext(Dispatchers.Main) {
-          Log.d("YkisLog", "$methodName: [SUCCESS] Ответ: $generatedText")
+          if (!generatedText.isNullOrBlank()) {
+            Log.d("YkisLog", "$methodName: [SUCCESS] Відповідь: $generatedText")
 
-          _assistantResponse.value = generatedText
+            _assistantResponse.value = generatedText
 
-          // Если поле пустое, сразу вставляем текст с адресом
-          if (_messageText.value.isBlank()) {
-            _messageText.value = generatedText
+            // Якщо поле введення повідомлення порожнє — автоматично вставляємо результат розпізнавання
+            if (_messageText.value.isBlank()) {
+              _messageText.value = generatedText
+            }
+          } else {
+            Log.w("YkisLog", "$methodName: [EMPTY] ІІ повернув порожній текст")
           }
-          _isLoadingAfterSending.value = false
         }
       } catch (e: Exception) {
+        Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
         withContext(Dispatchers.Main) {
-          Log.e("YkisLog", "$methodName: [ERROR] ${e.message}")
+          SnackbarManager.showMessage("Помилка розпізнавання: перевірте підключення")
+        }
+      } finally {
+        // 3. ГАРАНТОВАНО вимикаємо лоадер
+        withContext(Dispatchers.Main) {
           _isLoadingAfterSending.value = false
-          SnackbarManager.showMessage("Не вдалося розпізнати дані")
         }
       }
     }
   }
-
 
 
   fun applyAiHint() {
@@ -971,34 +1077,60 @@ class ChatViewModel(
     senderAddress: String,
     addressId: Int,
     imageUrl: String?,
-    fileUrl: String? = null, // Новый параметр
+    fileUrl: String? = null,
     fileName: String?,
     osbbId: Int,
     role: UserRole,
     onComplete: () -> Unit,
     recipientTokens: List<String>
   ) {
-    val methodName = "ChatViewModel.writeToDatabase()"
+    val methodName = "ChatViewModel.writeToDatabase"
 
-    // Если всё пусто — отменяем
+    // 1. Проверка на пустоту
     if (messageText.value.isBlank() && imageUrl == null && fileUrl == null) {
       Log.d("YkisLog", "$methodName: [CANCEL] Пустое сообщение")
       return
     }
 
-    val chatId = getChatPath(role, osbbId, addressId, if (role != UserRole.StandardUser) chatUid else null)
+    // 2. КРИТИЧЕСКИЙ ФИКС UID: Если мы админ и chatUid пуст, берем UID из выбранного юзера
+    val finalTargetUid = if (role != UserRole.StandardUser) {
+      chatUid.ifBlank { _selectedUser.value?.uid ?: "" }
+    } else {
+      null // Житель пишет в общую ветку (его UID подставится внутри getChatPath)
+    }
+
+    // 3. ОПРЕДЕЛЯЕМ СИСТЕМНЫЙ ID (для путей организации)
+    val effectiveOsbbId = when (role) {
+      UserRole.VodokanalUser -> 9999
+      UserRole.YtkeUser -> 9998
+      UserRole.TboUser -> 9997
+      else -> osbbId
+    }
+
+    // 4. Генерация УНИФИЦИРОВАННОГО пути
+    val chatId = getChatPath(
+      role = role,
+      osbbId = effectiveOsbbId,
+      addressId = addressId,
+      targetUserUid = finalTargetUid
+    )
+
+    // Обновляем текущий путь
     currentChatPath = chatId
 
     val chatRef = chatsReference.child(chatId)
     val messageKey = chatRef.push().key ?: return
 
-    // Если текста нет, но есть файл — ставим заглушку
+    Log.d("YkisLog", "$methodName: [START] Path: $chatId | TargetUID: $finalTargetUid")
+
     val displayText = if (fileUrl != null && messageText.value.isBlank()) "[Файл]" else messageText.value
 
+    // 5. Формируем объект сообщения
     val messageEntity = MessageEntity(
       id = messageKey,
       senderUid = senderUid,
       text = displayText,
+      type = if (imageUrl != null) "IMAGE" else if (fileUrl != null) "FILE" else "TEXT",
       senderLogoUrl = senderLogoUrl,
       senderDisplayedName = senderDisplayedName.substringAfter("|").trim(),
       senderAddress = senderAddress,
@@ -1009,35 +1141,27 @@ class ChatViewModel(
       read = false
     )
 
-    // Внутри ChatViewModel
-    chatRef.child(messageKey).setValue(messageEntity).addOnCompleteListener { task ->
-      if (task.isSuccessful) {
-        Log.d("YkisLog", "Chat: [SUCCESS] Записано")
+    _isLoadingAfterSending.value = true
 
-        // ПРИНУДИТЕЛЬНО очищаем на главном потоке
+    // 6. Запись в Firebase
+    chatRef.child(messageKey).setValue(messageEntity).addOnCompleteListener { task ->
+      _isLoadingAfterSending.value = false
+      if (task.isSuccessful) {
+        Log.d("YkisLog", "$methodName: [SUCCESS] Отправлено в $chatId")
+
+        // Очистка
         _messageText.value = ""
         _selectedImageUri.value = Uri.EMPTY
-
-        // Очищаем подсказки ИИ, если они были
         clearAiSuggestion()
-
-        _isLoadingAfterSending.value = false
         onComplete()
       } else {
-        _isLoadingAfterSending.value = false
+        Log.e("YkisLog", "$methodName: [ERROR] ${task.exception?.message}")
+        SnackbarManager.showMessage("Помилка відправки")
       }
     }
-
   }
 
 
-
-
-
-  fun closeChat() {
-    Log.d("YkisLog", "ChatViewModel: Закрытие чата. Был путь: $currentChatPath")
-    currentChatPath = null
-  }
 
 
   /**
@@ -1049,48 +1173,59 @@ class ChatViewModel(
   // В ChatViewModel.kt
 
   fun readFromDatabase(role: UserRole, senderUid: String, osbbId: Int, addressId: Int) {
-    val methodName = "ChatViewModel.readFromDatabase()"
-    // Генерируем путь один раз и используем его везде
-    val targetPath =
-      getChatPath(role, osbbId, addressId, if (role != UserRole.StandardUser) senderUid else null)
+    val methodName = "ChatViewModel.readFromDatabase"
+
+    // 1. УНИФИКАЦИЯ ID
+    val effectiveOsbbId = when (role) {
+      UserRole.VodokanalUser -> 9999
+      UserRole.YtkeUser -> 9998
+      UserRole.TboUser -> 9997
+      else -> osbbId
+    }
+
+    // 2. ГЕНЕРАЦИЯ ПУТИ
+    val targetPath = getChatPath(
+      role = role,
+      osbbId = effectiveOsbbId,
+      addressId = addressId,
+      targetUserUid = if (role != UserRole.StandardUser) senderUid else null
+    )
+
+    currentChatPath = targetPath
+    Log.d("YkisLog", "$methodName: [INIT] Путь: $targetPath | Role: $role")
+
     val myUid = chatRepo.currentUid ?: ""
-    if (currentChatPath == targetPath && listeners.isNotEmpty()) {
-      Log.d("YkisLog", "$methodName: [SKIP] Мы уже слушаем $targetPath")
+    val ref = chatsReference.child(targetPath)
+
+    if (listeners.containsKey(ref)) {
+      Log.d("YkisLog", "$methodName: [SKIP] Слушатель уже активен")
       return
     }
-    Log.d("YkisLog", "$methodName: [START] Инициализация чата: $targetPath")
 
-    // 1. КРИТИЧЕСКИЙ МОМЕНТ: Устанавливаем путь НЕМЕДЛЕННО
-    // Это лечит ошибку [REJECTED] ... (активен null)
-    currentChatPath = targetPath
-
-    // 2. ПОЛНАЯ ОЧИСТКА ПРЕДЫДУЩИХ ПОДПИСОК
-    listeners.forEach { (reference, listener) ->
-      Log.d("YkisLog", "$methodName: [CLEANUP] Удаление слушателя из ветки: ${reference.key}")
-      reference.removeEventListener(listener)
+    // 4. БЕЗОПАСНАЯ ОЧИСТКА СТАРЫХ СЛУШАТЕЛЕЙ
+    val iterator = listeners.iterator()
+    while (iterator.hasNext()) {
+      val entry = iterator.next()
+      Log.d("YkisLog", "$methodName: [CLEANUP] Удаление слушателя: ${entry.key.key}")
+      entry.key.removeEventListener(entry.value)
+      iterator.remove()
     }
-    listeners.clear()
 
-    // 3. ПОДГОТОВКА UI
     _firebaseTest.value = emptyList()
     _isPartnerTyping.value = false
     typingJob?.cancel()
 
-    // Запускаем процессы мониторинга
+    // 5. ПЕРВИЧНЫЙ СБРОС (при входе)
     markMessagesAsRead(targetPath)
     observeTypingStatus(targetPath)
 
-    val ref = chatsReference.child(targetPath)
-
-    // 4. СОЗДАНИЕ СЛУШАТЕЛЯ
+    // 6. ОСНОВНОЙ СЛУШАТЕЛЬ С ЛОГИКОЙ AUTO-READ
     val listener = object : ValueEventListener {
       override fun onDataChange(dataSnapshot: DataSnapshot) {
-        val count = dataSnapshot.childrenCount
+        val activePath = currentChatPath
+        Log.d("YkisLog", "$methodName: [DATA_RECV] Данные для: $targetPath")
 
-        // Сравниваем с локальной константой targetPath, а не с изменяемой currentChatPath
-        Log.d("YkisLog", "$methodName: [DATA_RECV] Путь: $targetPath | В базе: $count")
-
-        if (targetPath == currentChatPath) {
+        if (targetPath == activePath) {
           viewModelScope.launch(Dispatchers.Default) {
             val messages = dataSnapshot.children.mapNotNull {
               it.getValue(MessageEntity::class.java)
@@ -1099,34 +1234,39 @@ class ChatViewModel(
             }.sortedBy { it.timestamp }
 
             withContext(Dispatchers.Main) {
-              // .toList() принуждает Compose обновить экран
               _firebaseTest.value = messages.toList()
+              Log.d("YkisLog", "$methodName: [UI_READY] Сообщений: ${messages.size}")
 
-              Log.d("YkisLog", "$methodName: [UI_READY] Отображено: ${messages.size} сообщ.")
-
+              // КРИТИЧЕСКИЙ ФИКС ДЛЯ ГАЛОЧЕК (AUTO-READ)
               if (messages.isNotEmpty()) {
-                markMessagesAsRead(targetPath)
+                val lastMsg = messages.last()
+                // Если последнее сообщение от собеседника и оно еще не прочитано
+                if (lastMsg.senderUid != myUid && !lastMsg.read) {
+                  Log.d("YkisLog", "$methodName: [AUTO_READ] Новое сообщение от ${lastMsg.senderUid}. Помечаю прочитанным.")
+                  markMessagesAsRead(targetPath)
+                } else {
+                  Log.d("YkisLog", "$methodName: [READ_STATUS] Последнее сообщение уже прочитано или отправлено мной.")
+                }
               }
             }
           }
         } else {
-          Log.w(
-            "YkisLog",
-            "$methodName: [REJECTED] Данные для $targetPath проигнорированы (активен $currentChatPath)"
-          )
+          Log.w("YkisLog", "$methodName: [REJECTED] Ожидали: $activePath, пришло: $targetPath")
         }
       }
 
       override fun onCancelled(error: DatabaseError) {
-        Log.e("YkisLog", "$methodName: [ERROR] Ошибка Firebase: ${error.message}")
+        Log.e("YkisLog", "$methodName: [ERROR] Firebase: ${error.message}")
       }
     }
 
-    // 5. РЕГИСТРАЦИЯ
-    Log.d("YkisLog", "$methodName: [LISTENER_ACTIVE] Слушаем: chats/$targetPath")
     ref.addValueEventListener(listener)
     listeners[ref] = listener
+    Log.d("YkisLog", "$methodName: [LISTENER_START] Мониторинг ветки активен")
   }
+
+
+
 
 
   fun clearCurrentChatPath() {
@@ -1141,25 +1281,28 @@ class ChatViewModel(
   }
 
 
-  fun deleteMessage(messageId: String) {
-    val methodName = "ChatViewModel.deleteMessage()"
-    val chatId = currentChatPath ?: return // Удаляем только если путь чата определен
+  fun deleteChatThreads(uid: String, osbbId: Int, addressId: Int) {
+    val methodName = "ChatViewModel.deleteChatThreads"
+
+    // Те же ключи, что мы создавали при добавлении
+    val chatKeys = listOf(
+      "OSBB_${osbbId}_${addressId}_$uid",
+      "WATER_SERVICE_9999_${addressId}_$uid",
+      "WARM_SERVICE_9998_${addressId}_$uid",
+      "GARBAGE_SERVICE_9997_${addressId}_$uid"
+    )
+
+    Log.d("YkisLog", "$methodName: [START] Удаление чатов для о/р $addressId")
 
     viewModelScope.launch(Dispatchers.IO) {
-      try {
-        Log.d("YkisLog", "$methodName: [START] Удаление сообщения $messageId в чате $chatId")
-
-        // Удаляем конкретный узел по его ID
-        chatsReference.child(chatId).child(messageId).removeValue()
-          .addOnSuccessListener {
-            Log.d("YkisLog", "$methodName: [SUCCESS] Сообщение удалено")
-          }
-          .addOnFailureListener { e ->
-            Log.e("YkisLog", "$methodName: [ERROR] Ошибка удаления: ${e.message}")
-            SnackbarManager.showMessage("Не удалось удалить сообщение")
-          }
-      } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [CRITICAL] ${e.message}")
+      chatKeys.forEach { chatPath ->
+        try {
+          // Удаляем всю ветку целиком
+          chatsReference.child(chatPath).removeValue().await()
+          Log.d("YkisLog", "$methodName: [SUCCESS] Ветка $chatPath удалена")
+        } catch (e: Exception) {
+          Log.e("YkisLog", "$methodName: [ERROR] Не удалось удалить $chatPath: ${e.message}")
+        }
       }
     }
   }
@@ -1171,58 +1314,61 @@ class ChatViewModel(
    */
   fun trackUserIdentifiersWithRole(role: UserRole, osbbId: Int?) {
     val methodName = "ChatViewModel.trackUserIdentifiersWithRole"
-    // 1. КРИТИЧЕСКИЙ ФИКС: Очищаем списки ПЕРЕД запуском нового трекера
-    // Это мгновенно уберет квартиры старого ОСББ с экрана
-    _userIdentifiersWithRole.value = emptyList()
-    _userList.value = emptyList()
+    if (role == UserRole.StandardUser) {
+      Log.d("YkisLog", "$methodName: [CANCEL] Жильцу не нужен трекер списка")
+      return
+    }
+    // 1. Очистка активных слушателей перед новым поиском
+    cleanupTracker()
+
+    // ВАЖНО: Не очищаем _userList здесь принудительно, если ключи совпадут,
+    // чтобы избежать "мигания" экрана при каждом клике в Rail.
     _unreadCounts.value = emptyMap()
-    Log.d("YkisLog", "$methodName: [CLEAN] Списки старого ОСББ очищены")
+    Log.d("YkisLog", "$methodName: [CLEAN] Слушатели очищены")
 
-    val ref = chatsReference // Ссылка на /chats/
-
-    // 1. Формируем префикс для фильтрации (например, "OSBB_3_")
-    val targetPrefix = if (role == UserRole.OsbbUser && osbbId != null) {
-      "OSBB_${osbbId}_"
-    } else {
-      "${role.codeName.name}_"
+    // 2. ФОРМИРУЕМ ПРЕФИКС
+    val targetPrefix = when (role) {
+      UserRole.VodokanalUser -> "WATER_SERVICE_9999_"
+      UserRole.YtkeUser -> "WARM_SERVICE_9998_"
+      UserRole.TboUser -> "GARBAGE_SERVICE_9997_"
+      UserRole.OsbbUser -> "OSBB_${osbbId}_"
+      else -> "UNKNOWN_"
     }
 
-    Log.d("YkisLog", "$methodName: [START] Префикс: $targetPrefix")
+    Log.d("YkisLog", "$methodName: [START] Поиск веток: $targetPrefix")
 
-    // 2. Очистка старого слушателя структуры (чтобы не дублировать логику)
-    listeners[ref]?.let {
-      ref.removeEventListener(it)
-      Log.d("YkisLog", "$methodName: [CLEANUP] Удален старый слушатель структуры")
-    }
+    // 3. ОПТИМИЗИРОВАННЫЙ ЗАПРОС
+    val query = chatsReference.orderByKey()
+      .startAt(targetPrefix)
+      .endAt(targetPrefix + "\uf8ff")
 
-    // 3. Слушатель появления новых чатов
     val listener = object : ValueEventListener {
       override fun onDataChange(dataSnapshot: DataSnapshot) {
-        viewModelScope.launch(Dispatchers.Default) {
-          val allKeys = dataSnapshot.children.mapNotNull { it.key }
-          val chatKeys = allKeys.filter { it.startsWith(targetPrefix) }
+        val chatKeys = dataSnapshot.children.mapNotNull { it.key }
+        Log.d("YkisLog", "$methodName: [EVENT] Найдено веток в диапазоне: ${chatKeys.size}")
 
-          // ПРЕДОХРАНИТЕЛЬ: Если список веток не изменился — выходим
-          val currentKeys = _userIdentifiersWithRole.value
-          if (chatKeys.size == currentKeys.size && chatKeys.sorted() == currentKeys.sorted()) {
+        viewModelScope.launch(Dispatchers.Default) {
+          // Сравниваем ключи
+          val keysIdentical = chatKeys.sorted() == _userIdentifiersWithRole.value.sorted()
+          // Проверяем, есть ли уже данные в UI
+          val uiPopulated = _userList.value.isNotEmpty()
+
+          // ПРОПУСКАЕМ обновление только если и ключи те же, и список в UI не пуст
+          if (keysIdentical && uiPopulated) {
+            Log.d("YkisLog", "$methodName: [SKIP] Данные идентичны, UI уже отображается")
             return@launch
           }
-
-          Log.d("YkisLog", "$methodName: [EVENT] Изменение структуры веток. Найдено: ${chatKeys.size}")
 
           withContext(Dispatchers.Main) {
             _userIdentifiersWithRole.value = chatKeys
 
             if (chatKeys.isNotEmpty()) {
-              // КРИТИЧЕСКИЙ ФИКС: Подписываем твой проверенный метод
-              // на все найденные ключи (включая новые)
-              Log.d("YkisLog", "$methodName: [BADGE_SYNC] Запуск subscribeToUnreadCount для ${chatKeys.size} веток")
+              Log.d("YkisLog", "$methodName: [PROCEED] Загрузка профилей для ${chatKeys.size} веток")
               subscribeToUnreadCount(chatKeys)
-
-              getUsers()
+              getUsers() // Этот метод наполнит _userList
             } else {
-              Log.d("YkisLog", "$methodName: [EMPTY] Нет активных чатов")
               _userList.value = emptyList()
+              Log.w("YkisLog", "$methodName: [EMPTY] Ветки не найдены в базе")
             }
           }
         }
@@ -1233,178 +1379,191 @@ class ChatViewModel(
       }
     }
 
-    ref.addValueEventListener(listener)
-    listeners[ref] = listener
-    Log.d("YkisLog", "$methodName: [READY] Трекер веток запущен")
+    // Сохраняем ссылки для очистки
+    query.addValueEventListener(listener)
+    activeTrackerQuery = query
+    activeTrackerListener = listener
+    Log.d("YkisLog", "$methodName: [READY] Трекер активен по диапазону $targetPrefix")
   }
 
 
 
 // В ChatViewModel.kt
 
-  private fun subscribeToAllOsbbCounters(osbbId: Int) {
-    val methodName = "ChatViewModel.subscribeToAllOsbbCounters"
-    val ref = chatRepo.realtime.getReference("counters").child("OSBB_$osbbId")
-
-    // Удаляем старый слушатель для этой конкретной ссылки, если он был
-    listeners[ref]?.let {
-      ref.removeEventListener(it)
-      Log.d("YkisLog", "$methodName: [CLEANUP] Удален старый слушатель Badge")
-    }
-
-    val listener = object : ValueEventListener {
-      override fun onDataChange(snapshot: DataSnapshot) {
-        val newCounts = mutableMapOf<String, Int>()
-        snapshot.children.forEach { chatSnapshot ->
-          val addressId = chatSnapshot.key
-          val count = chatSnapshot.child("unreadCount").getValue(Int::class.java) ?: 0
-          if (addressId != null) {
-            newCounts[addressId] = count
-          }
-        }
-        _unreadCounts.value = newCounts
-        Log.d("YkisLog", "$methodName: [UPDATE] Badge обновлены")
-      }
-
-      override fun onCancelled(error: DatabaseError) {
-        Log.e("YkisLog", "$methodName: [ERROR] ${error.message}")
+  private fun cleanupTracker() {
+    activeTrackerQuery?.let { query ->
+      activeTrackerListener?.let { listener ->
+        Log.d("YkisLog", "ChatViewModel.cleanupTracker: Удаление старого трекера")
+        query.removeEventListener(listener)
       }
     }
-
-    ref.addValueEventListener(listener)
-    listeners[ref] = listener // Сохраняем по ссылке ref
+    activeTrackerQuery = null
+    activeTrackerListener = null
   }
-
 
   fun getUsers() {
     val methodName = "ChatViewModel.getUsers"
     val chatKeys = _userIdentifiersWithRole.value
 
     if (chatKeys.isEmpty()) {
-      Log.d("YkisLog", "$methodName: [CANCEL] Список ключей пуст. Очистка списка пользователей.")
+      Log.d("YkisLog", "$methodName: [CANCEL] Список ключей пуст")
       _userList.value = emptyList()
       return
     }
 
     viewModelScope.launch {
       try {
-        Log.d("YkisLog", "$methodName: [START] Веток для обработки: ${chatKeys.size}")
+        Log.d("YkisLog", "--- $methodName [START] ---")
+        Log.d("YkisLog", "$methodName: Ключи из Firebase: $chatKeys")
 
-        // Извлекаем UID из ключей (последняя часть после "_")
+        // 1. Извлечение UID
         val uidsToFetch = chatKeys.map { it.substringAfterLast("_") }
           .filter { it.isNotEmpty() }
           .distinct()
+        Log.d("YkisLog", "$methodName: Уникальные UID для загрузки: $uidsToFetch")
 
-        if (uidsToFetch.isEmpty()) {
-          Log.w("YkisLog", "$methodName: [SKIP] Не удалось извлечь UID из ключей")
-          return@launch
-        }
-
-        Log.d("YkisLog", "$methodName: [FETCH] Запрос профилей для ${uidsToFetch.size} UID")
-
-        // 1. Загрузка профилей из репозитория
+        // 2. Загрузка профилей
         val fetchedProfiles = withContext(Dispatchers.IO) {
-          chatRepo.fetchUsersByIds(uidsToFetch)
+          val profiles = chatRepo.fetchUsersByIds(uidsToFetch)
+          Log.d("YkisLog", "$methodName: Загружено из БД: ${profiles.size} профилей")
+          profiles
         }
 
-        Log.d("YkisLog", "$methodName: [DATA] Получено из БД: ${fetchedProfiles.size} профилей")
-
-        // 2. Сбор токенов админов (для push-уведомлений)
-        val allAdminTokens = fetchedProfiles
-          .filter { it.userRole != UserRole.StandardUser }
-          .flatMap { it.tokens ?: emptyList() }
-          .distinct()
-
-        _recipientTokens.value = allAdminTokens
-        Log.d("YkisLog", "$methodName: [TOKENS] Токенов админов собрано: ${allAdminTokens.size}")
-
-        // 3. Сопоставление профилей с ключами чатов (формируем финальный список для UI)
+        // 3. Формирование списка
         val finalUserList = withContext(Dispatchers.Default) {
           chatKeys.mapNotNull { key ->
             val parts = key.split("_")
-            if (parts.size < 2) return@mapNotNull null
+            if (parts.size < 4) {
+              Log.e("YkisLog", "$methodName: [ERR] Ключ не по формату: $key")
+              return@mapNotNull null
+            }
 
             val uidFromKey = parts.last()
-            // Пытаемся взять адрес из предпоследней части (OSBB_3_1336_UID -> 1336)
             val addrIdFromKey = parts.getOrNull(parts.size - 2)?.toIntOrNull() ?: 0
 
-            fetchedProfiles.find { it.uid == uidFromKey }?.let { profile ->
-              profile.copy(addressId = addrIdFromKey)
+            val profile = fetchedProfiles.find { it.uid == uidFromKey }
+            val lastMsg = _lastMessages.value[key] // Пытаемся взять превью из текущего кэша
+
+            Log.d("YkisLog", "$methodName: [PROCESS] Key: $key | Addr: $addrIdFromKey | LastMsgText: ${lastMsg?.text ?: "NULL"}")
+
+            val user = if (profile != null) {
+              profile.copy(
+                addressId = addrIdFromKey,
+                displayName = lastMsg?.senderAddress ?: profile.displayName,
+                // СЮДА записываем превью (убедись, что это поле есть в UserEntity)
+                   nanim =  lastMsg?.text ?: "Немає повідомлень"
+              )
+            } else {
+              UserEntity(
+                uid = uidFromKey,
+                addressId = addrIdFromKey,
+                displayName = lastMsg?.senderAddress ?: "Користувач (о/р $addrIdFromKey)",
+                nanim = lastMsg?.text ?: "Немає повідомлень"
+              )
             }
+            user
           }
         }
 
-        // 4. Обновление стейта и запуск слушателей
+        // 4. Публикация в UI
         withContext(Dispatchers.Main) {
-          _userList.value = finalUserList
+          // Просто обновляем список профилей, combine сам пересоберет userList
+          _rawFetchedProfiles.value = fetchedProfiles
 
-          Log.d("YkisLog", "$methodName: [SYNC] Запуск подписок на сообщения и бейджи")
+          Log.d("YkisLog", "$methodName: [UI_UPDATE] Список из ${finalUserList.size} чел. отправлен в State")
+
+          // 5. Запуск слушателей (именно они потом будут менять _lastMessages)
+          Log.d("YkisLog", "$methodName: [SYNC_START] Запуск подписок на бейджи и сообщения...")
           subscribeToUnreadCount(chatKeys)
           subscribeToLastMessages(chatKeys)
-
-          Log.d("YkisLog", "$methodName: [SUCCESS] Список из ${finalUserList.size} пользователей готов")
         }
 
       } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${e.localizedMessage}")
-        // Если ошибка PERMISSION_DENIED — проверьте, чтобы в запросе был фильтр по osbbId
+        Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${e.stackTraceToString()}")
       }
     }
   }
 
 
-  fun subscribeToResidentCounters(uid: String, osbbId: Int, addressId: Int, addressText: String = "") {
-    val methodName = "ChatViewModel.subscribeToResidentCounters()"
+  fun subscribeToResidentCounters(
+    uid: String,
+    osbbId: Int,
+    addressId: Int,
+    addressText: String = ""
+  ) {
+    val methodName = "ChatViewModel.subscribeToResidentCounters"
 
+    // 1. УНИФИЦИРОВАННЫЕ КЛЮЧИ (Схема: ПРЕФИКС_СИСТЕМНЫЙ_ID_ADDR_UID)
     val chatKeys = listOf(
       "OSBB_${osbbId}_${addressId}_$uid",
-      "${ContentDetail.WATER_SERVICE.name}_${addressId}_$uid",
-      "${ContentDetail.WARM_SERVICE.name}_${addressId}_$uid",
-      "${ContentDetail.GARBAGE_SERVICE.name}_${addressId}_$uid"
+      "WATER_SERVICE_9999_${addressId}_$uid",
+      "WARM_SERVICE_9998_${addressId}_$uid",
+      "GARBAGE_SERVICE_9997_${addressId}_$uid"
     )
 
-    Log.d("YkisLog", "$methodName: Мониторинг веток жильца: $chatKeys")
+    Log.d("YkisLog", "$methodName: [START] Активация 4-х служб для о/р $addressId")
 
-    // --- НОВЫЙ БЛОК: Инициализация ветки чата, чтобы админ увидел жильца ---
     viewModelScope.launch(Dispatchers.IO) {
-      try {
-        val mainChatPath = chatKeys.first() // Это "OSBB_${osbbId}_${addressId}_$uid"
-        val chatRef = chatsReference.child(mainChatPath)
+      chatKeys.forEach { chatPath ->
+        try {
+          val chatRef = chatsReference.child(chatPath)
+          val snapshot = chatRef.get().await()
 
-        val snapshot = chatRef.get().await()
-        if (!snapshot.exists()) {
-          Log.d("YkisLog", "$methodName: [INIT] Создание приветственного сообщения для админа")
-          val welcomeMsg = hashMapOf(
-            "senderUid" to "system",
-            "text" to "Квартиру додано. Чат активовано.",
-            "timestamp" to com.google.firebase.database.ServerValue.TIMESTAMP,
-            "read" to false,
-            "senderDisplayedName" to "Система",
-            "type" to "TEXT"
-          )
-          chatRef.push().setValue(welcomeMsg).await()
+          // Инициализируем только пустые ветки
+          if (!snapshot.exists() || snapshot.childrenCount == 0L) {
+            Log.d("YkisLog", "$methodName: [INIT] Создание узла 'init' в $chatPath")
+
+            val infoText = if (addressText.isNotEmpty()) {
+              "Додано: $addressText (о/р $addressId). Чат активовано."
+            } else {
+              "Квартиру додано (о/р $addressId). Чат активовано."
+            }
+
+            // Формируем структуру MessageEntity для Firebase
+            val welcomeMsg = hashMapOf(
+              "id" to "init",
+              "senderUid" to "system", // Системное сообщение
+              "senderDisplayedName" to "Система",
+              "senderAddress" to addressText,
+              "text" to infoText,
+              "timestamp" to com.google.firebase.database.ServerValue.TIMESTAMP,
+              "read" to false,
+              "type" to "TEXT",
+              "edited" to false,
+              "forwarded" to false
+            )
+
+            // Фиксированный ключ "init" предотвращает дублирование при повторных вызовах
+            chatRef.child("init").setValue(welcomeMsg).await()
+          } else {
+            Log.d("YkisLog", "$methodName: [SKIP] Ветка $chatPath уже содержит сообщения")
+          }
+        } catch (e: Exception) {
+          Log.e("YkisLog", "$methodName: [ERROR] Путь $chatPath: ${e.message}")
         }
-      } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [INIT_ERROR] ${e.message}")
       }
     }
-    // -----------------------------------------------------------------------
 
-    // 2. ПОДГОТОВКА ТОКЕНОВ ВСЕХ АДМИНОВ
+    // 2. СБОР ТОКЕНОВ АДМИНОВ ДЛЯ ПУШЕЙ
     viewModelScope.launch(Dispatchers.IO) {
       try {
+        // Собираем токены админов данного ОСББ
         val admins = chatRepo.fetchAdminsByOsbb(osbbId)
-        val adminTokens = admins.flatMap { it.tokens }
+        val adminTokens = admins.flatMap { it.tokens }.distinct()
+
         _recipientTokens.value = adminTokens
-        Log.d("YkisLog", "$methodName: [TOKENS] Найдено админов: ${admins.size}")
+        Log.d(
+          "YkisLog",
+          "$methodName: [TOKENS] Найдено админов: ${admins.size}, токенов: ${adminTokens.size}"
+        )
       } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [ERROR] Не удалось собрать токены", e)
+        Log.e("YkisLog", "$methodName: [TOKENS_ERROR] ${e.message}")
       }
     }
 
+    // 3. ПОДПИСКА НА СЧЕТЧИКИ (Чтобы жилец видел бейджи на иконке чата)
     subscribeToUnreadCount(chatKeys)
   }
-
 
 
   fun setSelectedUser(user: UserEntity) {
@@ -1417,19 +1576,24 @@ class ChatViewModel(
    */
   // ChatViewModel.kt
   fun setSelectedService(totalServiceDebt: TotalServiceDebt) {
-    val methodName = "ChatViewModel.setSelectedService()"
+    val methodName = "ChatViewModel.setSelectedService"
 
-    // Записываем код службы (напр. "OSBB", "WATER_SERVICE")
-    _selectedService.update {
-      it.copy(
+    // 1. Извлекаем системное имя из Enum (ContentDetail)
+    val serviceCode = totalServiceDebt.contentDetail.name
+
+    // 2. Обновляем состояние выбранной службы
+    _selectedService.update { current ->
+      current.copy(
         name = totalServiceDebt.name,
-        codeName = totalServiceDebt.contentDetail.name // Используем .name от Enum
+        codeName = serviceCode
       )
     }
 
+    // 3. Логируем для проверки путей
     Log.d(
       "YkisLog",
-      "$methodName: Установлена служба ${totalServiceDebt.name}, Code: ${totalServiceDebt.contentDetail.name}"
+      "$methodName: Выбрана служба: ${totalServiceDebt.name} | " +
+        "Firebase Prefix: $serviceCode"
     )
   }
 
@@ -1491,7 +1655,6 @@ class ChatViewModel(
       val methodName = "ChatViewModel.uploadFile"
       _isLoadingAfterSending.value = true
 
-
       try {
         val uri = _selectedImageUri.value
         if (uri == null || uri == Uri.EMPTY) {
@@ -1500,37 +1663,39 @@ class ChatViewModel(
           return@launch
         }
 
-        // 1. ОПРЕДЕЛЯЕМ ТИП ФАЙЛА (Улучшено)
+        // 1. ОПРЕДЕЛЯЕМ ТИП ФАЙЛА
         val contentResolver = context.contentResolver
         val mimeType = contentResolver.getType(uri) ?: ""
-        val originalFileName = getFileName(context, uri) // Получаем имя в начале
-        // Проверка: это картинка по MIME или по расширению/пути (для камеры)
-        val isImage = mimeType.startsWith("image") ||
-          uri.toString().lowercase().let { it.contains("jpg") || it.contains("jpeg") || it.contains("image") }
+        val originalFileName = getFileName(context, uri)
 
-        // Исправляем расширение: для фото всегда .jpg, для доков - по системе
+        val isImage = mimeType.startsWith("image") ||
+          uri.toString().lowercase()
+            .let { it.contains("jpg") || it.contains("jpeg") || it.contains("image") }
+
         val extension = if (isImage) "jpg"
         else MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType) ?: "file"
 
-        Log.d("YkisLog", "$methodName: [START] isImage: $isImage, Ext: $extension, Mime: $mimeType")
+        Log.d("YkisLog", "$methodName: [START] isImage: $isImage, Ext: $extension")
 
-        // 2. ПОДГОТОВКА ДАННЫХ
-        val fileData: ByteArray = if (isImage) {
-          Log.d("YkisLog", "$methodName: [PROCESS] Сжатие изображения...")
-          withContext(Dispatchers.IO) { compressImage(context, uri) }
-        } else {
-          Log.d("YkisLog", "$methodName: [PROCESS] Чтение документа без сжатия...")
-          withContext(Dispatchers.IO) {
-            contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
-          }
+        // 2. ПОДГОТОВКА ДАННЫХ (Сжатие для фото, чтение байтов для доков)
+        val fileData: ByteArray = withContext(Dispatchers.IO) {
+          if (isImage) compressImage(context, uri)
+          else contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
         }
 
-        if (fileData.isEmpty()) throw Exception("Файл пуст или недоступен")
+        if (fileData.isEmpty()) throw Exception("Файл порожній або недоступний")
 
-        // 3. ФОРМИРУЕМ ПУТЬ В STORAGE (папка зависит от isImage)
+        // 3. ПУТЬ В STORAGE (Используем системный ID для организации, если нужно)
+        val effectiveOsbbIdForStorage = when (role) {
+          UserRole.VodokanalUser -> 9999
+          UserRole.YtkeUser -> 9998
+          UserRole.TboUser -> 9997
+          else -> osbbId
+        }
+
         val folder = if (isImage) "chat_images" else "chat_docs"
-        val storagePath = "$folder/$osbbId/$addressId/${System.currentTimeMillis()}.$extension"
-        Log.d("YkisLog", "$methodName: [STORAGE_PATH] $storagePath")
+        val storagePath =
+          "$folder/$effectiveOsbbIdForStorage/$addressId/${System.currentTimeMillis()}.$extension"
 
         // 4. ЗАГРУЗКА В STORAGE
         val downloadUrl = withContext(Dispatchers.IO) {
@@ -1538,17 +1703,7 @@ class ChatViewModel(
         }
         Log.d("YkisLog", "$methodName: [URL_READY] $downloadUrl")
 
-        // 5. ГЕНЕРАЦИЯ CHAT_ID ДЛЯ DATABASE
-        val chatId = if (role == UserRole.StandardUser) {
-          val serviceCode = selectedService.value.codeName
-          if (serviceCode == "OSBB") "OSBB_${osbbId}_${addressId}_$senderUid"
-          else "${serviceCode}_${addressId}_$senderUid"
-        } else {
-          val prefix = if (role == UserRole.OsbbUser) "OSBB_$osbbId" else role.codeName.name
-          "${prefix}_${addressId}_$chatUid"
-        }
-
-        // 6. ЗАПИСЬ В БАЗУ (Строго разделяем imageUrl и fileUrl)
+        // 5. ОТПРАВКА В DATABASE (Используем нашу унифицированную логику путей)
         writeToDatabase(
           chatUid = chatUid,
           senderUid = senderUid,
@@ -1556,17 +1711,17 @@ class ChatViewModel(
           senderLogoUrl = senderLogoUrl,
           senderAddress = senderAddress,
           addressId = addressId,
-          imageUrl = if (isImage) downloadUrl else null, // Ссылка только если это фото
-          fileUrl = if (!isImage) downloadUrl else null,  // Ссылка только если это ДОКУМЕНТ
-          fileName = if (!isImage) originalFileName else null, // ПЕРЕДАЕМ ИМЯ
-          osbbId = osbbId,
+          imageUrl = if (isImage) downloadUrl else null,
+          fileUrl = if (!isImage) downloadUrl else null,
+          fileName = if (!isImage) originalFileName else null,
+          osbbId = effectiveOsbbIdForStorage, // Передаем системный ID (9999 и т.д.)
           role = role,
           recipientTokens = recipientTokens,
           onComplete = {
-            Log.d("YkisLog", "$methodName: [FINISH] Успешно отправлено")
+            Log.d("YkisLog", "$methodName: [FINISH] Успішно відправлено")
             _selectedImageUri.value = Uri.EMPTY
             _messageText.value = ""
-            clearAiSuggestion() // Очищаем подсказку ИИ после отправки
+            clearAiSuggestion()
             _isLoadingAfterSending.value = false
             onComplete()
           }
@@ -1579,9 +1734,6 @@ class ChatViewModel(
       }
     }
   }
-
-
-
 
 
   private suspend fun compressImage(context: android.content.Context, uri: Uri): ByteArray =
@@ -1598,7 +1750,7 @@ class ChatViewModel(
       val height = (originalBitmap.height * scale).toInt()
 
       // 2. Создаем уменьшенную копию
-      val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, width, height, true)
+      val scaledBitmap = originalBitmap.scale(width, height)
 
       // 3. ОСВОБОЖДАЕМ ПАМЯТЬ от оригинала (важно!)
       if (originalBitmap != scaledBitmap) {
@@ -1629,76 +1781,12 @@ class ChatViewModel(
    * Удаляет сообщение из Realtime Database.
    * Использует ту же логику формирования ID чата, что и при чтении/записи.
    */
-  fun deleteMessageFromDatabase(
-    senderUid: String,  // UID жильца (владельца ветки чата)
-    messageId: String,  // Уникальный ID сообщения (key)
-    role: UserRole,     // Роль того, кто инициирует удаление
-    osbbId: Int         // ID объединения
-  ) {
-    // 1. ФОРМИРОВАНИЕ ID ЧАТА
-    // Используем .name для сравнения String (из сервиса) и Enum (ContentDetail)
-    val chatId = when {
-      // Жилец в чате своего ОСББ
-      role == UserRole.StandardUser && selectedService.value.codeName == ContentDetail.OSBB.name -> {
-        "OSBB_${osbbId}_$senderUid"
-      }
-      // Жилец в чате городской службы (Водоканал, Теплосеть и т.д.)
-      role == UserRole.StandardUser -> {
-        "${selectedService.value.codeName}_$senderUid"
-      }
-      // Админ ОСББ
-      role == UserRole.OsbbUser -> {
-        "OSBB_${osbbId}_$senderUid"
-      }
-      // Админы городских служб
-      else -> {
-        "${role.codeName.name}_$senderUid"
-      }
-    }
-
-    // 2. УДАЛЕНИЕ ДАННЫХ
-    // Ссылаемся на путь: chats / {chatId} / {messageId}
-    chatsReference.child(chatId).child(messageId).removeValue()
-      .addOnSuccessListener {
-        // Сообщение удалено из базы.
-        // Слушатель (ValueEventListener) автоматически обновит список на экране.
-        Log.d(
-          "YkisLog",
-          "ApartmentViewModel deleteMessageFromDatabase() Сообщение $messageId успешно удалено из чата $chatId"
-        )
-      }
-      .addOnFailureListener { e ->
-        // Если возникла ошибка (например, нет прав доступа в Security Rules)
-        Log.e(
-          "YkisLog",
-          "ApartmentViewModel deleteMessageFromDatabase()  Ошибка при удалении сообщения",
-          e
-        )
-        SnackbarManager.showMessage("Помилка видалення: ${e.localizedMessage}")
-      }
-  }
 
 
   fun setSelectedMessage(message: MessageEntity) {
     _selectedMessage.value = message
   }
 
-  fun sendPushNotification(sendNotificationArguments: SendNotificationArguments) {
-    viewModelScope.launch(Dispatchers.IO) {
-      sendNotificationArguments.recipientTokens.forEach { token ->
-        try {
-          // Вызываем через репозиторий (Complexity -1)
-          chatRepo.sendPushNotification(
-            token = token,
-            title = sendNotificationArguments.title,
-            body = sendNotificationArguments.body
-          )
-        } catch (e: Exception) {
-          // Ошибка уже залогирована в репозитории, здесь можно обработать UI если нужно
-        }
-      }
-    }
-  }
 
   // ChatViewModel.kt
   private fun getChatPath(
@@ -1707,106 +1795,148 @@ class ChatViewModel(
     addressId: Int,
     targetUserUid: String?
   ): String {
+    val methodName = "ChatViewModel.getChatPath"
     val myUid = chatRepo.currentUid ?: ""
     val residentUid = targetUserUid ?: myUid
+    val serviceInState = selectedService.value.codeName
 
-    val path = when {
-      // 1. ОСББ (Жилец пишет или Админ отвечает)
-      role == UserRole.OsbbUser || (role == UserRole.StandardUser && selectedService.value.codeName == "OSBB") -> {
-        "OSBB_${osbbId}_${addressId}_$residentUid"
+    Log.d("YkisLog", "$methodName: [INPUT_PARAMS] Role: $role | In_OSBB: $osbbId | In_Addr: $addressId | Target: $targetUserUid")
+
+    // 1. Определение префикса и системного ID
+    val (prefix, sysId) = when {
+      role == UserRole.VodokanalUser || serviceInState == "WATER_SERVICE" -> {
+        Log.d("YkisLog", "$methodName: [MATCH] Detected WATER_SERVICE")
+        "WATER_SERVICE" to 9999
       }
-      // 2. СЕРВИСЫ (Водоканал, Теплосеть, ТБО)
+
+      role == UserRole.YtkeUser || serviceInState == "WARM_SERVICE" -> {
+        Log.d("YkisLog", "$methodName: [MATCH] Detected WARM_SERVICE")
+        "WARM_SERVICE" to 9998
+      }
+
+      role == UserRole.TboUser || serviceInState == "GARBAGE_SERVICE" -> {
+        Log.d("YkisLog", "$methodName: [MATCH] Detected GARBAGE_SERVICE")
+        "GARBAGE_SERVICE" to 9997
+      }
+
       else -> {
-        // ВАЖНО: берем имя службы. Для жильца это selectedService.codeName,
-        // для админа это роль БЕЗ приставки "User" (напр. VodokanalUser -> Vodokanal)
-        val servicePrefix = if (role == UserRole.StandardUser) {
-          selectedService.value.codeName
-        } else {
-          role.name.replace("User", "") // "VodokanalUser" -> "Vodokanal"
-        }
-        "${servicePrefix}_${addressId}_$residentUid"
+        Log.d("YkisLog", "$methodName: [MATCH] Defaulting to OSBB")
+        "OSBB" to osbbId
       }
     }
-    Log.d("YkisLog", "Generated Chat Path: $path (Role: $role, AddrID: $addressId)")
+
+    // 2. Сборка финального пути
+    // Если addressId все еще 9997/9999, значит проблема в вызывающем методе (getUsers или openChat)
+    val path = "${prefix}_${sysId}_${addressId}_$residentUid"
+
+    if (addressId == sysId) {
+      Log.e("YkisLog", "$methodName: [CRITICAL_WARNING] AddrID ($addressId) is IDENTICAL to SysID ($sysId)!")
+    }
+
+    Log.d("YkisLog", "ChatPath: [RESULT] $path | Role: $role | Final_SysID: $sysId | Final_AddrID: $addressId")
+
     return path
   }
 
 
-  fun openChatWithUser(user: UserEntity, currentRole: UserRole, currentOsbbId: Int) {
-    val methodName = "ChatViewModel.openChatWithUser()"
 
-    // 1. Устанавливаем собеседника
+  fun openChatWithUser(
+    user: UserEntity,
+    currentRole: UserRole,
+    currentOsbbId: Int
+  ) {
+    val methodName = "ChatViewModel.openChatWithUser"
+    val realAddressId = user.addressId ?: 0
+
+    // 1. Устанавливаем собеседника и чистим старый список сообщений
     _selectedUser.value = user
     _firebaseTest.value = emptyList()
 
-    // 2. Логика определения эффективного OSBB ID
-    val effectiveOsbbId = if (currentRole == UserRole.OsbbUser) {
-      currentOsbbId
-    } else {
-      user.osbbId ?: 0
+    // 2. Логика системного ID для служб (9999/9998/9997)
+    val effectiveOsbbId = when (currentRole) {
+      UserRole.VodokanalUser -> 9999
+      UserRole.YtkeUser -> 9998
+      UserRole.TboUser -> 9997
+      else -> currentOsbbId
     }
 
-    // 3. Формируем chatId
+    // 3. Формируем путь к ветке Firebase
     val chatId = getChatPath(
       role = currentRole,
       osbbId = effectiveOsbbId,
-      addressId = user.addressId,
+      addressId = realAddressId,
       targetUserUid = user.uid
     )
 
-    // 4. ТОЧНЫЙ СБРОС: Обнуляем локально и помечаем прочитанными в БД
-    _unreadCounts.update { currentMap ->
-      currentMap + (chatId to 0)
-    }
-    markMessagesAsRead(chatId) // Идем в базу и ставим флаг read = true
+    // 4. Сброс локальных счетчиков и запуск мониторинга (чтение + статус печати)
+    _unreadCounts.update { it + (chatId to 0) }
+    markMessagesAsRead(chatId)
+    observeTypingStatus(chatId)
 
-    // 5. ЛОГИРОВАНИЕ
-    Log.d("YkisLog", "--- $methodName START ---")
-    Log.d("YkisLog", "Target User: ${user.displayName} (UID: ${user.uid})")
-    Log.d("YkisLog", "AddressID: ${user.addressId} | EffectiveOSBB: $effectiveOsbbId")
-    Log.d("YkisLog", "Action: Counter reset and database sync for $chatId")
+    Log.d("YkisLog", "--- $methodName ---")
+    Log.d("YkisLog", "Target: ${user.displayName} | Path: $chatId")
 
-    // 6. Запуск чтения базы
+    // 5. Запуск прослушивания сообщений
     readFromDatabase(
       role = currentRole,
-      senderUid = user.uid,
+      senderUid = user.uid ?: "",
       osbbId = effectiveOsbbId,
-      addressId = user.addressId
+      addressId = realAddressId
     )
-
-    Log.d("YkisLog", "--- $methodName END ---")
   }
 
 
+
+
   override fun onCleared() {
-    val methodName = "ChatViewModel.onCleared()"
+    val methodName = "ChatViewModel.onCleared"
     super.onCleared()
 
-    // 1. Отключаем всех слушателей, накопленных в Map
-    // Это закроет: чтение сообщений чата, счетчики непрочитанных и тексты последних сообщений
+    // 1. Очистка трекера поиска чатов (orderByKey.startAt.endAt)
+    cleanupTracker()
+
+    // 2. Очистка основных слушателей чата (DatabaseReference -> ValueEventListener)
     if (listeners.isNotEmpty()) {
       listeners.forEach { (ref, listener) ->
         ref.removeEventListener(listener)
       }
-      Log.d("YkisLog", "$methodName: Отключено слушателей: ${listeners.size}")
+      Log.d("YkisLog", "$methodName: [CLEAN] Основные слушатели удалены (${listeners.size})")
       listeners.clear()
     }
 
-    // 2. Дополнительная чистка для lastMessageListeners (если они в отдельной мапе)
-    if (lastMessageListeners.isNotEmpty()) {
-      lastMessageListeners.forEach { (chatId, listener) ->
-        // Если ключ содержит ссылку на ветку, отключаем
-        chatsReference.child(chatId.replace("_unread", ""))
-          .removeEventListener(listener)
+    // 3. Очистка счетчиков непрочитанных (Query -> ValueEventListener)
+    if (unreadCountListeners.isNotEmpty()) {
+      unreadCountListeners.forEach { (query, listener) ->
+        query.removeEventListener(listener)
       }
-      lastMessageListeners.clear()
-      Log.d("YkisLog", "$methodName: Фоновые слушатели (Badge/LastMsg) успешно удалены")
+      Log.d("YkisLog", "$methodName: [CLEAN] Счетчики бейджей удалены (${unreadCountListeners.size})")
+      unreadCountListeners.clear()
     }
 
-    // 3. Обнуляем пути, чтобы при следующем входе чтение запустилось заново
+    // 4. Очистка слушателей превью последних сообщений (String -> ValueEventListener)
+    if (lastMessageListeners.isNotEmpty()) {
+      lastMessageListeners.forEach { (chatId, listener) ->
+        // Используем child(chatId), так как ключом в мапе является строка-путь
+        chatsReference.child(chatId).removeEventListener(listener)
+      }
+      Log.d("YkisLog", "$methodName: [CLEAN] Превью последних сообщений удалены (${lastMessageListeners.size})")
+      lastMessageListeners.clear()
+    }
+
+    // 5. Очистка статуса печати (DatabaseReference -> ValueEventListener)
+    if (typingListeners.isNotEmpty()) {
+      typingListeners.forEach { (ref, listener) ->
+        ref.removeEventListener(listener)
+      }
+      Log.d("YkisLog", "$methodName: [CLEAN] Статус печати удален (${typingListeners.size})")
+      typingListeners.clear()
+    }
+
+    // 6. Очистка фоновых задач и путей
+    typingJob?.cancel()
     currentChatPath = null
 
-    Log.d("YkisLog", "$methodName: ViewModel очищена, утечки памяти предотвращены.")
+    Log.d("YkisLog", "$methodName: [SUCCESS] Все ресурсы и трекеры Firebase освобождены")
   }
 
 

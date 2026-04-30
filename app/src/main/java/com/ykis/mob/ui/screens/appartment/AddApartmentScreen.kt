@@ -1,5 +1,6 @@
 package com.ykis.mob.ui.screens.appartment
 
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -7,10 +8,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -19,8 +24,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -28,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -38,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.ykis.mob.R
+import com.ykis.mob.core.snackbar.SnackbarManager
+import com.ykis.mob.core.snackbar.SnackbarMessage.Companion.toMessage
 import com.ykis.mob.ui.components.appbars.DefaultAppBar
 import com.ykis.mob.ui.navigation.AddApartmentScreen
 import com.ykis.mob.ui.navigation.Graph
@@ -47,6 +60,69 @@ import com.ykis.mob.ui.navigation.navigateToInfoApartment
 import com.ykis.mob.ui.theme.YkisPAMTheme
 import kotlinx.coroutines.coroutineScope
 import org.koin.compose.viewmodel.koinViewModel
+@Composable
+fun AddApartmentScreenContent(
+  modifier: Modifier = Modifier,
+  viewModel: ApartmentViewModel = koinViewModel(),
+  navController: NavHostController,
+  onDrawerClicked: () -> Unit,
+  navigationType: NavigationType,
+  closeContentDetail: () -> Unit
+) {
+  val secretCode by viewModel.secretCode.collectAsStateWithLifecycle("")
+  val snackbarHostState = remember { SnackbarHostState() }
+  val snackbarMessage by SnackbarManager.snackbarMessages.collectAsStateWithLifecycle()
+  val context = LocalContext.current
+  val keyboard = LocalSoftwareKeyboardController.current
+
+  // СЛУШАТЕЛЬ ОШИБОК (Снэкбары)
+  LaunchedEffect(snackbarMessage) {
+    snackbarMessage?.let {
+      val text = it.toMessage(context.resources)
+      Log.d("YkisLog", "AddApartmentScreen: [DISPLAYING] $text")
+
+      // Показываем сообщение
+      snackbarHostState.showSnackbar(
+        message = text,
+        duration = SnackbarDuration.Short
+      )
+
+      // ТОЛЬКО ТЕПЕРЬ очищаем стейт менеджера
+      SnackbarManager.clearMessage()
+    }
+  }
+
+
+  Scaffold(
+    modifier = modifier.fillMaxSize(),
+    snackbarHost = { SnackbarHost(snackbarHostState) } // Теперь ошибки будет видно!
+  ) { padding ->
+    AddApartmentScreenStateless(
+      modifier = Modifier.padding(padding),
+      isButtonEnabled = secretCode.trim().isNotEmpty(),
+      onDrawerClicked = onDrawerClicked,
+      onAddClick = {
+        Log.d("YkisLog", "AddApartmentScreen: [CLICK] Код: $secretCode")
+        keyboard?.hide()
+
+        viewModel.addApartment {
+          Log.d("YkisLog", "AddApartmentScreen: [SUCCESS] Переход на Info")
+          closeContentDetail()
+          navController.navigate(InfoApartmentScreenDest.route) {
+            popUpTo(AddApartmentScreen.route) { inclusive = true }
+            launchSingleTop = true
+          }
+        }
+      },
+      navigationType = navigationType,
+      code = secretCode,
+      onCodeChanged = { newValue ->
+        Log.d("YkisLog", "AddApartmentScreen: [INPUT] $newValue")
+        viewModel.onSecretCodeChange(newValue)
+      }
+    )
+  }
+}
 
 @Composable
 fun AddApartmentScreenStateless(
@@ -58,11 +134,7 @@ fun AddApartmentScreenStateless(
   code: String,
   onCodeChanged: (String) -> Unit
 ) {
-  Column(
-    modifier = modifier.fillMaxSize(),
-    verticalArrangement = Arrangement.Top,
-    horizontalAlignment = Alignment.CenterHorizontally
-  ) {
+  Column(modifier = modifier.fillMaxSize()) {
     DefaultAppBar(
       navigationType = navigationType,
       onDrawerClick = onDrawerClicked,
@@ -70,36 +142,35 @@ fun AddApartmentScreenStateless(
       canNavigateBack = false
     )
     Column(
-      modifier = Modifier // Исправлено: используем внутренний Modifier
-        .widthIn(max = 460.dp)
-        .padding(horizontal = 16.dp)
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(16.dp)
         .verticalScroll(rememberScrollState()),
-      verticalArrangement = Arrangement.Top,
       horizontalAlignment = Alignment.CenterHorizontally
     ) {
       Card(
+        modifier = Modifier.widthIn(max = 500.dp),
         colors = CardDefaults.cardColors(
-          containerColor = MaterialTheme.colorScheme.secondaryContainer,
-          contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+          containerColor = MaterialTheme.colorScheme.secondaryContainer
         )
       ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(20.dp)) {
           Text(
             text = stringResource(id = R.string.tooltip_code),
-            style = MaterialTheme.typography.bodyLarge
+            style = MaterialTheme.typography.bodyMedium
           )
+
+          Spacer(modifier = Modifier.height(16.dp))
 
           Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(top = 16.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
           ) {
             OutlinedTextField(
               value = code,
-              onValueChange = { onCodeChanged(it) }, // УБРАН ФИЛЬТР ЦИФР
+              onValueChange = onCodeChanged,
               modifier = Modifier.weight(1f),
-              label = { Text(text = stringResource(id = R.string.secret_сode)) },
-              // ТИП КЛАВИАТУРЫ ИЗМЕНЕН НА TEXT
+              label = { Text(stringResource(id = R.string.secret_сode)) },
               keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
               singleLine = true
             )
@@ -107,22 +178,9 @@ fun AddApartmentScreenStateless(
             Button(
               onClick = onAddClick,
               enabled = isButtonEnabled,
-              contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+              shape = RoundedCornerShape(12.dp)
             ) {
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                Image(
-                  painter = painterResource(R.drawable.ic_stat_name),
-                  contentDescription = null,
-                  colorFilter = ColorFilter.tint(
-                    if (isButtonEnabled) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                  )
-                )
-                Text(
-                  text = stringResource(id = R.string.add),
-                  modifier = Modifier.padding(start = 8.dp)
-                )
-              }
+              Text(text = stringResource(id = R.string.add))
             }
           }
         }
@@ -131,59 +189,6 @@ fun AddApartmentScreenStateless(
   }
 }
 
-@Composable
-fun AddApartmentScreenContent(
-  modifier: Modifier = Modifier,
-  viewModel: ApartmentViewModel = koinViewModel(),
-  navController: NavHostController,
-  canNavigateBack: Boolean, // Если не используется в Stateless, можно удалить
-  onDrawerClicked: () -> Unit,
-  navigationType: NavigationType,
-  closeContentDetail: () -> Unit
-) {
-  // Подписываемся на ввод кода из ViewModel
-  val secretCode by viewModel.secretCode.collectAsStateWithLifecycle("")
-
-  val buttonEnabled by remember(secretCode) { // Добавь secretCode в ключи remember!
-    derivedStateOf {
-      secretCode.trim().isNotEmpty()
-    }
-  }
-
-  val keyboard = LocalSoftwareKeyboardController.current
-
-  AddApartmentScreenStateless(
-    modifier = modifier,
-    isButtonEnabled = buttonEnabled,
-    onDrawerClicked = onDrawerClicked,
-    onAddClick = {
-      keyboard?.hide()
-
-      viewModel.addApartment {
-        // 1. Сначала закрываем UI-детали (шторки/панели)
-        closeContentDetail()
-
-        // 2. Выполняем навигацию с ПРАВИЛЬНОЙ очисткой стека
-        navController.navigate(InfoApartmentScreenDest.route) {
-          // Очищаем ВЕСЬ путь до экрана добавления и сам экран добавления
-          popUpTo(AddApartmentScreen.route) {
-            inclusive = true
-          }
-          // Гарантируем, что мы не создадим две копии Info-экрана
-          launchSingleTop = true
-        }
-      }
-    },
-
-      navigationType = navigationType,
-    code = secretCode,
-    onCodeChanged = { newValue ->
-      // ВАЖНО: Больше не фильтруем только цифры здесь,
-      // чтобы админ мог ввести свое секретное слово буквами.
-      viewModel.onSecretCodeChange(newValue)
-    }
-  )
-}
 
 
 @Preview

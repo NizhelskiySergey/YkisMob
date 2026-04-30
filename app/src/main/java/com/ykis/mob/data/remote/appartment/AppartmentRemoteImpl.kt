@@ -1,5 +1,6 @@
 package com.ykis.mob.data.remote.appartment
 
+import android.R.attr.targetId
 import com.ykis.mob.core.Constants.ADDRESS_ID
 import com.ykis.mob.core.Constants.CODE
 import com.ykis.mob.core.Constants.EMAIL
@@ -7,6 +8,7 @@ import com.ykis.mob.core.Constants.HOUSE_ID
 import com.ykis.mob.core.Constants.OSBB_ID
 import com.ykis.mob.core.Constants.PARAM_ADDRESS_ID
 import com.ykis.mob.core.Constants.PHONE
+import com.ykis.mob.core.Constants.RAION_ID
 import com.ykis.mob.core.Constants.UID
 import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.api.KtorApiService
@@ -23,13 +25,13 @@ class ApartmentRemoteImpl(
     // Убрали .await(), Ktor сразу возвращает GetApartmentsResponse
     return ktorApiService.getApartmentList(createGetApartmentListMap(uid))
   }
-  override suspend fun getOsbbApartmentsList(osbbId: Int): GetApartmentsResponse {
+  override suspend fun getOsbbApartmentsList(targetId: Int,isHouse: Boolean): GetApartmentsResponse {
     // Убрали .await(), Ktor сразу возвращает GetApartmentsResponse
-    return ktorApiService.getOsbbApartmentsList(createGetOsbbApartmentsListMap(osbbId))
+    return ktorApiService.getOsbbApartmentsList(createGetOsbbApartmentsListMap(targetId,isHouse))
   }
 
-  override suspend fun getHouseList(houseId: Int): GetHousesResponse {
-    return ktorApiService.getHouseList(createGetHouseListMap(houseId))
+  override suspend fun getHouseByRaionList(raionId: Int): GetHousesResponse {
+    return ktorApiService.getHouseByRaionList(createGetHouseByRaionListMap(raionId))
   }
   override suspend fun getRaionList(uid: String): GetRaionsResponse {
     return ktorApiService.getRaionList(createGetRaionListMap(uid))
@@ -121,14 +123,20 @@ class ApartmentRemoteImpl(
     map[UID] = uid
     return map
   }
-  private fun createGetOsbbApartmentsListMap(osbbId: Int): Map<String, String> {
+  private fun createGetOsbbApartmentsListMap(targetId: Int,isHouse: Boolean): Map<String, String> {
     val map = HashMap<String, String>()
-    map[OSBB_ID] = osbbId.toString()
+    map["targetId"] = targetId.toString()
+    if (isHouse) {
+      map["isHouse"] = "1" // Флаг для сервера, что это поиск по дому
+    } else {
+      map["isHouse"] = "0"
+    }
+
     return map
   }
-  private fun createGetHouseListMap(houseId: Int): Map<String, String> {
+  private fun createGetHouseByRaionListMap(raionId: Int): Map<String, String> {
     val map = HashMap<String, String>()
-    map[HOUSE_ID] = houseId.toString()
+    map[RAION_ID] = raionId.toString()
     return map
   }
 

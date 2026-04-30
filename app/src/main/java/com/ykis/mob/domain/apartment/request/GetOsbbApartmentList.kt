@@ -19,18 +19,19 @@ import kotlinx.coroutines.flow.flowOn // ДОБАВИТЬ
      * Загружает полный список жителей дома для отображения в Drawer.
      * Не кэширует данные в Room, чтобы избежать конфликтов.
      */
-    operator fun invoke(osbbId: Int): Flow<Resource<List<ApartmentEntity>>> = flow {
-      val methodName = "GetOsbbApartmentList.invoke(ADMIN_OSBB_ID)"
+    operator fun invoke(targetId: Int,isHouseSearch: Boolean = false): Flow<Resource<List<ApartmentEntity>>> = flow {
+      val type = if (isHouseSearch) "HOUSE" else "OSBB"
+      val methodName = "UseCase.GetOsbbApartmentsList[$type]"
       val addressIdList = mutableListOf<Int>()
       try {
-        Log.d("YkisLog", "$methodName: [START] Запрос всех квартир ОСББ ID: $osbbId")
+        Log.d("YkisLog", "$methodName: [START] Запрос всех квартир ОСББ ID: $targetId")
         emit(Resource.Loading())
 
         // Все эти вызовы БД теперь будут на IO потоке
         val localList = database.apartmentDao().getApartmentList()
         emit(Resource.Success(localList))
 
-        val response = repository.getOsbbApartmentsList(osbbId)
+        val response = repository.getOsbbApartmentsList(targetId,isHouseSearch)
 
         database.apartmentDao().deleteAllApartments()
         database.apartmentDao().insertApartmentList(response.apartments)

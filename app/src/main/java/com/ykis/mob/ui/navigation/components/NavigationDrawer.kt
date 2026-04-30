@@ -1,4 +1,5 @@
 import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,8 +17,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddHome
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Domain
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Badge
@@ -47,10 +52,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ykis.mob.R
 import com.ykis.mob.core.ext.truncate
 import com.ykis.mob.domain.UserRole
+import com.ykis.mob.domain.apartment.ApartmentEntity
+import com.ykis.mob.domain.apartment.RaionEntity
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.navigation.AddApartmentScreen
 import com.ykis.mob.ui.navigation.RaionDropdownSelector
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
+import com.ykis.mob.ui.screens.appartment.ListMode
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import kotlinx.coroutines.delay
 
@@ -66,74 +74,52 @@ fun ModalNavigationDrawerContent(
   apartmentViewModel: ApartmentViewModel,
   chatViewModel: ChatViewModel
 ) {
+  val methodName = "DrawerContent"
   val keyboardController = LocalSoftwareKeyboardController.current
-
   val searchQuery by apartmentViewModel.searchQuery.collectAsStateWithLifecycle()
-  val apartments by apartmentViewModel.filteredApartments.collectAsStateWithLifecycle()
-//  val isOrgAdmin = baseUIState.userRole != UserRole.StandardUser && baseUIState.userRole != UserRole.OsbbUser
+
+  // ПОДПИСКИ (Золотой фонд)
+  val houses by apartmentViewModel.drawerHouses.collectAsStateWithLifecycle()
+  val drawerApartments by apartmentViewModel.drawerApartments.collectAsStateWithLifecycle()
+  val filteredResults by apartmentViewModel.filteredApartments.collectAsStateWithLifecycle()
 
   val isUserAdmin = baseUIState.userRole != UserRole.StandardUser
-  // 1. Получаем сырую мапу из ViewModel
+  val isOrgAdmin = baseUIState.userRole != UserRole.StandardUser && baseUIState.userRole != UserRole.OsbbUser
   val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
+  val listMode = baseUIState.listMode
 
-// 2. Группируем и суммируем по ID квартиры (ЗОЛОТОЙ ПАРСИНГ)
+  // ПАРСИНГ БЕЙДЖЕЙ
   val apartmentBadges = remember(unreadCounts) {
     unreadCounts.map { (fullKey, count) ->
-      // Извлекаем только числовой ID (напр. из OSBB_3_1336_UID вытащит 1336)
-      val addressId = fullKey.split("_").find { part ->
-        part.isNotEmpty() && part.all { it.isDigit() } && part.length >= 3
-      } ?: ""
+      val parts = fullKey.split("_")
+      val addressId = parts.getOrNull(parts.size - 2) ?: ""
       addressId to count
-    }
-      .groupBy({ it.first }, { it.second }) // Группируем по ID
-      .mapValues { it.value.sum() }         // Суммируем все сообщения этой квартиры
+    }.filter { it.first.isNotEmpty() }
+      .groupBy({ it.first }, { it.second })
+      .mapValues { it.value.sum() }
   }
 
-
-//
   ModalDrawerSheet(
     modifier = modifier.width(320.dp),
     drawerContainerColor = MaterialTheme.colorScheme.surface
   ) {
     Column(modifier = Modifier.fillMaxSize()) {
-
-      // 1. ШАПКА: Заголовок + (Поиск для Админа ИЛИ Кнопка для Жильца)
-      Column(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(horizontal = 16.dp, vertical = 16.dp)
-      ) {
-        Text(
-          text = stringResource(id = R.string.list_apartment),
-          style = MaterialTheme.typography.titleMedium,
-          color = MaterialTheme.colorScheme.primary,
-          fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
+      // 1. ШАПКА: ПОИСК ИЛИ ДОБАВЛЕНИЕ
+      Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         if (isUserAdmin) {
-          RaionDropdownSelector(
-            raions = baseUIState.raions,
-            onRaionSelected = { raion ->
-              Log.d("YkisLog", "Drawer: Выбран район ${raion.raion}")
-              apartmentViewModel.onRaionSelected(raion)
-            }
-          )
-          HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-          // --- ПОИСК ДЛЯ АДМИНА ---
           OutlinedTextField(
             value = searchQuery,
-            onValueChange = { apartmentViewModel.onSearchQueryChanged(it) },
-            modifier = Modifier
-              .fillMaxWidth(),
-//              .focusRequester(focusRequester),
-            placeholder = { Text("Поиск квартиры", fontSize = 14.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            onValueChange = {
+              Log.d("YkisLog", "$methodName: [SEARCH_INPUT] $it")
+              apartmentViewModel.onSearchQueryChanged(it)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Пошук адреси чи о/р", fontSize = 14.sp) },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
             trailingIcon = {
               if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = { apartmentViewModel.onSearchQueryChanged("") }) {
-                  Icon(Icons.Default.Close, contentDescription = null)
+                  Icon(Icons.Default.Close, null)
                 }
               }
             },
@@ -141,17 +127,23 @@ fun ModalNavigationDrawerContent(
             shape = RoundedCornerShape(12.dp)
           )
         } else {
-          // --- КНОПКА ДОБАВИТЬ ДЛЯ ЖИЛЬЦА ---
+          Text(
+            text = stringResource(id = R.string.list_apartment),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+          )
+          Spacer(modifier = Modifier.height(12.dp))
           Button(
             onClick = {
-              onMenuClick() // Закрываем шторку
+              Log.d("YkisLog", "$methodName: [ADD_CLICK]")
+              onMenuClick();
               navigateToDestination(AddApartmentScreen.route)
             },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(12.dp)
+            shape = RoundedCornerShape(12.dp)
           ) {
-            Icon(Icons.Default.AddHome, contentDescription = null)
+            Icon(Icons.Default.AddHome, null)
             Spacer(Modifier.width(8.dp))
             Text(text = stringResource(id = R.string.add_appartment))
           }
@@ -160,137 +152,138 @@ fun ModalNavigationDrawerContent(
 
       HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
-      // 2. СПИСОК КВАРТИР
-      LazyColumn(
-        modifier = Modifier
-          .fillMaxWidth()
-          // Админу растягиваем список, жильцу - нет (если квартир 1-2)
-          .then(if (isUserAdmin) Modifier.weight(1f) else Modifier.wrapContentHeight()),
-        contentPadding = PaddingValues(vertical = 8.dp)
-      ) {
-        // Для админа используем фильтр, для жильца - весь список
-        val displayList = if (isUserAdmin) apartments else baseUIState.apartments
+      // 2. ДИНАМИЧЕСКИЙ СПИСОК (Уровни навигации)
+      Column(modifier = Modifier.weight(1f)) {
 
-        // Внутри LazyColumn в ModalNavigationDrawerContent
-        items(displayList, key = { it.addressId }) { apartment ->
-          val methodName = "DrawerItem"
-          val isSelected = baseUIState.addressId == apartment.addressId
-          val addrIdStr = apartment.addressId.toString()
-
-          // 1. ПОЛУЧЕНИЕ BADGE
-          // Используем мапу badges, которая должна быть подготовлена через groupBy/sum
-          val badgeCount = apartmentBadges[addrIdStr] ?: 0
-
-          // ЛОГИРОВАНИЕ (Детальный аудит отрисовки каждого элемента)
-          Log.d("YkisLog", "$methodName: [RENDER] ID: $addrIdStr | Badge: $badgeCount")
-
-          if (unreadCounts.isNotEmpty()) {
-            val hasRawKey = unreadCounts.keys.any { it.contains("_$addrIdStr") }
-//            Log.d("YkisLog", "$methodName: [DEBUG] Check ID: $addrIdStr | Result: $badgeCount | RawMatchFound: $hasRawKey | AllKeys: ${unreadCounts.keys}")
-          }
-
+        // Кнопка НАЗАД (только если мы не в корне и поиск пуст)
+        if (listMode != ListMode.RAIONS && isOrgAdmin && searchQuery.isEmpty()) {
           NavigationDrawerItem(
-            label = {
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-              ) {
-                Column(modifier = Modifier.weight(1f)) {
-                  // ПЕРВАЯ СТРОКА: Адрес + о/р
-                  Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                      text = apartment.address,
-                      fontWeight = FontWeight.Bold,
-                      style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                      text = " о/р $addrIdStr",
-                      style = MaterialTheme.typography.labelSmall,
-                      color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                      else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                      modifier = Modifier.padding(start = 4.dp)
-                    )
-                  }
-
-                  // ВТОРАЯ СТРОКА: ФИО
-                  apartment.nanim?.let {
-                    Text(
-                      text = it,
-                      style = MaterialTheme.typography.labelSmall,
-                      color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                      else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                  }
-                }
-
-                // 2. ОТОБРАЖЕНИЕ BADGE (Красный кружок)
-                if (badgeCount > 0) {
-                  Badge(
-                    modifier = Modifier.padding(start = 8.dp),
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError
-                  ) {
-                    Text(badgeCount.toString())
-                  }
-                }
-              }
-            },
-            selected = isSelected,
+            label = { Text("Назад", fontWeight = FontWeight.Bold) },
+            selected = false,
+            icon = { Icon(Icons.Default.ArrowBackIosNew, null, Modifier.size(18.dp)) },
             onClick = {
-              Log.d("YkisLog", "$methodName: [CLICK] Переход -> $addrIdStr")
-              keyboardController?.hide()
-              navigateToApartment(apartment.addressId)
+              Log.d("YkisLog", "$methodName: [BACK_LEVEL] Текущий: $listMode")
+              apartmentViewModel.goBackLevel()
             },
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-            icon = {
-              Icon(
-                imageVector = if (isSelected) Icons.Filled.Home else Icons.Outlined.Home,
-                contentDescription = null
-              )
-            }
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
           )
+          HorizontalDivider()
         }
 
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
 
-      }
-
-      // 3. НИЖНЯЯ ПАНЕЛЬ (Для админа)
-      if (isUserAdmin) {
-        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-
-        NavigationDrawerItem(
-          label = {
-            Text(
-              text = "ВЕРНУТЬСЯ В РЕЖИМ АДМИНА",
-              fontWeight = FontWeight.ExtraBold,
-              style = MaterialTheme.typography.labelLarge
-            )
-          },
-          selected = false,
-          onClick = {
-            onMenuClick() // Закрываем шторку
-            apartmentViewModel.resetToAdminMode() // Вызываем новый метод сброса
-          },
-          icon = {
-            Icon(
-              Icons.Default.AdminPanelSettings,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.onPrimary // Белая иконка на синем фоне
-            )
-          },
-          modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-          // ВЫДЕЛЯЕМ ЦВЕТОМ
-          colors = NavigationDrawerItemDefaults.colors(
-            unselectedContainerColor = MaterialTheme.colorScheme.primary, // Яркий фон (синий)
-            unselectedTextColor = MaterialTheme.colorScheme.onPrimary,   // Белый текст
-            unselectedIconColor = MaterialTheme.colorScheme.onPrimary
-          )
-        )
-        Spacer(modifier = Modifier.height(12.dp))
+          if (searchQuery.isNotEmpty()) {
+            // --- РЕЖИМ ПОИСКА ---
+            items(filteredResults, key = { "search_${it.addressId}" }) { item ->
+              DrawerItemContent(
+                apartment = item,
+                isSelected = baseUIState.addressId == item.addressId,
+                listMode = listMode,
+                badgeCount = 0,
+                onClick = {
+                  keyboardController?.hide()
+                  if (listMode == ListMode.HOUSES) {
+                    Log.d("YkisLog", "$methodName: [SEARCH_SELECT_HOUSE] ID: ${item.addressId}")
+                    apartmentViewModel.onHouseSelected(item.addressId)
+                  } else {
+                    Log.d("YkisLog", "$methodName: [SEARCH_SELECT_APT] ID: ${item.addressId}")
+                    navigateToApartment(item.addressId)
+                    onMenuClick()
+                  }
+                }
+              )
+            }
+          } else {
+            // --- РЕЖИМ УРОВНЕЙ ---
+            when (listMode) {
+              ListMode.RAIONS -> {
+                items(baseUIState.raions, key = { "r_${it.raionId}" }) { raion ->
+                  NavigationDrawerItem(
+                    label = { Text(raion.raion ?: "") },
+                    selected = baseUIState.selectedRegionId == raion.raionId,
+                    icon = { Icon(Icons.Default.Map, null) },
+                    onClick = {
+                      Log.d("YkisLog", "$methodName: [SELECT_RAION] ${raion.raion}")
+                      apartmentViewModel.onRaionSelected(raion)
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                  )
+                }
+              }
+              ListMode.HOUSES -> {
+                items(houses, key = { "h_${it.houseId}" }) { house ->
+                  NavigationDrawerItem(
+                    label = { Text(house.house ?: "") },
+                    selected = baseUIState.selectedHouseId == house.houseId,
+                    icon = { Icon(Icons.Default.Domain, null) },
+                    onClick = {
+                      Log.d("YkisLog", "$methodName: [SELECT_HOUSE] ${house.house}")
+                      apartmentViewModel.onHouseSelected(house.houseId)
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                  )
+                }
+              }
+              ListMode.APARTMENTS -> {
+                val aptList = if (isOrgAdmin) drawerApartments else baseUIState.apartments
+                items(aptList, key = { "a_${it.addressId}" }) { apt ->
+                  DrawerItemContent(
+                    apartment = apt,
+                    isSelected = baseUIState.addressId == apt.addressId,
+                    listMode = ListMode.APARTMENTS,
+                    badgeCount = apartmentBadges[apt.addressId.toString()] ?: 0,
+                    onClick = {
+                      Log.d("YkisLog", "$methodName: [SELECT_APT] Final Choice: ${apt.addressId}")
+                      keyboardController?.hide()
+                      // Вызывает переход на Info и очистку стека
+                      navigateToApartment(apt.addressId)
+                      onMenuClick()
+                    }
+                  )
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
 }
+
+
+@Composable
+fun DrawerItemContent(
+  apartment: ApartmentEntity,
+  isSelected: Boolean,
+  listMode: ListMode,
+  badgeCount: Int,
+  onClick: () -> Unit
+) {
+  NavigationDrawerItem(
+    label = {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+          Row(verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.Start) {
+            Text(apartment.address, fontWeight = FontWeight.Bold)
+            Text("| о/р ${apartment.addressId}", style = MaterialTheme.typography.labelSmall)
+          }
+
+          if (listMode == ListMode.APARTMENTS) {
+            apartment.nanim.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+          }
+        }
+        if (badgeCount > 0) {
+          Badge(containerColor = MaterialTheme.colorScheme.error) { Text(badgeCount.toString()) }
+        }
+      }
+    },
+    selected = isSelected,
+    onClick = onClick,
+    icon = { Icon(if (listMode == ListMode.HOUSES) Icons.Default.Domain else Icons.Default.Home, null) },
+    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+  )
+}
+
 
 
 

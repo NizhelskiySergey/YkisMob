@@ -99,7 +99,7 @@ fun InfoApartmentScreen(
     topBar = {
       DefaultAppBar(
         title = baseUIState.address,
-        subtitle = baseUIState.addressId.toString(),
+        subtitle = " о/р ${baseUIState.addressId}",
         canNavigateBack = false,
         onDrawerClick = onDrawerClicked,
         navigationType = navigationType,

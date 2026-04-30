@@ -57,8 +57,8 @@ class KtorApiService(private val client: HttpClient) {
   suspend fun getRaionList(params: Map<String, String>) =
     postForm<GetRaionsResponse>("getRaionList.php", params )
 
-  suspend fun getHouseList(params: Map<String, String>) =
-    postForm<GetHousesResponse>("getHouseList.php", params )
+  suspend fun getHouseByRaionList(params: Map<String, String>) =
+    postForm<GetHousesResponse>("getHousesByRaion.php", params )
 
   suspend fun getApartment(params: Map<String, String>) =
     postForm<GetApartmentResponse>("getFlatById.php", params)

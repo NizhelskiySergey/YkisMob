@@ -138,17 +138,44 @@ fun RootNavGraph(
 
 
   // Универсальное вычисление chatUid
-  val chatUid = remember(baseUIState.userRole, baseUIState.osbbId, selectedUser, baseUIState.uid) {
-    if (baseUIState.uid == null) return@remember ""
-    when (baseUIState.userRole) {
-      UserRole.YtkeUser -> "9997"
-      UserRole.VodokanalUser -> "9998"
-      UserRole.TboUser -> "9999"
-      UserRole.OsbbUser -> selectedUser?.uid ?: ""
-      UserRole.StandardUser -> baseUIState.uid.toString()
-      else -> selectedUser?.uid ?: ""
+  val chatUid = remember(baseUIState.userRole, baseUIState.apartment, selectedUser, baseUIState.uid) {
+    val methodName = "RootNavGraph.chatUid"
+    val userRole = baseUIState.userRole
+    val apartment = baseUIState.apartment
+    val myUid = baseUIState.uid
+
+    val resultUid = when (userRole) {
+      // --- ДЛЯ ГОРСЛУЖБ (Водоканал и др.) ---
+      // Мы должны писать ЖИТЕЛЮ выбранной квартиры
+      UserRole.VodokanalUser, UserRole.YtkeUser, UserRole.TboUser -> {
+        apartment.uid ?: ""
+      }
+
+      // --- ДЛЯ АДМИНА ОСББ ---
+      // Он пишет конкретному человеку, выбранному из списка жильцов
+      UserRole.OsbbUser -> {
+        selectedUser?.uid ?: ""
+      }
+
+      // --- ДЛЯ ЖИТЕЛЯ ---
+      UserRole.StandardUser -> {
+        myUid ?: ""
+      }
+
+      else -> ""
     }
+
+    // ПОДРОБНЫЙ ЛОГ ДЛЯ ТЕБЯ
+    Log.d("YkisLog", "$methodName: [CALC] " +
+      "Role: $userRole | " +
+      "MyUID: $myUid | " +
+      "ApartmentUID: ${apartment.uid} | " +
+      "SelectedUserUID: ${selectedUser?.uid} | " +
+      "RESULT_CHAT_UID: $resultUid")
+
+    resultUid
   }
+
 
 
 
