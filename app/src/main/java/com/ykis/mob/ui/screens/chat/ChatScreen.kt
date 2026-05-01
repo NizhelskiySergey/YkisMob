@@ -172,7 +172,7 @@ fun ChatScreenContent(
 
   val chatItems = remember(messageList) {
     messageList
-      .filter { msg -> msg.deletedFor == null || !msg.deletedFor.contains(myUid) }
+      .filter { msg -> !msg.deletedFor.contains(myUid) }
       .groupBy { formatDate(it.timestamp) }
       .flatMap { (date, messages) ->
         listOf(ChatItem.DateHeader(date)) + messages.map { ChatItem.MessageItem(it) }
@@ -180,11 +180,16 @@ fun ChatScreenContent(
   }
 
   // --- 2. ЭФФЕКТЫ ---
-  // --- 2. ЭФФЕКТЫ ---
   DisposableEffect(Unit) {
     onDispose {
-      Log.d("YkisLog", "Chat: [DISPOSE] Очистка пути чата")
+
+      // 1. Сначала говорим базе, что мы закончили печатать
+      chatViewModel.setTypingStatus(false)
+      Log.d("YkisLog", "Chat: [DISPOSE] Выход из чата закончили печатать")
+      // 2. И только потом чистим пути
+
       chatViewModel.clearCurrentChatPath()
+      Log.d("YkisLog", "Chat: [DISPOSE] Очистка пути чата")
     }
   }
 

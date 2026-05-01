@@ -44,9 +44,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.collections.forEach
 import androidx.core.graphics.scale
-import com.ykis.mob.domain.apartment.ApartmentEntity
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filter
 
 @Serializable
 data class SendNotificationArguments(
@@ -689,7 +687,7 @@ class ChatViewModel(
     val methodName = "ChatViewModel.setTypingStatus"
 
     // 1. Безопасное извлечение chatId и UID
-    val chatId = currentChatPath
+    val chatId = currentChatPath ?:return
     val myUid = chatRepo.currentUid ?: return
 
     if (chatId.isNullOrEmpty()) {
@@ -1314,19 +1312,18 @@ class ChatViewModel(
    */
   fun trackUserIdentifiersWithRole(role: UserRole, osbbId: Int?) {
     val methodName = "ChatViewModel.trackUserIdentifiersWithRole"
+
     if (role == UserRole.StandardUser) {
       Log.d("YkisLog", "$methodName: [CANCEL] Жильцу не нужен трекер списка")
       return
     }
-    // 1. Очистка активных слушателей перед новым поиском
-    cleanupTracker()
 
-    // ВАЖНО: Не очищаем _userList здесь принудительно, если ключи совпадут,
-    // чтобы избежать "мигания" экрана при каждом клике в Rail.
+    // 1. Очистка перед новым поиском
+    cleanupTracker()
     _unreadCounts.value = emptyMap()
     Log.d("YkisLog", "$methodName: [CLEAN] Слушатели очищены")
 
-    // 2. ФОРМИРУЕМ ПРЕФИКС
+    // 2. Формируем префикс
     val targetPrefix = when (role) {
       UserRole.VodokanalUser -> "WATER_SERVICE_9999_"
       UserRole.YtkeUser -> "WARM_SERVICE_9998_"
@@ -1337,7 +1334,7 @@ class ChatViewModel(
 
     Log.d("YkisLog", "$methodName: [START] Поиск веток: $targetPrefix")
 
-    // 3. ОПТИМИЗИРОВАННЫЙ ЗАПРОС
+    // 3. Запрос по диапазону
     val query = chatsReference.orderByKey()
       .startAt(targetPrefix)
       .endAt(targetPrefix + "\uf8ff")
@@ -1345,17 +1342,15 @@ class ChatViewModel(
     val listener = object : ValueEventListener {
       override fun onDataChange(dataSnapshot: DataSnapshot) {
         val chatKeys = dataSnapshot.children.mapNotNull { it.key }
-        Log.d("YkisLog", "$methodName: [EVENT] Найдено веток в диапазоне: ${chatKeys.size}")
+        Log.d("YkisLog", "$methodName: [EVENT] Найдено веток: ${chatKeys.size}")
 
         viewModelScope.launch(Dispatchers.Default) {
-          // Сравниваем ключи
-          val keysIdentical = chatKeys.sorted() == _userIdentifiersWithRole.value.sorted()
-          // Проверяем, есть ли уже данные в UI
+          val currentKeys = _userIdentifiersWithRole.value
+          val keysIdentical = chatKeys.sorted() == currentKeys.sorted()
           val uiPopulated = _userList.value.isNotEmpty()
 
-          // ПРОПУСКАЕМ обновление только если и ключи те же, и список в UI не пуст
           if (keysIdentical && uiPopulated) {
-            Log.d("YkisLog", "$methodName: [SKIP] Данные идентичны, UI уже отображается")
+            Log.d("YkisLog", "$methodName: [SKIP] Данные идентичны")
             return@launch
           }
 
@@ -1363,12 +1358,16 @@ class ChatViewModel(
             _userIdentifiersWithRole.value = chatKeys
 
             if (chatKeys.isNotEmpty()) {
-              Log.d("YkisLog", "$methodName: [PROCEED] Загрузка профилей для ${chatKeys.size} веток")
-              subscribeToUnreadCount(chatKeys)
-              getUsers() // Этот метод наполнит _userList
+              Log.d("YkisLog", "$methodName: [PROCEED] Запуск подписок для ${chatKeys.size} веток")
+
+              // КРИТИЧЕСКИЙ ФИКС: Подписываемся и на счетчики, и на ТЕКСТЫ сообщений
+              subscribeToUnreadCount(chatKeys)   // Для бейджей
+              subscribeToLastMessages(chatKeys) // ДЛЯ ОБНОВЛЕНИЯ ТЕКСТА ПРЕДПРОСМОТРА
+
+              getUsers() // Наполняем список профилями
             } else {
               _userList.value = emptyList()
-              Log.w("YkisLog", "$methodName: [EMPTY] Ветки не найдены в базе")
+              Log.w("YkisLog", "$methodName: [EMPTY] Чаты не найдены")
             }
           }
         }
@@ -1379,12 +1378,12 @@ class ChatViewModel(
       }
     }
 
-    // Сохраняем ссылки для очистки
     query.addValueEventListener(listener)
     activeTrackerQuery = query
     activeTrackerListener = listener
-    Log.d("YkisLog", "$methodName: [READY] Трекер активен по диапазону $targetPrefix")
+    Log.d("YkisLog", "$methodName: [READY] Трекер активен для $targetPrefix")
   }
+
 
 
 
@@ -1407,82 +1406,44 @@ class ChatViewModel(
 
     if (chatKeys.isEmpty()) {
       Log.d("YkisLog", "$methodName: [CANCEL] Список ключей пуст")
-      _userList.value = emptyList()
       return
     }
 
     viewModelScope.launch {
       try {
         Log.d("YkisLog", "--- $methodName [START] ---")
-        Log.d("YkisLog", "$methodName: Ключи из Firebase: $chatKeys")
 
-        // 1. Извлечение UID
+        // 1. Извлекаем уникальные UID из ключей веток
         val uidsToFetch = chatKeys.map { it.substringAfterLast("_") }
           .filter { it.isNotEmpty() }
           .distinct()
-        Log.d("YkisLog", "$methodName: Уникальные UID для загрузки: $uidsToFetch")
 
-        // 2. Загрузка профилей
+        // 2. Загружаем профили из репозитория
         val fetchedProfiles = withContext(Dispatchers.IO) {
-          val profiles = chatRepo.fetchUsersByIds(uidsToFetch)
-          Log.d("YkisLog", "$methodName: Загружено из БД: ${profiles.size} профилей")
-          profiles
+          Log.d("YkisLog", "$methodName: Загрузка профилей для UID: $uidsToFetch")
+          chatRepo.fetchUsersByIds(uidsToFetch)
         }
 
-        // 3. Формирование списка
-        val finalUserList = withContext(Dispatchers.Default) {
-          chatKeys.mapNotNull { key ->
-            val parts = key.split("_")
-            if (parts.size < 4) {
-              Log.e("YkisLog", "$methodName: [ERR] Ключ не по формату: $key")
-              return@mapNotNull null
-            }
-
-            val uidFromKey = parts.last()
-            val addrIdFromKey = parts.getOrNull(parts.size - 2)?.toIntOrNull() ?: 0
-
-            val profile = fetchedProfiles.find { it.uid == uidFromKey }
-            val lastMsg = _lastMessages.value[key] // Пытаемся взять превью из текущего кэша
-
-            Log.d("YkisLog", "$methodName: [PROCESS] Key: $key | Addr: $addrIdFromKey | LastMsgText: ${lastMsg?.text ?: "NULL"}")
-
-            val user = if (profile != null) {
-              profile.copy(
-                addressId = addrIdFromKey,
-                displayName = lastMsg?.senderAddress ?: profile.displayName,
-                // СЮДА записываем превью (убедись, что это поле есть в UserEntity)
-                   nanim =  lastMsg?.text ?: "Немає повідомлень"
-              )
-            } else {
-              UserEntity(
-                uid = uidFromKey,
-                addressId = addrIdFromKey,
-                displayName = lastMsg?.senderAddress ?: "Користувач (о/р $addrIdFromKey)",
-                nanim = lastMsg?.text ?: "Немає повідомлень"
-              )
-            }
-            user
-          }
-        }
-
-        // 4. Публикация в UI
+        // 3. Обновляем данные для реактивного combine
         withContext(Dispatchers.Main) {
-          // Просто обновляем список профилей, combine сам пересоберет userList
+          Log.d("YkisLog", "$methodName: [SUCCESS] Загружено ${fetchedProfiles.size} профилей")
+
+          // Это "толкнет" combine, который соберет финальный userList
           _rawFetchedProfiles.value = fetchedProfiles
 
-          Log.d("YkisLog", "$methodName: [UI_UPDATE] Список из ${finalUserList.size} чел. отправлен в State")
-
-          // 5. Запуск слушателей (именно они потом будут менять _lastMessages)
-          Log.d("YkisLog", "$methodName: [SYNC_START] Запуск подписок на бейджи и сообщения...")
-          subscribeToUnreadCount(chatKeys)
+          // 4. Запускаем/обновляем слушатели
+          // Важно: сначала запускаем подписки, чтобы мапа _lastMessages начала наполняться
+          Log.d("YkisLog", "$methodName: [SYNC] Запуск подписок на бейджи и сообщения")
           subscribeToLastMessages(chatKeys)
+          subscribeToUnreadCount(chatKeys)
         }
 
       } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${e.stackTraceToString()}")
+        Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${e.message}")
       }
     }
   }
+
 
 
   fun subscribeToResidentCounters(
@@ -1565,10 +1526,6 @@ class ChatViewModel(
     subscribeToUnreadCount(chatKeys)
   }
 
-
-  fun setSelectedUser(user: UserEntity) {
-    _selectedUser.value = user
-  }
 
   /**
    * Устанавливает текущую выбранную службу для чата на основе данных о долгах.

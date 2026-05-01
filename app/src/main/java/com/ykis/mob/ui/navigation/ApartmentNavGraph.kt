@@ -102,7 +102,7 @@ fun MainApartmentScreen(
   val currentFirebaseUid = firebaseService.uid
 
   // 1. КОНТРОЛЬ ГОТОВНОСТИ ДАННЫХ
-  val isDataReady = remember(baseUIState.uid, currentFirebaseUid, baseUIState.mainLoading) {
+  val isDataReady = remember(baseUIState.uid, currentFirebaseUid, baseUIState.mainLoading,baseUIState.isApartmentsLoaded) {
     baseUIState.uid == currentFirebaseUid && !baseUIState.mainLoading
   }
 
@@ -149,7 +149,7 @@ fun MainApartmentScreen(
 
   // Инициализация профиля
   LaunchedEffect(currentFirebaseUid) {
-    if (baseUIState.uid == null && currentFirebaseUid != null) {
+    if (baseUIState.uid == null) {
       apartmentViewModel.observeUserProfile()
     }
   }
@@ -313,15 +313,17 @@ fun ApartmentNavGraph(
           // 1. Мониторинг веток для админа (с учетом системных ID служб)
           LaunchedEffect(baseUIState.userRole, baseUIState.osbbId) {
             val role = baseUIState.userRole
-            val effectiveOsbbId = when (role) {
-              UserRole.VodokanalUser -> 9999
-              UserRole.YtkeUser -> 9998
-              UserRole.TboUser -> 9997
-              else -> baseUIState.osbbId ?: 0
+            // Запускаем трекер ТОЛЬКО если это не жилец
+            if (role != UserRole.StandardUser) {
+              val effectiveOsbbId = when (role) {
+                UserRole.VodokanalUser -> 9999
+                UserRole.YtkeUser -> 9998
+                UserRole.TboUser -> 9997
+                else -> baseUIState.osbbId ?: 0
+              }
+              Log.d("YkisLog", "NavGraph: [TRACKING_START] Role: $role, ID: $effectiveOsbbId")
+              chatViewModel.trackUserIdentifiersWithRole(role, effectiveOsbbId)
             }
-
-            Log.d("YkisLog", "NavGraph: [TRACKING_START] Role: $role, ID: $effectiveOsbbId")
-            chatViewModel.trackUserIdentifiersWithRole(role, effectiveOsbbId)
           }
 
           UserListScreen(

@@ -75,7 +75,7 @@ class ApartmentViewModel(
   private var isHandlingResult = false // Флаг-предохранитель
   private val _apartment = MutableStateFlow(ApartmentEntity())
   val apartment: StateFlow<ApartmentEntity> get() = _apartment.asStateFlow()
-
+  private var isObservingStarted = false
   private val _secretCode = MutableStateFlow("")
   val secretCode: StateFlow<String> = _secretCode.asStateFlow()
 
@@ -293,9 +293,19 @@ class ApartmentViewModel(
    */
   fun observeUserProfile() {
     val methodName = "ApartmentViewModel.observeUserProfile"
-    val actualUid = firebaseService.uid
+    val actualUid = firebaseService.uid ?: return
 
     Log.d("YkisLog", "$methodName: [START] actualUid: $actualUid")
+
+
+    // Если загрузка уже идет для этого UID — выходим
+    if (isObservingStarted) {
+      Log.d("YkisLog", "ApartmentViewModel: [SKIP] Загрузка уже активна для $actualUid")
+      return
+    }
+
+    isObservingStarted = true
+    Log.d("YkisLog", "ApartmentViewModel.observeUserProfile: isObservingStarted: $isObservingStarted")
 
     if (_uiState.value.uid != null && _uiState.value.uid != actualUid) {
       Log.w("YkisLog", "$methodName: [SESSION_MISMATCH] Очистка стейта.")
@@ -351,6 +361,7 @@ class ApartmentViewModel(
 
                 _uiState.update { it.copy(
                   apartments = apartments,
+                  isApartmentsLoaded = true,
                   addressId = target.addressId,
                   address = target.address,
                   displayName = combinedName,
@@ -752,6 +763,7 @@ class ApartmentViewModel(
               val first = newList.first()
               state.copy(
                 apartments = newList,
+                apartmentLoading = true,
                 addressId = first.addressId,
                 address = first.address,
                 osbb = first.osbb.toString(), // Оживляем кнопку ОСББ
