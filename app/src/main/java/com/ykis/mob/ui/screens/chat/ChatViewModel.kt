@@ -1254,7 +1254,7 @@ class ChatViewModel(
   fun readFromDatabase(role: UserRole, senderUid: String, osbbId: Int, addressId: Int) {
     val methodName = "ChatViewModel.readFromDatabase"
 
-    // 1. УНИФИКАЦИЯ ID
+    // 1. УНИФИКАЦИЯ ID (Золотой стандарт организаций)
     val effectiveOsbbId = when (role) {
       UserRole.VodokanalUser -> 9999
       UserRole.YtkeUser -> 9998
@@ -1270,67 +1270,63 @@ class ChatViewModel(
       targetUserUid = if (role != UserRole.StandardUser) senderUid else null
     )
 
-    currentChatPath = targetPath
-    Log.d("YkisLog", "$methodName: [INIT] Путь: $targetPath | Role: $role")
-
-    val myUid = chatRepo.currentUid ?: ""
-    val ref = chatsReference.child(targetPath)
-
-    if (listeners.containsKey(ref)) {
-      Log.d("YkisLog", "$methodName: [SKIP] Слушатель уже активен")
+    // 3. ПРОВЕРКА ДУБЛИКАТА
+    if (currentChatPath == targetPath && listeners.containsKey(chatsReference.child(targetPath))) {
+      Log.d("YkisLog", "$methodName: [SKIP] Чат уже активен: $targetPath")
       return
     }
 
-    // 4. БЕЗОПАСНАЯ ОЧИСТКА СТАРЫХ СЛУШАТЕЛЕЙ
-    val iterator = listeners.iterator()
-    while (iterator.hasNext()) {
-      val entry = iterator.next()
-      Log.d("YkisLog", "$methodName: [CLEANUP] Удаление слушателя: ${entry.key.key}")
-      entry.key.removeEventListener(entry.value)
-      iterator.remove()
-    }
-
+    // 4. ПОДГОТОВКА СТЕЙТА (Чистим экран перед входом)
+    currentChatPath = targetPath
     _firebaseTest.value = emptyList()
     _isPartnerTyping.value = false
     typingJob?.cancel()
 
-    // 5. ПЕРВИЧНЫЙ СБРОС (при входе)
+    val myUid = chatRepo.currentUid ?: ""
+    val ref = chatsReference.child(targetPath)
+
+    // 5. ОЧИСТКА ТОЛЬКО ЧАТОВЫХ СЛУШАТЕЛЕЙ (не трогаем бейджи!)
+    listeners.forEach { (oldRef, listener) ->
+      Log.d("YkisLog", "$methodName: [CLEANUP] Удаление слушателя: ${oldRef.key}")
+      oldRef.removeEventListener(listener)
+    }
+    listeners.clear()
+
+    Log.d("YkisLog", "$methodName: [INIT] Вход в ветку: $targetPath")
+
+    // 6. ПЕРВИЧНЫЕ ДЕЙСТВИЯ
     markMessagesAsRead(targetPath)
     observeTypingStatus(targetPath)
 
-    // 6. ОСНОВНОЙ СЛУШАТЕЛЬ С ЛОГИКОЙ AUTO-READ
+    // 7. ОСНОВНОЙ СЛУШАТЕЛЬ
     val listener = object : ValueEventListener {
       override fun onDataChange(dataSnapshot: DataSnapshot) {
-        val activePath = currentChatPath
-        Log.d("YkisLog", "$methodName: [DATA_RECV] Данные для: $targetPath")
+        // Проверяем, не вышли ли мы уже из этого чата, пока шел ответ
+        if (currentChatPath != targetPath) {
+          Log.w("YkisLog", "$methodName: [REJECTED] Ветка уже не актуальна")
+          ref.removeEventListener(this)
+          return
+        }
 
-        if (targetPath == activePath) {
-          viewModelScope.launch(Dispatchers.Default) {
-            val messages = dataSnapshot.children.mapNotNull {
-              it.getValue(MessageEntity::class.java)
-            }.filter { msg ->
-              msg.deletedFor == null || !msg.deletedFor.contains(myUid)
-            }.sortedBy { it.timestamp }
+        viewModelScope.launch(Dispatchers.Default) {
+          val messages = dataSnapshot.children.mapNotNull {
+            it.getValue(MessageEntity::class.java)
+          }.filter { msg ->
+            msg.deletedFor == null || !msg.deletedFor.contains(myUid)
+          }.sortedBy { it.timestamp }
 
-            withContext(Dispatchers.Main) {
-              _firebaseTest.value = messages.toList()
-              Log.d("YkisLog", "$methodName: [UI_READY] Сообщений: ${messages.size}")
+          withContext(Dispatchers.Main) {
+            _firebaseTest.value = messages
+            Log.d("YkisLog", "$methodName: [UI_READY] Сообщений: ${messages.size}")
 
-              // КРИТИЧЕСКИЙ ФИКС ДЛЯ ГАЛОЧЕК (AUTO-READ)
-              if (messages.isNotEmpty()) {
-                val lastMsg = messages.last()
-                // Если последнее сообщение от собеседника и оно еще не прочитано
-                if (lastMsg.senderUid != myUid && !lastMsg.read) {
-                  Log.d("YkisLog", "$methodName: [AUTO_READ] Новое сообщение от ${lastMsg.senderUid}. Помечаю прочитанным.")
-                  markMessagesAsRead(targetPath)
-                } else {
-                  Log.d("YkisLog", "$methodName: [READ_STATUS] Последнее сообщение уже прочитано или отправлено мной.")
-                }
+            // AUTO-READ только если последнее сообщение не наше
+            messages.lastOrNull()?.let { lastMsg ->
+              if (lastMsg.senderUid != myUid && !lastMsg.read) {
+                Log.d("YkisLog", "$methodName: [AUTO_READ] Читаем новые сообщения")
+                markMessagesAsRead(targetPath)
               }
             }
           }
-        } else {
-          Log.w("YkisLog", "$methodName: [REJECTED] Ожидали: $activePath, пришло: $targetPath")
         }
       }
 
@@ -1341,8 +1337,8 @@ class ChatViewModel(
 
     ref.addValueEventListener(listener)
     listeners[ref] = listener
-    Log.d("YkisLog", "$methodName: [LISTENER_START] Мониторинг ветки активен")
   }
+
 
 
 
@@ -1399,10 +1395,13 @@ class ChatViewModel(
       return
     }
 
-    // 1. Очистка перед поиском
+    // 1. Очистка ТОЛЬКО трекера (удаляем старый слушатель диапазона)
     cleanupTracker()
-    _unreadCounts.value = emptyMap()
-    Log.d("YkisLog", "$methodName: [CLEAN] Слушатели очищены")
+
+    // КРИТИЧЕСКИЙ ФИКС: УДАЛЯЕМ СТРОКУ _unreadCounts.value = emptyMap()
+    // Мы чистим только СЛУШАТЕЛЕЙ внутри cleanupTracker (если ты добавил туда unreadListeners.clear()),
+    // но сами ЗНАЧЕНИЯ в StateFlow оставляем, чтобы UI не моргал.
+    Log.d("YkisLog", "$methodName: [CLEAN] Старый трекер удален, кэш сохранен")
 
     // 2. Формируем префикс
     val targetPrefix = when (role) {
@@ -1413,9 +1412,6 @@ class ChatViewModel(
       else -> "UNKNOWN_"
     }
 
-    Log.d("YkisLog", "$methodName: [START] Поиск веток: $targetPrefix")
-
-    // 3. Запрос по диапазону
     val query = chatsReference.orderByKey()
       .startAt(targetPrefix)
       .endAt(targetPrefix + "\uf8ff")
@@ -1423,49 +1419,51 @@ class ChatViewModel(
     val listener = object : ValueEventListener {
       override fun onDataChange(dataSnapshot: DataSnapshot) {
         val chatKeys = dataSnapshot.children.mapNotNull { it.key }
-        Log.d("YkisLog", "$methodName: [EVENT] Найдено веток: ${chatKeys.size}")
 
         viewModelScope.launch(Dispatchers.Default) {
           val currentKeys = _userIdentifiersWithRole.value
           val keysIdentical = chatKeys.sorted() == currentKeys.sorted()
-
-          // Проверяем наполненность через актуальное значение StateFlow
           val uiPopulated = userList.value.isNotEmpty()
 
-          if (keysIdentical && uiPopulated) {
-            Log.d("YkisLog", "$methodName: [SKIP] Данные идентичны")
+          // Проверяем, не пусты ли бейджи (вдруг это первый запуск или сбой)
+          val badgesLoaded = _unreadCounts.value.isNotEmpty()
+
+          // УМНЫЙ ПРОПУСК: Пропускаем только если ключи ТЕ ЖЕ и бейджи УЖЕ есть в памяти
+          if (keysIdentical && uiPopulated && badgesLoaded) {
+            Log.d("YkisLog", "$methodName: [SKIP] Данные идентичны, UI актуален")
             return@launch
           }
 
           withContext(Dispatchers.Main) {
-            // Обновляем ключи — это первый триггер для combine
             _userIdentifiersWithRole.value = chatKeys
 
             if (chatKeys.isNotEmpty()) {
-              Log.d("YkisLog", "$methodName: [PROCEED] Запуск подписок для ${chatKeys.size} веток")
+              Log.d("YkisLog", "$methodName: [PROCEED] Обновление подписок для ${chatKeys.size} веток")
 
+              // Теперь, если ключи совпали, но бейджи были пустыми,
+              // эти методы наполнят мапу заново
               subscribeToUnreadCount(chatKeys)
               subscribeToLastMessages(chatKeys)
-              getUsers() // Загрузит профили в _rawFetchedProfiles (второй триггер)
+              getUsers()
             } else {
-              // Если веток нет — очищаем профили, чтобы combine выдал пустой список
               _rawFetchedProfiles.value = emptyList()
+              _unreadCounts.value = emptyMap() // Тут можно почистить, так как чатов реально 0
               Log.w("YkisLog", "$methodName: [EMPTY] Чаты не найдены")
             }
           }
         }
       }
-
+      // ОБЯЗАТЕЛЬНО добавь этот метод, чтобы ошибка исчезла:
       override fun onCancelled(error: DatabaseError) {
-        Log.e("YkisLog", "$methodName: [ERROR] Firebase: ${error.message}")
+        Log.e("YkisLog", "Firebase Error: ${error.message}")
       }
     }
 
     query.addValueEventListener(listener)
     activeTrackerQuery = query
     activeTrackerListener = listener
-    Log.d("YkisLog", "$methodName: [READY] Трекер активен для $targetPrefix")
   }
+
 
 
 
