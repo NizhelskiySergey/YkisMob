@@ -3,6 +3,7 @@ package com.ykis.mob.ui.screens.service
 import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.ykis.mob.core.Resource
+import com.ykis.mob.domain.UserRole
 import com.ykis.mob.domain.payment.request.GetPaymentList
 import com.ykis.mob.domain.payment.request.InsertPayment
 import com.ykis.mob.domain.payment.request.InsertPaymentParams
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlin.collections.filter
 
 class ServiceViewModel (
     private val getFlatService: GetFlatServices,
@@ -84,7 +86,6 @@ class ServiceViewModel (
       }
     }.launchIn(this.viewModelScope)
   }
-
 
   fun getDetailService(params: ServiceParams) {
     val methodName = "ServiceVM.getDetailService"

@@ -19,29 +19,42 @@ class DeleteUserAccount(
   private val repository: ApartmentRepository,
 ) {
   operator fun invoke(uid: String, email: String): Flow<Resource<GetSimpleResponse>> = flow {
-    val methodName = "DeleteUserAccount.invoke"
-    emit(Resource.Loading())
+    val methodName = "UseCase.DeleteUserAccount"
 
     try {
       Log.d("YkisLog", "$methodName: [START] Запрос на удаление UID: $uid")
+      emit(Resource.Loading())
 
-      // Прямой suspend запрос к API (MySQL)
+      // ЗАПРОС В СЕТЬ (MySQL)
       val response = repository.deleteUserAccount(uid, email)
 
+      Log.d("YkisLog", "$methodName: [RESPONSE] Success: ${response.success}, Message: ${response.message}")
+
       if (response.success == 1) {
-        Log.d("YkisLog", "$methodName: [SUCCESS] Аккаунт удален из внешней БД (MySQL)")
+        Log.d("YkisLog", "$methodName: [SUCCESS] Данные удалены из внешней БД")
         emit(Resource.Success(response))
       } else {
-        Log.e("YkisLog", "$methodName: [API_ERROR] Success: ${response.success}")
+        Log.e("YkisLog", "$methodName: [API_REJECT] Сервер отказал в удалении: ${response.message}")
+        // Показываем общую ошибку удаления из ресурсов
         emit(Resource.Error(resourceMessage = R.string.error_delete_account))
       }
 
-    } catch (ce: CancellationException) {
-      Log.w("YkisLog", "$methodName: [CANCELLED] Процесс отменен корутиной")
-      throw ce
+    } catch (e: java.io.IOException) {
+      // СЛУЧАЙ: СЕРВИС ЛЕЖИТ ИЛИ НЕТ СЕТИ
+      Log.e("YkisLog", "$methodName: [NETWORK_FAIL] Ошибка связи при удалении")
+      emit(Resource.Error(
+        resourceMessage = R.string.error_network,
+        message = "Неможливо видалити профіль без стабільного з'єднання"
+      ))
+
+    } catch (ce: kotlinx.coroutines.CancellationException) {
+      Log.w("YkisLog", "$methodName: [CANCELLED] Процесс прерван")
+      throw ce // Обязательно пробрасываем дальше для корутин
+
     } catch (ex: Exception) {
-      Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${ex.message}")
-      emit(Resource.Error(message = ex.localizedMessage ?: "Unknown Error"))
+      Log.e("YkisLog", "$methodName: [FATAL] Непредвиденная ошибка: ${ex.message}")
+      emit(Resource.Error(message = ex.localizedMessage ?: "Непередбачена помилка"))
     }
   }.flowOn(Dispatchers.IO)
 }
+

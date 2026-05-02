@@ -1,6 +1,9 @@
 package com.ykis.mob.domain.apartment.request
 import android.util.Log
+import androidx.room.withTransaction
+import com.ykis.mob.R
 import com.ykis.mob.core.Resource
+import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.database.AppDatabase
 import com.ykis.mob.domain.apartment.ApartmentEntity
 import com.ykis.mob.domain.apartment.ApartmentRepository
@@ -16,58 +19,68 @@ class GetRaionList(
 ) {
   operator fun invoke(uid: String): Flow<Resource<List<RaionEntity>>> = flow {
     val methodName = "UseCase.GetRaionList"
+
     try {
       emit(Resource.Loading())
 
-      // 1. ПРОВЕРКА КЭША
+      // 1. ПРОВЕРКА КЭША (Мгновенное отображение при старте)
       val localRaions = database.raionDao().getRaionList()
-      Log.d("YkisLog", "$methodName: [DB_READ] Найдено в базе: ${localRaions.size} шт.")
-
       if (localRaions.isNotEmpty()) {
-        Log.d("YkisLog", "$methodName: [LOCAL_EMIT] Отправляем кэш в UI")
+        Log.d("YkisLog", "$methodName: [LOCAL_HIT] Найдено ${localRaions.size} районов в Room")
         emit(Resource.Success(localRaions))
       }
 
-      // 2. СЕТЕВОЙ ЗАПРОС
+      // 2. СЕТЕВОЙ ЗАПРОС (Попытка обновления)
       Log.d("YkisLog", "$methodName: [NETWORK_START] Запрос для UID: $uid")
       val response = repository.getRaionList(uid)
-
-      // Логируем сырой ответ (если возможно) или количество распарсенных объектов
       val remoteRaions = response.raions ?: emptyList()
-      Log.d("YkisLog", "$methodName: [NETWORK_RESULT] Успех: ${response.success}, Сообщение: ${response.message}, Объектов распарсено: ${remoteRaions.size}")
 
+      // 3. ОБНОВЛЕНИЕ БАЗЫ
       if (remoteRaions.isNotEmpty()) {
-        // 3. ОБНОВЛЕНИЕ БАЗЫ
-        Log.d("YkisLog", "$methodName: [DB_WRITE] Попытка вставки ${remoteRaions.size} записей в Room...")
-        database.raionDao().insertRaionList(remoteRaions)
+        Log.d("YkisLog", "$methodName: [DB_WRITE] Синхронизация ${remoteRaions.size} записей")
 
-        // СРАЗУ ПРОВЕРЯЕМ ЗАПИСЬ
-        val verifyDb = database.raionDao().getRaionList()
-        Log.d("YkisLog", "$methodName: [DB_VERIFY] После записи в Room стало: ${verifyDb.size} строк")
-
-        if (verifyDb.isEmpty()) {
-          Log.e("YkisLog", "$methodName: [CRITICAL] Вставка была вызвана, но база пуста! Проверьте типы данных в RaionEntity.")
+        database.withTransaction {
+          // Очищаем старое только если пришло новое, чтобы избежать "мерцания" пустотой
+          database.raionDao().insertRaionList(remoteRaions)
         }
 
-        emit(Resource.Success(verifyDb))
+        val updatedList = database.raionDao().getRaionList()
+        emit(Resource.Success(updatedList))
+      } else if (localRaions.isEmpty()) {
+        Log.w("YkisLog", "$methodName: [EMPTY] Районов не найдено ни в сети, ни в БД")
+        emit(Resource.Success(emptyList()))
+      }
+
+    } catch (e: java.io.IOException) {
+      // КЕЙС: ВАШ СЕРВИС ЛЕЖИТ / НЕТ ИНТЕРНЕТА
+      Log.w("YkisLog", "$methodName: [OFFLINE_MODE] Сервис недоступен. Проверка кэша...")
+
+      val cached = database.raionDao().getRaionList()
+      if (cached.isNotEmpty()) {
+        Log.d("YkisLog", "$methodName: [OFFLINE_RECOVERY] Работаем на локальном списке")
+        emit(Resource.Success(cached))
+        // Уведомляем пользователя, что данные могут быть не самыми свежими
+        SnackbarManager.showMessage(R.string.error_network)
       } else {
-        Log.w("YkisLog", "$methodName: [EMPTY_RESULT] Сеть вернула 0 районов. Success в UI.")
-        if (localRaions.isEmpty()) emit(Resource.Success(emptyList()))
+        Log.e("YkisLog", "$methodName: [OFFLINE_FAIL] Сети нет и база пуста")
+        emit(Resource.Error("Немає зв'язку. Список районів недоступний."))
+        SnackbarManager.showMessage(R.string.error_network)
       }
 
     } catch (e: Exception) {
-      Log.e("YkisLog", "$methodName: [FATAL_ERROR] Тип: ${e.javaClass.simpleName}, Сообщение: ${e.message}")
-
+      // КРИТИЧЕСКИЕ ОШИБКИ (например, сбой парсинга JSON)
+      Log.e("YkisLog", "$methodName: [FATAL_ERROR] ${e.message}")
       val fallback = database.raionDao().getRaionList()
+
       if (fallback.isNotEmpty()) {
-        Log.d("YkisLog", "$methodName: [ERROR_FALLBACK] Выдаем старые данные из кэша")
         emit(Resource.Success(fallback))
       } else {
-        emit(Resource.Error(e.localizedMessage ?: "Помилка завантаження районів"))
+        emit(Resource.Error(e.localizedMessage ?: "Помилка завантаження списку"))
       }
     }
   }.flowOn(Dispatchers.IO)
 }
+
 
 
 

@@ -382,11 +382,20 @@ private fun NavHostController.navigateToWebView(uri: String) {
 }
 
 fun cleanNavigateTo(navController: NavController, route: String) {
-  Log.d("YkisLog", "Nav: [CLEAN_START] Полная очистка стека и переход на $route")
+  Log.d("YkisLog", "Nav: [CLEAN_START] Переход на $route")
+
+  // ПРОВЕРКА: Если навигатор еще не инициализирован, не выполняем переход
+  val startDestId = navController.graph.startDestinationId
+
   navController.navigate(route) {
-    // Мы чистим всё до основания, чтобы убить все старые ViewModel и их стейты
-    popUpTo(0) { inclusive = true }
+    // Очищаем всё ДО стартового пункта назначения.
+    // Это надежнее, чем 0, так как сохраняет иерархию графов.
+    popUpTo(startDestId) {
+      inclusive = true
+    }
+
     launchSingleTop = true
-    restoreState = false // КРИТИЧНО: не восстанавливаем старый хлам
+    restoreState = false // Оставляем false, это правильно для сброса стейтов
   }
 }
+

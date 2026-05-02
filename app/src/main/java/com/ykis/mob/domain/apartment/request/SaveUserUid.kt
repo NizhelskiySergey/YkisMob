@@ -12,33 +12,59 @@ import kotlinx.coroutines.flow.flowOn
 import kotlin.coroutines.cancellation.CancellationException
 
 class SaveUserUid(
-    private val repository: ApartmentRepository,
-  ) {
-    operator fun invoke(uid: String, email: String): Flow<Resource<GetSimpleResponse>> = flow {
+  private val repository: ApartmentRepository,
+) {
+  operator fun invoke(uid: String, email: String): Flow<Resource<GetSimpleResponse>> = flow {
+    val methodName = "UseCase.SaveUserUid"
+    try {
+      Log.d("YkisLog", "$methodName: [START] Регистрация UID: $uid для Email: $email")
       emit(Resource.Loading())
 
-      try {
-        // Выполняем прямой suspend запрос
-        val response = repository.saveUserUid(uid, email)
+      // 1. ЗАПРОС В СЕТЬ (MySQL API)
+      val response = repository.saveUserUid(uid, email)
 
-        val result = when {
-          response.success == 1 -> Resource.Success(response)
-          response.message == "UserUIdExist" -> Resource.Error(resourceMessage = R.string.user_uid_exist)
-          response.message == "SaveUserUidError" -> Resource.Error(resourceMessage = R.string.error_save_uid)
-          else -> Resource.Error(resourceMessage = R.string.error_add_user)
+      Log.d("YkisLog", "$methodName: [RESPONSE] Success: ${response.success}, Message: ${response.message}")
+
+      // 2. ОБРАБОТКА РЕЗУЛЬТАТА
+      val result = when {
+        response.success == 1 -> {
+          Log.d("YkisLog", "$methodName: [SUCCESS] UID успешно сохранен в MySQL")
+          Resource.Success(response)
         }
-        emit(result)
-
-      } catch (ce: CancellationException) {
-        // ОЧЕНЬ ВАЖНО: пробрасываем исключение отмены дальше,
-        // чтобы Flow завершился корректно и не вызывал ошибку прозрачности.
-        throw ce
-      } catch (ex: Exception) {
-        Log.e("YkisLog", "SaveUserUid System Error: ${ex.message}")
-        emit(Resource.Error(message = ex.localizedMessage))
+        response.message == "UserUIdExist" -> {
+          Log.w("YkisLog", "$methodName: [SKIP] UID уже существует в базе")
+          Resource.Error(resourceMessage = R.string.user_uid_exist)
+        }
+        response.message == "SaveUserUidError" -> {
+          Log.e("YkisLog", "$methodName: [SERVER_ERROR] Ошибка на стороне PHP/MySQL")
+          Resource.Error(resourceMessage = R.string.error_save_uid)
+        }
+        else -> {
+          Log.e("YkisLog", "$methodName: [UNKNOWN_ERROR] Ответ: ${response.message}")
+          Resource.Error(resourceMessage = R.string.error_add_user)
+        }
       }
-    }.flowOn(Dispatchers.IO)
-  }
+      emit(result)
+
+    } catch (e: java.io.IOException) {
+      // СЛУЧАЙ: ТВОЙ СЕРВИС ЛЕЖИТ / НЕТ СЕТИ
+      Log.e("YkisLog", "$methodName: [NETWORK_FAIL] Сервис недоступен (IOException)")
+      emit(Resource.Error(
+        resourceMessage = R.string.error_network,
+        message = "Неможливо зв'язатися з сервером авторизації"
+      ))
+
+    } catch (ce: kotlinx.coroutines.CancellationException) {
+      Log.w("YkisLog", "$methodName: [CANCELLED] Процесс прерван корутиной")
+      throw ce // Пробрасываем для корректного завершения Flow
+
+    } catch (ex: Exception) {
+      Log.e("YkisLog", "$methodName: [FATAL] Непередбачена помилка: ${ex.message}")
+      emit(Resource.Error(message = ex.localizedMessage ?: "Помилка реєстрації"))
+    }
+  }.flowOn(Dispatchers.IO)
+}
+
 
 
 

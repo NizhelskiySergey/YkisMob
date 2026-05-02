@@ -1288,91 +1288,68 @@ class ChatViewModel(
 
   fun readFromDatabase(role: UserRole, senderUid: String, osbbId: Int, addressId: Int) {
     val methodName = "ChatViewModel.readFromDatabase"
+    val myUid = chatRepo.currentUid ?: ""
 
-    // 1. УНИФИКАЦИЯ ID (Золотой стандарт организаций)
-    val effectiveOsbbId = when (role) {
-      UserRole.VodokanalUser -> 9999
-      UserRole.YtkeUser -> 9998
-      UserRole.TboUser -> 9997
-      else -> osbbId
-    }
+    // 1. ГЕНЕРАЦИЯ ПУТИ
+    val effectiveOsbbId = if (role == UserRole.VodokanalUser) 9999
+    else if (role == UserRole.YtkeUser) 9998
+    else if (role == UserRole.TboUser) 9997
+    else osbbId
 
-    // 2. ГЕНЕРАЦИЯ ПУТИ
-    val targetPath = getChatPath(
-      role = role,
-      osbbId = effectiveOsbbId,
-      addressId = addressId,
-      targetUserUid = if (role != UserRole.StandardUser) senderUid else null
-    )
+    val targetPath = getChatPath(role, effectiveOsbbId, addressId, if (role != UserRole.StandardUser) senderUid else null)
+    val currentRef = chatsReference.child(targetPath)
 
-    // 3. ПРОВЕРКА ДУБЛИКАТА
-    if (currentChatPath == targetPath && listeners.containsKey(chatsReference.child(targetPath))) {
-      Log.d("YkisLog", "$methodName: [SKIP] Чат уже активен: $targetPath")
+    // 2. ЖЕСТКИЙ СБРОС (чтобы не было пустых экранов при перезаходе)
+    // Если мы заходим в тот же чат, но сообщений в State нет - игнорируем SKIP
+    if (currentChatPath == targetPath && listeners.containsKey(currentRef) && _firebaseTest.value.isNotEmpty()) {
+      Log.d("YkisLog", "$methodName: [SKIP] Чат уже полностью загружен")
       return
     }
 
-    // 4. ПОДГОТОВКА СТЕЙТА (Чистим экран перед входом)
+    Log.d("YkisLog", "$methodName: [FORCE_INIT] Открываем: $targetPath")
+
     currentChatPath = targetPath
-    _firebaseTest.value = emptyList()
-    _isPartnerTyping.value = false
-    typingJob?.cancel()
+    _firebaseTest.value = emptyList() // Очищаем экран немедленно
 
-    val myUid = chatRepo.currentUid ?: ""
-    val ref = chatsReference.child(targetPath)
-
-    // 5. ОЧИСТКА ТОЛЬКО ЧАТОВЫХ СЛУШАТЕЛЕЙ (не трогаем бейджи!)
-    listeners.forEach { (oldRef, listener) ->
-      Log.d("YkisLog", "$methodName: [CLEANUP] Удаление слушателя: ${oldRef.key}")
-      oldRef.removeEventListener(listener)
-    }
+    // 3. ЧИСТИМ СТАРЫЕ СЛУШАТЕЛИ (только чатовые)
+    listeners.forEach { (ref, listener) -> ref.removeEventListener(listener) }
     listeners.clear()
 
-    Log.d("YkisLog", "$methodName: [INIT] Вход в ветку: $targetPath")
-
-    // 6. ПЕРВИЧНЫЕ ДЕЙСТВИЯ
-    markMessagesAsRead(targetPath)
-    observeTypingStatus(targetPath)
-
-    // 7. ОСНОВНОЙ СЛУШАТЕЛЬ
     val listener = object : ValueEventListener {
-      override fun onDataChange(dataSnapshot: DataSnapshot) {
-        // Проверяем, не вышли ли мы уже из этого чата, пока шел ответ
-        if (currentChatPath != targetPath) {
-          Log.w("YkisLog", "$methodName: [REJECTED] Ветка уже не актуальна")
-          ref.removeEventListener(this)
-          return
-        }
+      override fun onDataChange(snapshot: DataSnapshot) {
+        // Если пока шел ответ, путь сменился - выходим
+        if (currentChatPath != targetPath) return
 
-        viewModelScope.launch(Dispatchers.Default) {
-          val messages = dataSnapshot.children.mapNotNull {
-            it.getValue(MessageEntity::class.java)
-          }.filter { msg ->
-            msg.deletedFor == null || !msg.deletedFor.contains(myUid)
-          }.sortedBy { it.timestamp }
+        val rawMessages = snapshot.children.mapNotNull { it.getValue(MessageEntity::class.java) }
 
-          withContext(Dispatchers.Main) {
-            _firebaseTest.value = messages
-            Log.d("YkisLog", "$methodName: [UI_READY] Сообщений: ${messages.size}")
+        // Фильтруем и сортируем прямо в Main (для 2-50 сообщений это мгновенно и надежнее)
+        val filtered = rawMessages.filter { msg ->
+          msg.deletedFor == null || !msg.deletedFor.contains(myUid)
+        }.sortedBy { it.timestamp }
 
-            // AUTO-READ только если последнее сообщение не наше
-            messages.lastOrNull()?.let { lastMsg ->
-              if (lastMsg.senderUid != myUid && !lastMsg.read) {
-                Log.d("YkisLog", "$methodName: [AUTO_READ] Читаем новые сообщения")
-                markMessagesAsRead(targetPath)
-              }
-            }
-          }
+        _firebaseTest.value = filtered
+        Log.d("YkisLog", "$methodName: [SUCCESS] UI_READY. Сообщений: ${filtered.size}")
+
+        // Auto-read
+        filtered.lastOrNull()?.let { last ->
+          if (last.senderUid != myUid && !last.read) markMessagesAsRead(targetPath)
         }
       }
 
       override fun onCancelled(error: DatabaseError) {
-        Log.e("YkisLog", "$methodName: [ERROR] Firebase: ${error.message}")
+        Log.e("YkisLog", "$methodName: [ERROR] $targetPath: ${error.message}")
       }
     }
 
-    ref.addValueEventListener(listener)
-    listeners[ref] = listener
+    currentRef.addValueEventListener(listener)
+    listeners[currentRef] = listener
+
+    // Запускаем сопутствующие службы
+    markMessagesAsRead(targetPath)
+    observeTypingStatus(targetPath)
   }
+
+
 
 
   fun clearCurrentChatPath() {

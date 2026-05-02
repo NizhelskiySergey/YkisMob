@@ -21,12 +21,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import com.ykis.mob.R
+import com.ykis.mob.domain.UserRole
 import com.ykis.mob.domain.service.request.ServiceParams
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.components.appbars.DefaultAppBar
@@ -94,7 +96,7 @@ fun ServiceListScreen(
   getTotalServiceDebt: (ServiceParams) -> Unit,
   setContentDetail: (ContentDetail) -> Unit,
 ) {
-  // 1. ТРИГГЕР ЗАГРУЗКИ С ЛОГАМИ
+  // 1. ТРИГГЕР ЗАГРУЗКИ (оставляем без изменений)
   LaunchedEffect(key1 = baseUIState.addressId) {
     val methodName = "ServiceListScreen.LaunchedEffect"
     val addrId = baseUIState.addressId
@@ -105,14 +107,8 @@ fun ServiceListScreen(
     Log.d("YkisLog", "$methodName: [TRIGGER] Сработал ключ addressId: $addrId")
 
     if (addrId > 0) {
-      // КРИТИЧЕСКИЙ ЛОГ: Проверяем, не пустые ли другие обязательные поля
       Log.d("YkisLog", "$methodName: [SEND_CHECK] UID: $uid, House: $houseId, OSBB: $osbbId")
 
-      if (houseId == 0) {
-        Log.e("YkisLog", "$methodName: [ERROR] HouseId равен 0! Запрос может вернуть пустой результат.")
-      }
-
-      // Вызываем загрузку данных
       getTotalServiceDebt(
         ServiceParams(
           uid = uid,
@@ -120,16 +116,11 @@ fun ServiceListScreen(
           houseId = houseId,
           service = 0,
           total = 1,
-          year = "2023" // ПРОВЕРЬ: не пора ли сменить год на 2024?
+          year = "2023"
         )
       )
-      Log.d("YkisLog", "$methodName: [FETCH_STARTED] Запрос отправлен в ViewModel")
-
-    } else {
-      Log.w("YkisLog", "$methodName: [ABORT] AddressId <= 0, загрузка отменена")
     }
   }
-
 
   Column(
     horizontalAlignment = Alignment.CenterHorizontally,
@@ -137,7 +128,7 @@ fun ServiceListScreen(
   ) {
     DefaultAppBar(
       title = stringResource(id = R.string.accrued),
-      subtitle = baseUIState.address, // Адрес в шапке (уже закрепили)
+      subtitle = baseUIState.address,
       onDrawerClick = onDrawerClick,
       canNavigateBack = false,
       navigationType = navigationType
@@ -161,16 +152,41 @@ fun ServiceListScreen(
           CircularProgressIndicator()
         }
       } else {
-        Log.d("YkisLog", "ServiceListScreen: [DISPLAY] Отрисовка списка. Долг: ${totalDebtState.totalDebt.dolg}")
+        // 1. Вызываем Composable-сборку списка ПРЯМО ТУТ (в контексте Composable)
+        val allItems = assembleServiceList(totalDebtState = totalDebtState, baseUIState = baseUIState)
+
+        // 2. Теперь фильтруем уже полученный список (обычная логика Kotlin)
+        val filteredItems = remember(allItems, baseUIState.userRole) {
+          when (baseUIState.userRole) {
+            UserRole.VodokanalUser -> allItems.filter { it.contentDetail == ContentDetail.WATER_SERVICE }
+            UserRole.YtkeUser      -> allItems.filter { it.contentDetail == ContentDetail.WARM_SERVICE }
+            UserRole.TboUser       -> allItems.filter { it.contentDetail == ContentDetail.GARBAGE_SERVICE }
+            UserRole.OsbbUser      -> allItems.filter {
+              it.contentDetail != ContentDetail.WATER_SERVICE &&
+                it.contentDetail != ContentDetail.WARM_SERVICE &&
+                it.contentDetail != ContentDetail.GARBAGE_SERVICE
+            }
+            else -> allItems // Жилец видит всё
+          }
+        }
+
+        // 3. Расчет итога
+        val displayTotal = remember(filteredItems, baseUIState.userRole) {
+          if (baseUIState.userRole == UserRole.StandardUser) {
+            totalDebtState.totalDebt.dolg ?: 0.0
+          } else {
+            filteredItems.sumOf { it.debt }
+          }
+        }
+
+        Log.d("YkisLog", "ServiceListScreen: [DISPLAY] Роль: ${baseUIState.userRole}. Видимых услуг: ${filteredItems.size}")
+
         ServiceListStateless(
           modifier = Modifier.fillMaxSize(),
-          items = assembleServiceList(
-            totalDebtState = totalDebtState,
-            baseUIState = baseUIState
-          ),
+          items = filteredItems,
           debts = { it.debt },
           colors = { it.color },
-          total = totalDebtState.totalDebt.dolg ?: 0.0,
+          total = displayTotal,
           circleLabel = stringResource(R.string.summary),
           rows = { item ->
             ServiceRow(
@@ -186,3 +202,4 @@ fun ServiceListScreen(
     }
   }
 }
+
