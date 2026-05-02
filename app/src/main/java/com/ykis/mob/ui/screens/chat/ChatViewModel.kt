@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Timestamp
 import com.google.firebase.ai.type.content
@@ -182,12 +183,17 @@ class ChatViewModel(
   private val _rawFetchedProfiles = MutableStateFlow<List<UserEntity>>(emptyList())
 // _lastMessages у тебя уже должен быть объявлен как MutableStateFlow<Map<String, MessageEntity>>(emptyMap())
 
-  private val _userList = MutableStateFlow<List<UserEntity>>(emptyList())
-  val userList: StateFlow<List<UserEntity>> = combine(
-    _userIdentifiersWithRole, // Ключи веток (4 шт)
-    _rawFetchedProfiles,      // Загруженные профили
-    _lastMessages             // Тексты сообщений (те самые [UPDATE])
+
+  // 1. УДАЛИ private val _userList = ... (она больше не нужна)
+
+  // 2. Оставляем только реактивный поток
+  var userList: StateFlow<List<UserEntity>> = combine(
+    _userIdentifiersWithRole,
+    _rawFetchedProfiles,
+    _lastMessages
   ) { keys, profiles, lastMsgs ->
+    Log.d("YkisLog", "ChatViewModel: [RECOMBINE] Сборка списка для ${keys.size} веток. Сообщений в кэше: ${lastMsgs.size}")
+
     keys.mapNotNull { key ->
       val parts = key.split("_")
       if (parts.size < 4) return@mapNotNull null
@@ -198,22 +204,29 @@ class ChatViewModel(
       val profile = profiles.find { it.uid == uidFromKey }
       val lastMsg = lastMsgs[key]
 
-      // Формируем объект: если сообщения еще нет, пишем "Завантаження...", если есть - текст
+      // Если сообщения нет в мапе, пишем заглушку, иначе — текст сообщения
       val preview = lastMsg?.text ?: "Немає повідомлень"
 
-      profile?.copy(
-        addressId = addrIdFromKey,
-        address = preview, // Используем nanim как поле для превью
-        displayName = lastMsg?.senderAddress ?: profile.displayName
-      )
-          ?: UserEntity(
-            uid = uidFromKey,
-            addressId = addrIdFromKey,
-            displayName = "Користувач (о/р $addrIdFromKey)",
-            address = preview
-          )
+      if (profile != null) {
+        profile.copy(
+          addressId = addrIdFromKey,
+          address = preview, // ВАЖНО: убедись, что UserListItem берет текст из .address
+          displayName = if (!lastMsg?.senderAddress.isNullOrBlank()) lastMsg?.senderAddress else profile.displayName
+        )
+      } else {
+        UserEntity(
+          uid = uidFromKey,
+          addressId = addrIdFromKey,
+          displayName = lastMsg?.senderAddress ?: "Користувач (о/р $addrIdFromKey)",
+          address = preview
+        )
+      }
     }
-  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+  }.stateIn(
+    scope = viewModelScope,
+    started = SharingStarted.WhileSubscribed(5000),
+    initialValue = emptyList()
+  )
 
 
   private val _selectedUser = MutableStateFlow<UserEntity>(UserEntity())
@@ -826,39 +839,45 @@ class ChatViewModel(
     chatKeys.forEach { chatId ->
       if (chatId.isBlank()) return@forEach
 
-      // 1. Формируем запрос на последнее сообщение
-      val lastMsgQuery = chatsReference.child(chatId).orderByKey().limitToLast(1)
+      // 1. Проверяем, не активен ли уже слушатель для этой ветки
+      if (lastMessageListeners.containsKey(chatId)) {
+        // Log.v("YkisLog", "$methodName: [SKIP] Уже слушаем $chatId")
+        return@forEach
+      }
 
-      // 2. Проверяем, не слушаем ли мы уже этот конкретный Query
-      // (Используем chatId как ключ в мапе для простоты проверки)
-      if (lastMessageListeners.containsKey(chatId)) return@forEach
+      // 2. Формируем запрос: Сортировка по ключу (времени) + последний 1 элемент
+      val lastMsgQuery = chatsReference.child(chatId)
+        .orderByKey()
+        .limitToLast(1)
 
-      Log.d("YkisLog", "$methodName: [WATCH] Подписка на последнее сообщение: $chatId")
+      Log.d("YkisLog", "$methodName: [WATCH] Регистрация превью для: $chatId")
 
       val listener = object : ValueEventListener {
         override fun onDataChange(snapshot: DataSnapshot) {
-          // Извлекаем единственный (последний) элемент из результата
-          val message = snapshot.children.firstOrNull()?.getValue(MessageEntity::class.java)
+          // Извлекаем последнее сообщение из набора (даже если там всего один элемент)
+          val message = snapshot.children.lastOrNull()?.getValue(MessageEntity::class.java)
 
           if (message != null) {
-            // Обновляем мапу последних сообщений для отображения в списке UserListScreen
             _lastMessages.update { currentMap ->
               currentMap + (chatId to message)
             }
-            Log.d("YkisLog", "$methodName: [UPDATE] $chatId -> ${message.text.take(20)}...")
+            Log.d("YkisLog", "$methodName: [UPDATE] Ключ: $chatId | Текст: ${message.text?.take(20)}...")
+          } else {
+            Log.w("YkisLog", "$methodName: [EMPTY] Ветка пуста или сообщение не распознано: $chatId")
           }
         }
 
         override fun onCancelled(error: DatabaseError) {
-          Log.e("YkisLog", "$methodName: [ERROR] $chatId: ${error.message}")
+          Log.e("YkisLog", "$methodName: [ERROR] Firebase $chatId: ${error.message}")
         }
       }
 
-      // 3. Регистрация слушателя
+      // 3. Регистрация и сохранение ссылки для последующей очистки
       lastMsgQuery.addValueEventListener(listener)
       lastMessageListeners[chatId] = listener
     }
   }
+
 
 
   fun markMessagesAsRead(chatId: String) {
@@ -1062,6 +1081,58 @@ class ChatViewModel(
     _assistantResponse.value = null
     _quickHint.value = null
   }
+  fun initResidentChats(
+    uid: String,
+    osbbId: Int,
+    addressId: Int,
+    addressText: String,
+    nanim: String
+  ) {
+    val methodName = "ChatViewModel.initResidentChats"
+    Log.d("YkisLog", "$methodName: [START] Принудительная сборка 4-х веток")
+
+    // Карта: Префикс службы -> Системный ID
+    val serviceMap = mapOf(
+      "OSBB" to osbbId,
+      "WATER_SERVICE" to 9999,
+      "WARM_SERVICE" to 9998,
+      "GARBAGE_SERVICE" to 9997
+    )
+
+    serviceMap.forEach { (prefix, sysId) ->
+      // 1. ПРЯМАЯ СБОРКА ПУТИ (БЕЗ getChatPath)
+      // Формат: PREFIX_SYSID_ADDRID_UID
+      val chatPath = "${prefix}_${sysId}_${addressId}_$uid"
+
+      Log.d("YkisLog", "$methodName: [PROCESS] Цель: $chatPath")
+
+      val welcomeText = "Вітаю! Чат активовано."
+
+      // 2. Формируем объект сообщения
+      val messageKey = chatsReference.child(chatPath).push().key ?: return@forEach
+      val messageEntity = MessageEntity(
+        id = messageKey,
+        senderUid = uid,
+        text = welcomeText,
+        type = "TEXT",
+        senderDisplayedName = nanim,
+        senderAddress = addressText,
+        timestamp = System.currentTimeMillis(),
+        read = false // Чтобы у админов загорелся Badge
+      )
+
+      // 3. Запись в Firebase
+      chatsReference.child(chatPath).child(messageKey).setValue(messageEntity)
+        .addOnSuccessListener {
+          Log.d("YkisLog", "$methodName: [SUCCESS] Создана ветка: $chatPath")
+        }
+        .addOnFailureListener {
+          Log.e("YkisLog", "$methodName: [ERROR] Ошибка для $chatPath: ${it.message}")
+        }
+    }
+  }
+
+
 
   /**
    * Записывает сообщение в Realtime Database и отправляет Push-уведомление.
@@ -1122,15 +1193,24 @@ class ChatViewModel(
     Log.d("YkisLog", "$methodName: [START] Path: $chatId | TargetUID: $finalTargetUid")
 
     val displayText = if (fileUrl != null && messageText.value.isBlank()) "[Файл]" else messageText.value
+    // ... внутри writeToDatabase ...
 
-    // 5. Формируем объект сообщения
+// Определяем, кто отправляет: жилец или представитель организации
+    val finalDisplayName = if (role != UserRole.StandardUser) {
+      "Адміністратор" // Для всех админов (ОСББ, Водоканал и т.д.)
+    } else {
+      // Для жильца убираем лишние префиксы, если они есть в строке
+      senderDisplayedName.substringAfter("|").trim()
+    }
+
+// 5. Формируем объект сообщения
     val messageEntity = MessageEntity(
       id = messageKey,
       senderUid = senderUid,
       text = displayText,
       type = if (imageUrl != null) "IMAGE" else if (fileUrl != null) "FILE" else "TEXT",
       senderLogoUrl = senderLogoUrl,
-      senderDisplayedName = senderDisplayedName.substringAfter("|").trim(),
+      senderDisplayedName = finalDisplayName, // ТУТ ТЕПЕРЬ "Адміністратор"
       senderAddress = senderAddress,
       imageUrl = imageUrl,
       fileUrl = fileUrl,
@@ -1138,6 +1218,7 @@ class ChatViewModel(
       timestamp = System.currentTimeMillis(),
       read = false
     )
+
 
     _isLoadingAfterSending.value = true
 
@@ -1318,7 +1399,7 @@ class ChatViewModel(
       return
     }
 
-    // 1. Очистка перед новым поиском
+    // 1. Очистка перед поиском
     cleanupTracker()
     _unreadCounts.value = emptyMap()
     Log.d("YkisLog", "$methodName: [CLEAN] Слушатели очищены")
@@ -1347,7 +1428,9 @@ class ChatViewModel(
         viewModelScope.launch(Dispatchers.Default) {
           val currentKeys = _userIdentifiersWithRole.value
           val keysIdentical = chatKeys.sorted() == currentKeys.sorted()
-          val uiPopulated = _userList.value.isNotEmpty()
+
+          // Проверяем наполненность через актуальное значение StateFlow
+          val uiPopulated = userList.value.isNotEmpty()
 
           if (keysIdentical && uiPopulated) {
             Log.d("YkisLog", "$methodName: [SKIP] Данные идентичны")
@@ -1355,18 +1438,18 @@ class ChatViewModel(
           }
 
           withContext(Dispatchers.Main) {
+            // Обновляем ключи — это первый триггер для combine
             _userIdentifiersWithRole.value = chatKeys
 
             if (chatKeys.isNotEmpty()) {
               Log.d("YkisLog", "$methodName: [PROCEED] Запуск подписок для ${chatKeys.size} веток")
 
-              // КРИТИЧЕСКИЙ ФИКС: Подписываемся и на счетчики, и на ТЕКСТЫ сообщений
-              subscribeToUnreadCount(chatKeys)   // Для бейджей
-              subscribeToLastMessages(chatKeys) // ДЛЯ ОБНОВЛЕНИЯ ТЕКСТА ПРЕДПРОСМОТРА
-
-              getUsers() // Наполняем список профилями
+              subscribeToUnreadCount(chatKeys)
+              subscribeToLastMessages(chatKeys)
+              getUsers() // Загрузит профили в _rawFetchedProfiles (второй триггер)
             } else {
-              _userList.value = emptyList()
+              // Если веток нет — очищаем профили, чтобы combine выдал пустой список
+              _rawFetchedProfiles.value = emptyList()
               Log.w("YkisLog", "$methodName: [EMPTY] Чаты не найдены")
             }
           }
@@ -1383,6 +1466,7 @@ class ChatViewModel(
     activeTrackerListener = listener
     Log.d("YkisLog", "$methodName: [READY] Трекер активен для $targetPrefix")
   }
+
 
 
 
@@ -1450,11 +1534,12 @@ class ChatViewModel(
     uid: String,
     osbbId: Int,
     addressId: Int,
-    addressText: String = ""
+    addressText: String = "",
+    nanim: String = "" // Добавь ФИО жильца в параметры, если есть возможность
   ) {
     val methodName = "ChatViewModel.subscribeToResidentCounters"
 
-    // 1. УНИФИЦИРОВАННЫЕ КЛЮЧИ (Схема: ПРЕФИКС_СИСТЕМНЫЙ_ID_ADDR_UID)
+    // 1. УНИФИЦИРОВАННЫЕ КЛЮЧИ
     val chatKeys = listOf(
       "OSBB_${osbbId}_${addressId}_$uid",
       "WATER_SERVICE_9999_${addressId}_$uid",
@@ -1470,34 +1555,29 @@ class ChatViewModel(
           val chatRef = chatsReference.child(chatPath)
           val snapshot = chatRef.get().await()
 
-          // Инициализируем только пустые ветки
+          // Инициализируем только реально пустые ветки
           if (!snapshot.exists() || snapshot.childrenCount == 0L) {
-            Log.d("YkisLog", "$methodName: [INIT] Создание узла 'init' в $chatPath")
+            Log.d("YkisLog", "$methodName: [INIT_USER_MSG] Отправка приветствия от жильца в $chatPath")
 
-            val infoText = if (addressText.isNotEmpty()) {
-              "Додано: $addressText (о/р $addressId). Чат активовано."
+            val welcomeText = if (addressText.isNotEmpty()) {
+              " $addressText (о/р $addressId). Чат активовано."
             } else {
-              "Квартиру додано (о/р $addressId). Чат активовано."
+              "Чат активовано."
             }
 
-            // Формируем структуру MessageEntity для Firebase
+            // Формируем сообщение ОТ ИМЕНИ ПОЛЬЗОВАТЕЛЯ
             val welcomeMsg = hashMapOf(
-              "id" to "init",
-              "senderUid" to "system", // Системное сообщение
-              "senderDisplayedName" to "Система",
-              "senderAddress" to addressText,
-              "text" to infoText,
+              "senderUid" to uid,             // ТЕПЕРЬ ТУТ UID ЖИЛЬЦА
+              "senderName" to nanim,          // Имя жильца
+              "senderAddress" to addressText, // Весь адрес для админа
+              "text" to welcomeText,
               "timestamp" to com.google.firebase.database.ServerValue.TIMESTAMP,
-              "read" to false,
-              "type" to "TEXT",
-              "edited" to false,
-              "forwarded" to false
+              "read" to false,                // Чтобы у админа загорелся бейдж
+              "type" to "TEXT"
             )
 
-            // Фиксированный ключ "init" предотвращает дублирование при повторных вызовах
+            // Используем фиксированный ключ "init", чтобы не дублировать при перезаходах
             chatRef.child("init").setValue(welcomeMsg).await()
-          } else {
-            Log.d("YkisLog", "$methodName: [SKIP] Ветка $chatPath уже содержит сообщения")
           }
         } catch (e: Exception) {
           Log.e("YkisLog", "$methodName: [ERROR] Путь $chatPath: ${e.message}")
@@ -1505,26 +1585,22 @@ class ChatViewModel(
       }
     }
 
-    // 2. СБОР ТОКЕНОВ АДМИНОВ ДЛЯ ПУШЕЙ
+    // 2. СБОР ТОКЕНОВ АДМИНОВ
     viewModelScope.launch(Dispatchers.IO) {
       try {
-        // Собираем токены админов данного ОСББ
         val admins = chatRepo.fetchAdminsByOsbb(osbbId)
-        val adminTokens = admins.flatMap { it.tokens }.distinct()
-
+        val adminTokens = admins.flatMap { it.tokens ?: emptyList() }.distinct()
         _recipientTokens.value = adminTokens
-        Log.d(
-          "YkisLog",
-          "$methodName: [TOKENS] Найдено админов: ${admins.size}, токенов: ${adminTokens.size}"
-        )
+        Log.d("YkisLog", "$methodName: [TOKENS] Получено токенов: ${adminTokens.size}")
       } catch (e: Exception) {
         Log.e("YkisLog", "$methodName: [TOKENS_ERROR] ${e.message}")
       }
     }
 
-    // 3. ПОДПИСКА НА СЧЕТЧИКИ (Чтобы жилец видел бейджи на иконке чата)
+    // 3. ПОДПИСКА НА СЧЕТЧИКИ
     subscribeToUnreadCount(chatKeys)
   }
+
 
 
   /**

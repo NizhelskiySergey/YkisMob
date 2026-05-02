@@ -17,6 +17,7 @@ limitations under the License.
 package com.ykis.mob.ui.screens.appartment
 
 import android.R.attr.data
+import android.os.Process.myUid
 import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.ykis.mob.R
@@ -79,6 +80,7 @@ class ApartmentViewModel(
   private val _secretCode = MutableStateFlow("")
   val secretCode: StateFlow<String> = _secretCode.asStateFlow()
 
+  private var lastHandledResultId: Int? = null // Храним ID последней обработанной операции
 
 
   // LaunchScreen
@@ -515,7 +517,17 @@ class ApartmentViewModel(
 
               // 4. ПОДПИСКА НА ЧАТЫ (Тяжелая операция для UI)
               Log.d("YkisLog", "$methodName: [STEP 3] Чат-счетчики")
-              chatViewModel.subscribeToResidentCounters(uid, newOsbbId, newAddressId,newAddress)
+//              chatViewModel.subscribeToResidentCounters(uid, newOsbbId, newAddressId,newAddress)
+              if (lastHandledResultId == newAddressId) return@launch
+              lastHandledResultId = newAddressId
+
+              chatViewModel.initResidentChats(
+                uid = uid,
+                osbbId = newOsbbId,
+                addressId = newAddressId,
+                addressText = newAddress,
+                nanim = ""
+              )
 
               _secretCode.value = ""
               SnackbarManager.showMessage(R.string.success_add_flat)
