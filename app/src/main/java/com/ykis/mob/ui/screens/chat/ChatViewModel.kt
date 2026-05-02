@@ -7,7 +7,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
-import androidx.compose.ui.res.stringResource
+import androidx.core.graphics.scale
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Timestamp
 import com.google.firebase.ai.type.content
@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -43,9 +44,6 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlin.collections.forEach
-import androidx.core.graphics.scale
-import kotlinx.coroutines.flow.combine
 
 @Serializable
 data class SendNotificationArguments(
@@ -161,8 +159,7 @@ class ChatViewModel(
   val quickHint = _quickHint.asStateFlow()
 
   // Хранилище последних сообщений: Key = chatId, Value = MessageEntity
-  private val _lastMessages = MutableStateFlow<Map<String, MessageEntity>>(emptyMap())
-  val lastMessages: StateFlow<Map<String, MessageEntity>> = _lastMessages.asStateFlow()
+
   private var lastTypingState = false
 
   // Список активных слушателей для последних сообщений, чтобы не плодить дубли
@@ -179,22 +176,39 @@ class ChatViewModel(
 
   private val _messageText = MutableStateFlow("")
   val messageText = _messageText.asStateFlow()
+
+
+  // _lastMessages у тебя уже должен быть объявлен как MutableStateFlow<Map<String, MessageEntity>>(emptyMap())
+// 1. Сначала объявляем входные потоки (StateFlow)
   private val _userIdentifiersWithRole = MutableStateFlow<List<String>>(emptyList())
   private val _rawFetchedProfiles = MutableStateFlow<List<UserEntity>>(emptyList())
-// _lastMessages у тебя уже должен быть объявлен как MutableStateFlow<Map<String, MessageEntity>>(emptyMap())
+  // В ChatViewModel.kt
 
+  // Приватный мутабельный поток
+  private val _lastMessages = MutableStateFlow<Map<String, MessageEntity>>(emptyMap())
+
+  // ПУБЛИЧНЫЙ поток для подписки из UI (Добавь это!)
+  val lastMessages: StateFlow<Map<String, MessageEntity>> = _lastMessages.asStateFlow()
+
+// Далее идет твой searchQuery и userList (combine...)
+
+
+  private val _searchQuery = MutableStateFlow("")
+  val searchQuery = _searchQuery.asStateFlow()
 
   // 1. УДАЛИ private val _userList = ... (она больше не нужна)
 
   // 2. Оставляем только реактивный поток
-  var userList: StateFlow<List<UserEntity>> = combine(
+  val userList: StateFlow<List<UserEntity>> = combine(
     _userIdentifiersWithRole,
     _rawFetchedProfiles,
-    _lastMessages
-  ) { keys, profiles, lastMsgs ->
-    Log.d("YkisLog", "ChatViewModel: [RECOMBINE] Сборка списка для ${keys.size} веток. Сообщений в кэше: ${lastMsgs.size}")
+    _lastMessages,
+    _searchQuery // 4-й поток для мгновенной фильтрации
+  ) { keys, profiles, lastMsgs, query ->
+    Log.d("YkisLog", "ChatViewModel: [RECOMBINE] Ветки: ${keys.size} | Поиск: '$query'")
 
-    keys.mapNotNull { key ->
+    // 1. Сборка полного списка объектов
+    val fullList = keys.mapNotNull { key ->
       val parts = key.split("_")
       if (parts.size < 4) return@mapNotNull null
 
@@ -203,23 +217,37 @@ class ChatViewModel(
 
       val profile = profiles.find { it.uid == uidFromKey }
       val lastMsg = lastMsgs[key]
-
-      // Если сообщения нет в мапе, пишем заглушку, иначе — текст сообщения
       val preview = lastMsg?.text ?: "Немає повідомлень"
 
-      if (profile != null) {
-        profile.copy(
-          addressId = addrIdFromKey,
-          address = preview, // ВАЖНО: убедись, что UserListItem берет текст из .address
-          displayName = if (!lastMsg?.senderAddress.isNullOrBlank()) lastMsg?.senderAddress else profile.displayName
-        )
-      } else {
-        UserEntity(
-          uid = uidFromKey,
-          addressId = addrIdFromKey,
-          displayName = lastMsg?.senderAddress ?: "Користувач (о/р $addrIdFromKey)",
-          address = preview
-        )
+      // Приоритет имени: 1. Адрес из сообщения, 2. Имя из профиля, 3. Заглушка
+      val finalDisplayName = when {
+        !lastMsg?.senderAddress.isNullOrBlank() -> lastMsg?.senderAddress!!
+        profile != null -> profile.displayName ?: "Жилець (о/р $addrIdFromKey)"
+        else -> "Користувач (о/р $addrIdFromKey)"
+      }
+
+      profile?.copy(
+        addressId = addrIdFromKey,
+        address = preview, // Превью сообщения
+        displayName = finalDisplayName
+      )
+          ?: UserEntity(
+            uid = uidFromKey,
+            addressId = addrIdFromKey,
+            displayName = finalDisplayName,
+            address = preview
+          )
+    }
+
+    // 2. Фильтрация
+    if (query.isBlank()) {
+      fullList
+    } else {
+      fullList.filter { user ->
+        val nameMatch = user.displayName?.contains(query, ignoreCase = true) == true
+        val idMatch = user.addressId.toString().contains(query)
+        val msgMatch = user.address?.contains(query, ignoreCase = true) == true
+        nameMatch || idMatch || msgMatch
       }
     }
   }.stateIn(
@@ -284,6 +312,10 @@ class ChatViewModel(
   // Флаг для UI: показываем ли мы кнопку "Выбрать" в списке пользователей
   val isForwardingMode =
     _forwardingMessage.map { it != null }.stateIn(viewModelScope, SharingStarted.Lazily, false)
+
+  fun onSearchQueryChanged(query: String) {
+    _searchQuery.value = query
+  }
 
   fun subscribeToAllMyApartments(uid: String, osbbId: Int, apartments: List<Int>) {
     val methodName = "ChatViewModel.subscribeToAll"
@@ -397,7 +429,6 @@ class ChatViewModel(
     // В методе sendForwardedMessage убедись, что вызываешь clearForwardingMode() после успеха
     sendForwardedMessage(chatId)
   }
-
 
 
   fun cancelForwarding() {
@@ -700,7 +731,7 @@ class ChatViewModel(
     val methodName = "ChatViewModel.setTypingStatus"
 
     // 1. Безопасное извлечение chatId и UID
-    val chatId = currentChatPath ?:return
+    val chatId = currentChatPath ?: return
     val myUid = chatRepo.currentUid ?: return
 
     if (chatId.isNullOrEmpty()) {
@@ -861,9 +892,15 @@ class ChatViewModel(
             _lastMessages.update { currentMap ->
               currentMap + (chatId to message)
             }
-            Log.d("YkisLog", "$methodName: [UPDATE] Ключ: $chatId | Текст: ${message.text?.take(20)}...")
+            Log.d(
+              "YkisLog",
+              "$methodName: [UPDATE] Ключ: $chatId | Текст: ${message.text?.take(20)}..."
+            )
           } else {
-            Log.w("YkisLog", "$methodName: [EMPTY] Ветка пуста или сообщение не распознано: $chatId")
+            Log.w(
+              "YkisLog",
+              "$methodName: [EMPTY] Ветка пуста или сообщение не распознано: $chatId"
+            )
           }
         }
 
@@ -877,7 +914,6 @@ class ChatViewModel(
       lastMessageListeners[chatId] = listener
     }
   }
-
 
 
   fun markMessagesAsRead(chatId: String) {
@@ -1081,6 +1117,7 @@ class ChatViewModel(
     _assistantResponse.value = null
     _quickHint.value = null
   }
+
   fun initResidentChats(
     uid: String,
     osbbId: Int,
@@ -1131,7 +1168,6 @@ class ChatViewModel(
         }
     }
   }
-
 
 
   /**
@@ -1192,7 +1228,8 @@ class ChatViewModel(
 
     Log.d("YkisLog", "$methodName: [START] Path: $chatId | TargetUID: $finalTargetUid")
 
-    val displayText = if (fileUrl != null && messageText.value.isBlank()) "[Файл]" else messageText.value
+    val displayText =
+      if (fileUrl != null && messageText.value.isBlank()) "[Файл]" else messageText.value
     // ... внутри writeToDatabase ...
 
 // Определяем, кто отправляет: жилец или представитель организации
@@ -1239,8 +1276,6 @@ class ChatViewModel(
       }
     }
   }
-
-
 
 
   /**
@@ -1340,10 +1375,6 @@ class ChatViewModel(
   }
 
 
-
-
-
-
   fun clearCurrentChatPath() {
     val chatId = currentChatPath // запоминаем текущий
     currentChatPath = null
@@ -1438,7 +1469,10 @@ class ChatViewModel(
             _userIdentifiersWithRole.value = chatKeys
 
             if (chatKeys.isNotEmpty()) {
-              Log.d("YkisLog", "$methodName: [PROCEED] Обновление подписок для ${chatKeys.size} веток")
+              Log.d(
+                "YkisLog",
+                "$methodName: [PROCEED] Обновление подписок для ${chatKeys.size} веток"
+              )
 
               // Теперь, если ключи совпали, но бейджи были пустыми,
               // эти методы наполнят мапу заново
@@ -1453,6 +1487,7 @@ class ChatViewModel(
           }
         }
       }
+
       // ОБЯЗАТЕЛЬНО добавь этот метод, чтобы ошибка исчезла:
       override fun onCancelled(error: DatabaseError) {
         Log.e("YkisLog", "Firebase Error: ${error.message}")
@@ -1463,10 +1498,6 @@ class ChatViewModel(
     activeTrackerQuery = query
     activeTrackerListener = listener
   }
-
-
-
-
 
 
 // В ChatViewModel.kt
@@ -1527,7 +1558,6 @@ class ChatViewModel(
   }
 
 
-
   fun subscribeToResidentCounters(
     uid: String,
     osbbId: Int,
@@ -1555,7 +1585,10 @@ class ChatViewModel(
 
           // Инициализируем только реально пустые ветки
           if (!snapshot.exists() || snapshot.childrenCount == 0L) {
-            Log.d("YkisLog", "$methodName: [INIT_USER_MSG] Отправка приветствия от жильца в $chatPath")
+            Log.d(
+              "YkisLog",
+              "$methodName: [INIT_USER_MSG] Отправка приветствия от жильца в $chatPath"
+            )
 
             val welcomeText = if (addressText.isNotEmpty()) {
               " $addressText (о/р $addressId). Чат активовано."
@@ -1598,7 +1631,6 @@ class ChatViewModel(
     // 3. ПОДПИСКА НА СЧЕТЧИКИ
     subscribeToUnreadCount(chatKeys)
   }
-
 
 
   /**
@@ -1831,7 +1863,10 @@ class ChatViewModel(
     val residentUid = targetUserUid ?: myUid
     val serviceInState = selectedService.value.codeName
 
-    Log.d("YkisLog", "$methodName: [INPUT_PARAMS] Role: $role | In_OSBB: $osbbId | In_Addr: $addressId | Target: $targetUserUid")
+    Log.d(
+      "YkisLog",
+      "$methodName: [INPUT_PARAMS] Role: $role | In_OSBB: $osbbId | In_Addr: $addressId | Target: $targetUserUid"
+    )
 
     // 1. Определение префикса и системного ID
     val (prefix, sysId) = when {
@@ -1861,14 +1896,19 @@ class ChatViewModel(
     val path = "${prefix}_${sysId}_${addressId}_$residentUid"
 
     if (addressId == sysId) {
-      Log.e("YkisLog", "$methodName: [CRITICAL_WARNING] AddrID ($addressId) is IDENTICAL to SysID ($sysId)!")
+      Log.e(
+        "YkisLog",
+        "$methodName: [CRITICAL_WARNING] AddrID ($addressId) is IDENTICAL to SysID ($sysId)!"
+      )
     }
 
-    Log.d("YkisLog", "ChatPath: [RESULT] $path | Role: $role | Final_SysID: $sysId | Final_AddrID: $addressId")
+    Log.d(
+      "YkisLog",
+      "ChatPath: [RESULT] $path | Role: $role | Final_SysID: $sysId | Final_AddrID: $addressId"
+    )
 
     return path
   }
-
 
 
   fun openChatWithUser(
@@ -1917,8 +1957,6 @@ class ChatViewModel(
   }
 
 
-
-
   override fun onCleared() {
     val methodName = "ChatViewModel.onCleared"
     super.onCleared()
@@ -1940,7 +1978,10 @@ class ChatViewModel(
       unreadCountListeners.forEach { (query, listener) ->
         query.removeEventListener(listener)
       }
-      Log.d("YkisLog", "$methodName: [CLEAN] Счетчики бейджей удалены (${unreadCountListeners.size})")
+      Log.d(
+        "YkisLog",
+        "$methodName: [CLEAN] Счетчики бейджей удалены (${unreadCountListeners.size})"
+      )
       unreadCountListeners.clear()
     }
 
@@ -1950,7 +1991,10 @@ class ChatViewModel(
         // Используем child(chatId), так как ключом в мапе является строка-путь
         chatsReference.child(chatId).removeEventListener(listener)
       }
-      Log.d("YkisLog", "$methodName: [CLEAN] Превью последних сообщений удалены (${lastMessageListeners.size})")
+      Log.d(
+        "YkisLog",
+        "$methodName: [CLEAN] Превью последних сообщений удалены (${lastMessageListeners.size})"
+      )
       lastMessageListeners.clear()
     }
 

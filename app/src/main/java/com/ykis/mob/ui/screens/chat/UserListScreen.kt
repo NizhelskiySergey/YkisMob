@@ -22,10 +22,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,7 +59,7 @@ import com.ykis.mob.ui.screens.service.list.assembleServiceList
 @Composable
 fun UserListScreen(
   modifier: Modifier = Modifier,
-  userList: List<UserEntity>, // Список от админа (уже отфильтрованный/реактивный из NavGraph)
+  userList: List<UserEntity>,
   baseUIState: BaseUIState,
   onUserClicked: (UserEntity) -> Unit,
   onServiceClick: (TotalServiceDebt) -> Unit,
@@ -69,12 +73,11 @@ fun UserListScreen(
   val lastMessages by chatViewModel.lastMessages.collectAsStateWithLifecycle()
   val messageToForward by chatViewModel.forwardingMessage.collectAsStateWithLifecycle()
 
-  // Лог при входе или смене роли
+  // Подписка на состояние поиска
+  val searchQuery by chatViewModel.searchQuery.collectAsStateWithLifecycle()
+
   LaunchedEffect(baseUIState.userRole, baseUIState.addressId) {
-    Log.d(
-      "YkisLog",
-      "$methodName: [ENTER] Role: ${baseUIState.userRole} | Address: ${baseUIState.addressId}"
-    )
+    Log.d("YkisLog", "$methodName: [ENTER] Role: ${baseUIState.userRole} | Address: ${baseUIState.addressId}")
   }
 
   Column(modifier = modifier.fillMaxSize()) {
@@ -91,7 +94,35 @@ fun UserListScreen(
       navigationType = navigationType
     )
 
-    // 2. ИНДИКАТОР РЕЖИМА ПЕРЕСЫЛКИ
+    // 2. ПОИСК (Только для админов и не в режиме пересылки)
+    if (baseUIState.userRole != UserRole.StandardUser && !isForwardingMode) {
+      OutlinedTextField(
+        value = searchQuery,
+        onValueChange = {
+          Log.d("YkisLog", "$methodName: [SEARCH_INPUT] Query: $it")
+          chatViewModel.onSearchQueryChanged(it)
+        },
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 16.dp, vertical = 8.dp),
+        placeholder = { Text("Пошук за адресою чи о/р", fontSize = 14.sp) },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        trailingIcon = {
+          if (searchQuery.isNotEmpty()) {
+            IconButton(onClick = {
+              Log.d("YkisLog", "$methodName: [SEARCH_CLEAR]")
+              chatViewModel.onSearchQueryChanged("")
+            }) {
+              Icon(Icons.Default.Close, contentDescription = null)
+            }
+          }
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(12.dp)
+      )
+    }
+
+    // 3. ИНДИКАТОР РЕЖИМА ПЕРЕСЫЛКИ
     AnimatedVisibility(
       visible = isForwardingMode,
       enter = expandVertically(),
@@ -113,9 +144,7 @@ fun UserListScreen(
             tint = MaterialTheme.colorScheme.primary
           )
           Column(
-            modifier = Modifier
-              .padding(start = 12.dp)
-              .weight(1f)
+            modifier = Modifier.padding(start = 12.dp).weight(1f)
           ) {
             Text(
               text = stringResource(R.string.select_recipient),
@@ -138,7 +167,7 @@ fun UserListScreen(
       }
     }
 
-    // 3. КОНТЕНТ (АДМИН vs ЖИТЕЛЬ)
+    // 4. КОНТЕНТ
     if (baseUIState.userRole != UserRole.StandardUser) {
       // --- РЕЖИМ АДМИНА ---
       UserList(
@@ -159,20 +188,14 @@ fun UserListScreen(
       // --- РЕЖИМ ЖИЛЬЦА ---
       Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
-          modifier = Modifier
-            .width(IntrinsicSize.Max)
-            .padding(horizontal = 16.dp),
+          modifier = Modifier.width(IntrinsicSize.Max).padding(horizontal = 16.dp),
           verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-          // Генерируем список служб с учетом актуального ОСББ
-          val residentServices =     assembleServiceList(
-              totalDebtState = TotalDebtState(),
-              baseUIState = baseUIState
-            )
-
-
+          val residentServices = assembleServiceList(
+            totalDebtState = TotalDebtState(),
+            baseUIState = baseUIState
+          )
           residentServices.forEach { service ->
-            // ФОРМИРУЕМ УНИФИЦИРОВАННЫЙ ПУТЬ ДЛЯ БЕЙДЖЕЙ
             val chatId = when (service.contentDetail) {
               ContentDetail.OSBB -> "OSBB_${baseUIState.osmdId ?: baseUIState.osbbId}_${baseUIState.addressId}_${baseUIState.uid}"
               ContentDetail.WATER_SERVICE -> "WATER_SERVICE_9999_${baseUIState.addressId}_${baseUIState.uid}"
@@ -180,9 +203,7 @@ fun UserListScreen(
               ContentDetail.GARBAGE_SERVICE -> "GARBAGE_SERVICE_9997_${baseUIState.addressId}_${baseUIState.uid}"
               else -> "${service.contentDetail.name}_${baseUIState.addressId}_${baseUIState.uid}"
             }
-
             val count = unreadCounts[chatId] ?: 0
-
             Box(modifier = Modifier.fillMaxWidth()) {
               Button(
                 modifier = Modifier.fillMaxWidth(),
@@ -203,11 +224,7 @@ fun UserListScreen(
                   horizontalArrangement = Arrangement.spacedBy(12.dp),
                   verticalAlignment = Alignment.CenterVertically
                 ) {
-                  Icon(
-                    imageVector = service.icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp)
-                  )
+                  Icon(imageVector = service.icon, contentDescription = null, modifier = Modifier.size(24.dp))
                   Text(
                     modifier = Modifier.weight(1f),
                     text = service.name,
@@ -216,13 +233,9 @@ fun UserListScreen(
                   )
                 }
               }
-
-              // БЕЙДЖ НЕПРОЧИТАННЫХ
               if (count > 0 && !isForwardingMode) {
                 Surface(
-                  modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 6.dp, y = (-6).dp),
+                  modifier = Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp),
                   shape = CircleShape,
                   color = MaterialTheme.colorScheme.error,
                   tonalElevation = 4.dp
@@ -243,6 +256,7 @@ fun UserListScreen(
     }
   }
 }
+
 
 
 
