@@ -7,8 +7,10 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
+import androidx.core.content.ContextCompat.getString
 import androidx.core.graphics.scale
 import androidx.lifecycle.viewModelScope
+import androidx.room.util.appendPlaceholders
 import com.google.firebase.Timestamp
 import com.google.firebase.ai.type.content
 import com.google.firebase.database.DataSnapshot
@@ -18,8 +20,10 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.PropertyName
 import com.google.firebase.database.Query
 import com.google.firebase.database.ValueEventListener
+import com.ykis.mob.MainApplication
 import com.ykis.mob.R
 import com.ykis.mob.core.snackbar.SnackbarManager
+import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.firebase.service.impl.ChatRepository
 import com.ykis.mob.firebase.service.repo.LogService
@@ -47,11 +51,24 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class SendNotificationArguments(
-  @SerialName("recipient_token") // Заменили @Json
+  @SerialName("success") override val success: Int = 0,
+  @SerialName("message") override val message: String = "",
+
+  @SerialName("tokens") // PHP получит это как массив, если Retrofit настроен правильно
   val recipientTokens: List<String>,
+
+  @SerialName("title")
   val title: String,
-  val body: String
-)
+
+  @SerialName("body")
+  val body: String,
+
+  @SerialName("chatId") // ОБЯЗАТЕЛЬНО для навигации
+  val chatId: String
+): BaseResponse {
+}
+
+
 
 data class ServiceWithCodeName(
   val name: String = "",
@@ -136,6 +153,7 @@ fun mapToUserEntity(uid: String, map: Map<String, Any>): UserEntity {
 
 
 class ChatViewModel(
+  private val application: MainApplication,
   private val chatRepo: ChatRepository,
   logService: LogService
 ) : BaseViewModel(logService) { // УДАЛИЛИ KoinComponent
@@ -1233,12 +1251,22 @@ class ChatViewModel(
     // ... внутри writeToDatabase ...
 
 // Определяем, кто отправляет: жилец или представитель организации
+    // В ChatViewModel.writeToDatabase
+    // Внутри ChatViewModel.writeToDatabase
     val finalDisplayName = if (role != UserRole.StandardUser) {
-      "Адміністратор" // Для всех админов (ОСББ, Водоканал и т.д.)
+      // Получаем строку из ресурсов Android
+      when (role) {
+        UserRole.VodokanalUser -> application.getString(R.string.vodokanal)
+        UserRole.YtkeUser      -> application.getString(R.string.ytke_short)
+        UserRole.TboUser       -> application.getString(R.string.yzhtrans)
+        UserRole.OsbbUser      -> "Адміністратор ОСББ"
+        else -> "Адміністратор"
+      }
     } else {
-      // Для жильца убираем лишние префиксы, если они есть в строке
       senderDisplayedName.substringAfter("|").trim()
     }
+
+
 
 // 5. Формируем объект сообщения
     val messageEntity = MessageEntity(
@@ -1264,6 +1292,8 @@ class ChatViewModel(
       _isLoadingAfterSending.value = false
       if (task.isSuccessful) {
         Log.d("YkisLog", "$methodName: [SUCCESS] Отправлено в $chatId")
+//        val testTokens = listOf("foHIm_F6R2u0Q0nZeOYyMt:APA91bEc8Sg7yTdyOppPVYxaVLeKnA-kHPiVvq7Sj0n3sGxdh42Fdf-Fnahk521Igxr2fDStYrXX2Oy0zvdGsCkqv7u3uexQRF_b8GJkf5cgDVqaEnzle48")
+
 
         // Очистка
         _messageText.value = ""
@@ -1675,6 +1705,7 @@ class ChatViewModel(
   }
 
 
+
   /**
    * Комплексный метод: сжимает фото, загружает его в Storage и отправляет сообщение в чат.
    */
@@ -1694,6 +1725,7 @@ class ChatViewModel(
     viewModelScope.launch {
       val methodName = "ChatViewModel.uploadFile"
       _isLoadingAfterSending.value = true
+      Log.d("YkisLog", "SEND_PUSH: Target Tokens: $recipientTokens")
 
       try {
         val uri = _selectedImageUri.value

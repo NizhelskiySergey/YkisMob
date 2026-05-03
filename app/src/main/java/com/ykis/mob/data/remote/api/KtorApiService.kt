@@ -16,6 +16,7 @@ import com.ykis.mob.data.remote.service.GetServiceResponse
 import com.ykis.mob.data.remote.water.GetLastWaterReadingResponse
 import com.ykis.mob.data.remote.water.GetWaterMeterResponse
 import com.ykis.mob.data.remote.water.GetWaterReadingsResponse
+import com.ykis.mob.ui.screens.chat.SendNotificationArguments
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.forms.submitForm
@@ -130,6 +131,5 @@ class KtorApiService(private val client: HttpClient) {
   suspend fun insertPayment(params: Map<String, String>) =
     postForm<InsertPaymentResponse>("newPaymentXpay.php", params)
 
-  suspend fun sendNotificationToUser(params: Map<String, String>) =
-    postForm<GetSimpleResponse>("sendNotificationToUser.php", params)
+
 }

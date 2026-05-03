@@ -328,6 +328,7 @@ val firebaseModule = module {
       storage = get(),
       functions = get(),
       aiModel = get()
+
     )
   }
 
@@ -353,8 +354,6 @@ val viewModelsModule = module {
       application = get(), // Теперь get() сам найдет MainApplication, зарегистрированный строкой выше
       clearDatabase = get(),
       firebaseService = get(),
-//      chatViewModel = get(),
-//      apartmentViewModel = get()
     )
   }
 
@@ -369,7 +368,7 @@ val viewModelsModule = module {
     )
   }
   viewModel { FamilyListViewModel(get(), get()) }
-  single { ChatViewModel(get(), get()) }
+  single { ChatViewModel(get(), get(),get()) }
   viewModel { SignInViewModel(get(), get()) }
   viewModel { SignUpViewModel(get(), get()) }
 

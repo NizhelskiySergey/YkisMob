@@ -1,6 +1,8 @@
 package com.ykis.mob
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -33,6 +35,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.Color
+import com.google.firebase.messaging.FirebaseMessaging
+
 class MainActivity : ComponentActivity() {
 
   private var pressBackExitJob: Job? = null
@@ -43,10 +48,13 @@ class MainActivity : ComponentActivity() {
     installSplashScreen()
     super.onCreate(savedInstanceState)
 
+    // 1. Инициализация уведомлений
+    createNotificationChannel() // КРИТИЧНО: создаем канал ДО запроса разрешений
     requestNotificationPermission()
+
     enableEdgeToEdge()
 
-    // 1. Считываем chatId из Intent (если приложение было закрыто)
+    // 2. Считываем данные из пуша (если приложение было убито)
     val startChatId = intent.getStringExtra("chatId")
     if (!startChatId.isNullOrEmpty()) {
       Log.d("YkisLog", "MainActivity: [START] Открываем чат из пуша: $startChatId")
@@ -67,7 +75,6 @@ class MainActivity : ComponentActivity() {
           YkisPamApp(
             windowSize = windowSize,
             displayFeatures = displayFeatures,
-            // 2. Передаем ID чата в основной компонент навигации
             initialChatId = startChatId
           )
         }
@@ -75,19 +82,66 @@ class MainActivity : ComponentActivity() {
     }
 
     setupDoubleBackExit()
+
+    // 3. Регистрация токена для MySQL базы (чтобы сервер знал куда слать)
     addFcmToken()
   }
 
-  /**
-   * 3. Обработка уведомления, если приложение уже открыто в фоне
-   */
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
+    setIntent(intent) // Важно для корректного получения extra данных позже
     val chatId = intent.getStringExtra("chatId")
     if (!chatId.isNullOrEmpty()) {
       Log.d("YkisLog", "MainActivity: [NEW_INTENT] Переход в чат: $chatId")
-      // Здесь можно вызвать метод навигации через ViewModel или EventBus
-      // Например: appState.navigateToChat(chatId)
+      // Здесь должна быть логика триггера навигации в YkisPamApp
+    }
+  }
+
+  private fun createNotificationChannel() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val channelId = "chat_messages"
+      val name = "Повідомлення чату"
+      val importance = NotificationManager.IMPORTANCE_HIGH
+      val channel = NotificationChannel(channelId, name, importance).apply {
+        description = "Сповіщення про нові повідомлення в системі"
+        // Включаем вибрацию и звук для HIGH важности
+        enableLights(true)
+        lightColor = android.graphics.Color.RED
+        enableVibration(true)
+      }
+      val notificationManager = getSystemService(NotificationManager::class.java)
+      notificationManager.createNotificationChannel(channel)
+      Log.d("YkisLog", "MainActivity: [NOTIF] Канал 'chat_messages' создан")
+    }
+  }
+
+  private fun requestNotificationPermission() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      val hasPermission = ContextCompat.checkSelfPermission(
+        this,
+        Manifest.permission.POST_NOTIFICATIONS
+      ) == PackageManager.PERMISSION_GRANTED
+
+      if (!hasPermission) {
+        Log.d("YkisLog", "MainActivity: [NOTIF] Запрос разрешения на уведомления")
+        ActivityCompat.requestPermissions(
+          this,
+          arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+          101
+        )
+      }
+    }
+  }
+
+  private fun addFcmToken() {
+    FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+      if (!task.isSuccessful) {
+        Log.w("YkisLog", "MainActivity: [FCM] Ошибка получения токена", task.exception)
+        return@addOnCompleteListener
+      }
+      val token = task.result
+      Log.d("YkisLog", "MainActivity: [FCM] Актуальный токен: $token")
+      // Здесь отправь token в свою ViewModel -> Repository -> API (MySQL)
     }
   }
 
@@ -106,24 +160,6 @@ class MainActivity : ComponentActivity() {
       }
     }
   }
-
-  private fun requestNotificationPermission() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-      val hasPermission = ContextCompat.checkSelfPermission(
-        this,
-        Manifest.permission.POST_NOTIFICATIONS
-      ) == PackageManager.PERMISSION_GRANTED
-
-      if (!hasPermission) {
-        ActivityCompat.requestPermissions(
-          this,
-          arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-          101
-        )
-      }
-    }
-  }
-
-  // Не забудь добавить метод addFcmToken() или импортировать его
 }
+
 

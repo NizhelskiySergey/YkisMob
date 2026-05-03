@@ -1,5 +1,6 @@
 package com.ykis.mob.firebase.service.impl
 
+import android.app.Application
 import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.ai.GenerativeModel
@@ -12,6 +13,7 @@ import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
+import com.ykis.mob.domain.apartment.ApartmentRepository
 import com.ykis.mob.firebase.entity.UserFirebase
 import com.ykis.mob.firebase.entity.toEntity
 import com.ykis.mob.ui.screens.chat.MessageEntity

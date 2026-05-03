@@ -326,11 +326,10 @@ fun RootNavGraph(
                 senderUid = baseUIState.uid.toString(),
                 senderDisplayedName = finalDisplayName,
                 senderLogoUrl = baseUIState.photoUrl,
-                role = baseUIState.userRole,
-                senderAddress = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address else selectedUser?.address
-                  ?: "",
+                senderAddress = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address else selectedUser?.address?: "",
                 addressId = currentAddressId,
                 osbbId = currentOsbbId,
+                role = baseUIState.userRole,
                 recipientTokens = selectedUser?.tokens ?: emptyList(),
                 onComplete = {
                   navController.popBackStack(ChatScreenDest.route, inclusive = false)
@@ -381,6 +380,15 @@ private fun NavHostController.navigateToWebView(uri: String) {
   this.navigate("${WebViewScreenDest.route}/$uri")
 }
 
+//fun cleanNavigateTo(navController: NavController, route: String) {
+//  Log.d("YkisLog", "Nav: [CLEAN_START] Полная очистка стека и переход на $route")
+//  navController.navigate(route) {
+//    // Мы чистим всё до основания, чтобы убить все старые ViewModel и их стейты
+//    popUpTo(0) { inclusive = true }
+//    launchSingleTop = true
+//    restoreState = false // КРИТИЧНО: не восстанавливаем старый хлам
+//  }
+//}
 fun cleanNavigateTo(navController: NavController, route: String) {
   Log.d("YkisLog", "Nav: [CLEAN_START] Переход на $route")
 
@@ -398,4 +406,3 @@ fun cleanNavigateTo(navController: NavController, route: String) {
     restoreState = false // Оставляем false, это правильно для сброса стейтов
   }
 }
-

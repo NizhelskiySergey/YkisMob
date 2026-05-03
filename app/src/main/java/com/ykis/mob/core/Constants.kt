@@ -33,6 +33,8 @@ object Constants {
   const val RECIPIENT_TOKEN = "recipient_token"
   const val TITLE = "title"
   const val BODY = "body"
+  const val CHATID = "chatId"
+  const val TOKENS = "tokens"
     //Messages
     const val VERIFY_DELETE_FLAT = "Appartment deleted"
 

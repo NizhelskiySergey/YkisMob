@@ -6,7 +6,6 @@ import com.ykis.mob.data.remote.appartment.GetApartmentsResponse
 import com.ykis.mob.data.remote.appartment.GetHousesResponse
 import com.ykis.mob.data.remote.appartment.GetRaionsResponse
 import com.ykis.mob.data.remote.core.BaseResponse
-import com.ykis.mob.domain.apartment.request.GetRaionList
 
 interface ApartmentRepository {
   suspend fun getApartmentList(uid: String): GetApartmentsResponse

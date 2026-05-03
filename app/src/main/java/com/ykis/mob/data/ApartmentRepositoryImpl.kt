@@ -12,6 +12,7 @@ import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
 import com.ykis.mob.domain.apartment.ApartmentRepository
 import com.ykis.mob.domain.apartment.request.GetHouseList
+import com.ykis.mob.ui.screens.chat.SendNotificationArguments
 
 class ApartmentRepositoryImpl(
   private val apartmentRemote: ApartmentRemote
@@ -33,7 +34,6 @@ class ApartmentRepositoryImpl(
   override suspend fun updateBti(params: ApartmentEntity): BaseResponse {
     return apartmentRemote.updateBti(params)
   }
-
   override suspend fun getApartment(addressId: Int, uid: String): GetApartmentResponse {
     return apartmentRemote.getApartment(addressId, uid)
   }

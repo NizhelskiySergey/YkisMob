@@ -3,6 +3,7 @@ package com.ykis.mob.data.remote.appartment
 import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
+import com.ykis.mob.ui.screens.chat.SendNotificationArguments
 
 interface ApartmentRemote {
   suspend fun getApartmentList(uid: String): GetApartmentsResponse

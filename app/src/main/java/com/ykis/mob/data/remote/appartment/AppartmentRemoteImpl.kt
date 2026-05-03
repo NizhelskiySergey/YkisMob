@@ -2,6 +2,8 @@ package com.ykis.mob.data.remote.appartment
 
 import android.R.attr.targetId
 import com.ykis.mob.core.Constants.ADDRESS_ID
+import com.ykis.mob.core.Constants.BODY
+import com.ykis.mob.core.Constants.CHATID
 import com.ykis.mob.core.Constants.CODE
 import com.ykis.mob.core.Constants.EMAIL
 import com.ykis.mob.core.Constants.HOUSE_ID
@@ -9,12 +11,15 @@ import com.ykis.mob.core.Constants.OSBB_ID
 import com.ykis.mob.core.Constants.PARAM_ADDRESS_ID
 import com.ykis.mob.core.Constants.PHONE
 import com.ykis.mob.core.Constants.RAION_ID
+import com.ykis.mob.core.Constants.TITLE
+import com.ykis.mob.core.Constants.TOKENS
 import com.ykis.mob.core.Constants.UID
 import com.ykis.mob.data.remote.GetSimpleResponse
 import com.ykis.mob.data.remote.api.KtorApiService
 import com.ykis.mob.data.remote.core.BaseResponse
 import com.ykis.mob.domain.apartment.ApartmentEntity
 import com.ykis.mob.ui.navigation.ContentDetail
+import com.ykis.mob.ui.screens.chat.SendNotificationArguments
 
 class ApartmentRemoteImpl(
   private val ktorApiService: KtorApiService
@@ -113,6 +118,8 @@ class ApartmentRemoteImpl(
     )
   }
 
+
+
   private fun createGetApartmentListMap(uid: String): Map<String, String> {
     val map = HashMap<String, String>()
     map[UID] = uid
@@ -171,7 +178,6 @@ class ApartmentRemoteImpl(
     map[EMAIL] = email
     return map
   }
-
   private fun createVerifyAdminSecretWord(code: String, uid: String): Map<String, String> {
     val map = HashMap<String, String>()
     map[CODE] = code

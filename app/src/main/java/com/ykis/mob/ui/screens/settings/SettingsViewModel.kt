@@ -8,6 +8,7 @@ import com.ykis.mob.core.Resource
 import com.ykis.mob.core.snackbar.SnackbarManager
 import com.ykis.mob.data.cache.preferences.AppSettingsRepository
 import com.ykis.mob.domain.ClearDatabase
+import com.ykis.mob.firebase.messaging.removeFcmTokenOnLogout
 import com.ykis.mob.firebase.service.repo.FirebaseService
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.chat.ChatViewModel
@@ -45,13 +46,28 @@ class NewSettingsViewModel(
 
     viewModelScope.launch(Dispatchers.Main.immediate + NonCancellable) {
       try {
-        // 1. Остановка всех активных процессов Firebase напрямую через сервис
-        // (Вместо chatViewModel.stopAllTrackers())
-        // Убедись, что в FirebaseService есть метод для остановки слушателей
+        // --- КРИТИЧЕСКИЙ ШАГ: Удаление токена ДО выхода из Firebase ---
+        // Мы делаем это первым делом, пока Auth.currentUser еще валиден
+        val currentUid = firebaseService.getUid() // Убедись, что в сервисе есть этот метод
+        if (currentUid != null) {
+          try {
+            // Используем withTimeout, чтобы удаление токена не вешало выход навсегда
+            withTimeout(3000) {
+
+              // Вызываем твой метод удаления (его нужно обернуть в suspend или использовать await)
+              removeFcmTokenOnLogout(currentUid)
+              Log.d("YkisLog", "$methodName: [TOKEN] Запрос на удаление токена отправлен")
+            }
+          } catch (e: Exception) {
+            Log.w("YkisLog", "$methodName: [TOKEN_ERR] Не удалось удалить токен, продолжаем выход...")
+          }
+        }
+
+        // 1. Остановка всех активных процессов Firebase
         firebaseService.stopAllListeners()
 
         withContext(Dispatchers.IO) {
-          // 2. Выход из Firebase
+          // 2. Выход из Firebase (теперь безопасно закрываем сессию)
           firebaseService.logoutDirectly()
           Log.d("YkisLog", "$methodName: [STEP 1] Firebase Logout OK")
 
@@ -68,19 +84,19 @@ class NewSettingsViewModel(
               }
             }
           } catch (e: Exception) {
-            Log.w("YkisLog", "$methodName: [TIMEOUT] Очистка БД заняла слишком много времени")
+            Log.w("YkisLog", "$methodName: [TIMEOUT] Очистка БД затянулась")
           }
         }
       } catch (e: Exception) {
         Log.e("YkisLog", "$methodName: [FATAL ERROR] ${e.message}")
       } finally {
-        // 5. Очистка завершена. Твой AuthNavGraph увидит Logout и перенаправит на вход
         _loading.value = false
-        Log.d("YkisLog", "$methodName: [FINISH] Навигация на вход...")
+        Log.d("YkisLog", "$methodName: [FINISH] Переход на экран входа")
         onSuccess()
       }
     }
   }
+
 
 
   // 2. УДАЛЕНИЕ АККАУНТА (Revoke Access)
