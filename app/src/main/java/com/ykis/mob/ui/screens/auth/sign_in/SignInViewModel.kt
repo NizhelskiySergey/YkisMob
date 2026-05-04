@@ -32,6 +32,7 @@ import com.ykis.mob.ui.screens.auth.sign_in.components.SingInUiState
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import com.ykis.mob.R.string as AppText
+
 class SignInViewModel(
   private val firebaseService: FirebaseService,
   logService: LogService
@@ -54,9 +55,11 @@ class SignInViewModel(
     private set
 
   private val isEmailVerified get() = firebaseService.currentUser?.isEmailVerified ?: false
+
   init {
     Log.d("YkisLog", "SignInViewModel: [INIT_START]")
   }
+
   fun onEmailChange(newValue: String) {
     singInUiState = singInUiState.copy(email = newValue)
   }
@@ -156,7 +159,9 @@ class SignInViewModel(
             signInWithGoogleResponse = dbResult
             return@launch
           }
-
+          // КРИТИЧЕСКИЙ ФИКС: Регистрируем токен после входа через Google
+          Log.d("YkisLog", "$methodName: [FCM] Привязка токена для нового Google-аккаунта")
+          addFcmToken()
           // 4. ПОЛНЫЙ УСПЕХ (Лоадер выключится только сейчас)
           Log.d("YkisLog", "$methodName: [SUCCESS] Все проверки пройдены. Переход...")
           signInWithGoogleResponse = Resource.Success(true)
