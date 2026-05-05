@@ -93,48 +93,48 @@ fun RootNavGraph(
   val currentFirebaseUid = firebaseService.uid
   // 1. ПЕРВИЧНАЯ ПРОВЕРКА СОГЛАСИЯ ПРИ ЗАПУСКЕ
   LaunchedEffect(Unit) {
+    val methodName = "RootNavGraph.LaunchedEffect1"
     val agreedFromCache = firebaseService.isUserAgreed() // Теперь ошибки нет!
-    Log.d("YkisLog", "RootNavGraph: Чтение из кэша is_agreed = $agreedFromCache")
+    Log.d("YkisLog", "$methodName: Чтение из кэша is_agreed = $agreedFromCache")
     isAgreed = agreedFromCache
   }
 
 
   // --- [ЗОЛОТОЙ ФОНД] ЛОГИКИ ПЕРЕХОДОВ ---
+  // ОСТАВЛЯЕМ ТОЛЬКО ЭТОТ ЭФФЕКТ
   LaunchedEffect(isAgreed, currentFirebaseUid) {
-    val methodName = "RootNavGraph.LaunchedEffect"
+    val methodName = "RootNavGraph.LaunchedEffect2"
     val currentRoute = navController.currentDestination?.route
 
-    // 1. Если не принял условия — только TERMS
+    // 1. Если нет согласия — ТОЛЬКО ТЕРМС
     if (!isAgreed) {
       if (currentRoute != Graph.TERMS_CONDITION) {
-        navController.navigate(Graph.TERMS_CONDITION) { popUpTo(0) { inclusive = true } }
+        navController.navigate(Graph.TERMS_CONDITION) { popUpTo(0) }
       }
       return@LaunchedEffect
     }
 
-    // 2. Если принял условия — решаем: ЛОГИН или ГЛАВНАЯ
-    if (isAgreed) {
-      if (currentFirebaseUid == null) {
-        // СЛУЧАЙ А: Сессии нет (Новичок или разлогинился) -> ТОЛЬКО ЛОГИН
-        if (currentRoute == null || !currentRoute.contains(Graph.AUTHENTICATION)) {
-          Log.d("YkisLog", "$methodName: [NAV] -> AUTHENTICATION (Сессии нет)")
-          navController.navigate(Graph.AUTHENTICATION) {
-            popUpTo(Graph.TERMS_CONDITION) { inclusive = true }
-          }
+    // 2. Если согласие ЕСТЬ, проверяем UID
+    if (currentFirebaseUid.isNullOrBlank()) {
+      // UID пустой -> Значит пользователь НЕ залогинен. Только AUTH!
+      if (currentRoute == null || !currentRoute.contains(Graph.AUTHENTICATION)) {
+        Log.d("YkisLog", "$methodName: [NAV] -> AUTH (Нет сессии)")
+        navController.navigate(Graph.AUTHENTICATION) {
+          popUpTo(Graph.TERMS_CONDITION) { inclusive = true }
         }
-      } else {
-        // СЛУЧАЙ Б: Сессия ЕСТЬ (Пользователь уже заходил раньше) -> НА ГЛАВНУЮ
-        if (currentRoute == null || currentRoute.contains(Graph.AUTHENTICATION) || currentRoute == Graph.TERMS_CONDITION) {
-          Log.d("YkisLog", "$methodName: [NAV] -> APARTMENT (Сессия активна: $currentFirebaseUid)")
-          // Перед переходом убедимся, что данные подгружаются
-          if (baseUIState.apartments.isEmpty()) {
-            apartmentViewModel.observeUserProfile()
-          }
-          cleanNavigateTo(navController, Graph.APARTMENT)
+      }
+    } else {
+      // UID ЕСТЬ -> Вот теперь можно на ГЛАВНУЮ
+      if (currentRoute == null || currentRoute.contains(Graph.AUTHENTICATION) || currentRoute == Graph.TERMS_CONDITION) {
+        Log.d("YkisLog", "$methodName: [NAV] -> APARTMENT (UID: $currentFirebaseUid)")
+        apartmentViewModel.observeUserProfile() // Загружаем профиль
+        navController.navigate(Graph.APARTMENT) {
+          popUpTo(0) { inclusive = true }
         }
       }
     }
   }
+
 
 
   // Универсальное вычисление chatUid

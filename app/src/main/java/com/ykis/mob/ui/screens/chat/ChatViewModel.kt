@@ -33,6 +33,7 @@ import com.ykis.mob.ui.navigation.ContentDetail
 import com.ykis.mob.ui.screens.service.list.TotalServiceDebt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -1397,28 +1398,37 @@ class ChatViewModel(
   fun deleteChatThreads(uid: String, osbbId: Int, addressId: Int) {
     val methodName = "ChatViewModel.deleteChatThreads"
 
-    // Те же ключи, что мы создавали при добавлении
-    val chatKeys = listOf(
-      "OSBB_${osbbId}_${addressId}_$uid",
-      "WATER_SERVICE_9999_${addressId}_$uid",
-      "WARM_SERVICE_9998_${addressId}_$uid",
-      "GARBAGE_SERVICE_9997_${addressId}_$uid"
-    )
+    // Логируем входящие значения до начала корутины
+    Log.d("YkisLog", "$methodName: [INPUT] UID=$uid, OSBB_ID=$osbbId, ADDR_ID=$addressId")
 
-    Log.d("YkisLog", "$methodName: [START] Удаление чатов для о/р $addressId")
 
-    viewModelScope.launch(Dispatchers.IO) {
+    // Используем NonCancellable, чтобы навигация не прервала удаление
+    viewModelScope.launch(Dispatchers.IO + NonCancellable) {
+      val chatKeys = listOf(
+        "OSBB_${osbbId}_${addressId}_$uid",
+        "WATER_SERVICE_9999_${addressId}_$uid",
+        "WARM_SERVICE_9998_${addressId}_$uid",
+        "GARBAGE_SERVICE_9997_${addressId}_$uid"
+      )
+
+      Log.d("YkisLog", "$methodName: [START] Попытка удаления ${chatKeys.size} веток")
+
       chatKeys.forEach { chatPath ->
         try {
-          // Удаляем всю ветку целиком
+          Log.d("YkisLog", "$methodName: [PROCESS] Удаление ветки: $chatPath")
+
+          // Сама операция удаления
           chatsReference.child(chatPath).removeValue().await()
-          Log.d("YkisLog", "$methodName: [SUCCESS] Ветка $chatPath удалена")
+
+          Log.d("YkisLog", "$methodName: [SUCCESS] Ветка удалена: $chatPath")
         } catch (e: Exception) {
-          Log.e("YkisLog", "$methodName: [ERROR] Не удалось удалить $chatPath: ${e.message}")
+          Log.e("YkisLog", "$methodName: [ERROR] Ошибка при удалении $chatPath: ${e.message}")
         }
       }
+      Log.d("YkisLog", "$methodName: [FINISH] Процесс очистки завершен")
     }
   }
+
 
 
   /**

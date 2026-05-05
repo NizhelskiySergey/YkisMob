@@ -111,7 +111,7 @@ data class ApartmentEntity(
   @ColumnInfo(name = "osmd_id")
   val osmdId: Int = 0,
 
-  val osbb: String? = "Unknown",
+  val osbb: String? = null,
 
   @SerialName("what_change")
   @ColumnInfo(name = "what_change")

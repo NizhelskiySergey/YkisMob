@@ -63,14 +63,14 @@ class SignUpViewModel(
 
   val isEmailVerified get() = firebaseService.currentUser?.isEmailVerified ?: false
 
-  init {
-    val methodName = "SignUpVM.init"
-    launchCatching {
-      Log.d("YkisLog", "$methodName: [START] Загрузка Remote Config")
-      firebaseService.fetchConfiguration()
-      Log.d("YkisLog", "$methodName: [SUCCESS] Конфигурация готова")
-    }
-  }
+//  init {
+//    val methodName = "SignUpVM.init"
+//    launchCatching {
+//      Log.d("YkisLog", "$methodName: [START] Загрузка Remote Config")
+//      firebaseService.fetchConfiguration()
+//      Log.d("YkisLog", "$methodName: [SUCCESS] Конфигурация готова")
+//    }
+//  }
 
   // --- ВАЛИДАЦИЯ ---
   private fun isInputValid(): Boolean {
