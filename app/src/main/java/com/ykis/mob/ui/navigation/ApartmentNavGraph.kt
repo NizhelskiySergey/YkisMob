@@ -107,17 +107,32 @@ fun MainApartmentScreen(
   }
 
   // 2. ВЫЧИСЛЕНИЕ СТАРТОВОГО МАРШРУТА
-  val firstDestination = remember(baseUIState.userRole, baseUIState.apartment, isDataReady) {
+  val firstDestination = remember(baseUIState.userRole, baseUIState.addressId, isDataReady) {
     if (!isDataReady) return@remember "loading_buffer"
 
     val hasApartments = baseUIState.apartments.isNotEmpty()
+    val isAddressSelected = baseUIState.addressId != 0 // ПРОВЕРКА: выбран ли адрес?
+
     when (baseUIState.userRole) {
-      UserRole.VodokanalUser, UserRole.YtkeUser, UserRole.TboUser -> UserListScreen.route
-      UserRole.OsbbUser -> if (hasApartments) InfoApartmentScreenDest.route else UserListScreen.route
-      UserRole.StandardUser -> if (!hasApartments) AddApartmentScreen.route else InfoApartmentScreenDest.route
+      // ДЛЯ СЛУЖБ: Если адрес выбран (из поиска/списка) — на Info, иначе — на список чатов
+      UserRole.VodokanalUser, UserRole.YtkeUser, UserRole.TboUser -> {
+        if (isAddressSelected) InfoApartmentScreenDest.route else UserListScreen.route
+      }
+
+      // ДЛЯ ОСББ: Аналогично — если есть данные, идем в карточку
+      UserRole.OsbbUser -> {
+        if (isAddressSelected || hasApartments) InfoApartmentScreenDest.route else UserListScreen.route
+      }
+
+      // ДЛЯ ЖИТЕЛЯ: Если нет квартир — на добавление, если есть — на Info
+      UserRole.StandardUser -> {
+        if (!hasApartments) AddApartmentScreen.route else InfoApartmentScreenDest.route
+      }
+
       else -> InfoApartmentScreenDest.route
     }
   }
+
 
   // 3. ФУНКЦИЯ ФИНАЛЬНОГО ВЫБОРА КВАРТИРЫ (Золотой фонд)
   val finalizeApartmentSelection: (Int) -> Unit = { id ->
