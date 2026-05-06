@@ -49,6 +49,7 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.collections.forEach
 
 @Serializable
 data class SendNotificationArguments(
@@ -163,7 +164,7 @@ class ChatViewModel(
   // Перенаправляем ссылки на репозиторий
   // Ссылки на Realtime Database
   private val chatsReference by lazy { chatRepo.realtime.getReference("chats") }
-  private val unreadCountListeners = mutableMapOf<Query, ValueEventListener>()
+  private val unreadCountListeners = mutableMapOf<String, ValueEventListener>()
 
   // Модель ИИ (Gemini)
   private val generativeModel by lazy { chatRepo.aiModel }
@@ -784,48 +785,70 @@ class ChatViewModel(
 
   fun subscribeToUnreadCount(chatKeys: List<String>) {
     val methodName = "ChatViewModel.subscribeToUnreadCount"
-    val myUid = chatRepo.currentUid ?: return
+    val myUid = chatRepo.currentUid ?: run {
+      Log.e("YkisLog", "$methodName: [ABORT] MyUID is NULL")
+      return
+    }
+
+    Log.d("YkisLog", "$methodName: [IN] Получено ключей для проверки: ${chatKeys.size}")
 
     chatKeys.forEach { chatId ->
-      if (chatId.isBlank()) return@forEach
-
-      // 1. Сначала формируем запрос (Query)
-      val chatRef = chatsReference.child(chatId)
-      val query = chatRef.orderByChild("read").equalTo(false)
-
-      // 2. Теперь проверяем карту, используя созданный Query как ключ
-      if (unreadCountListeners.containsKey(query)) {
-        Log.d("YkisLog", "$methodName: [SKIP] Слушатель для этого запроса уже активен: $chatId")
+      if (chatId.isBlank()) {
+        Log.w("YkisLog", "$methodName: [SKIP] Пустой chatId")
         return@forEach
       }
 
-      Log.d("YkisLog", "$methodName: [WATCH] Регистрация для: $chatId")
+      // 1. Проверка на дубликаты
+      if (unreadCountListeners.containsKey(chatId)) {
+        Log.v("YkisLog", "$methodName: [ALREADY_WATCHING] $chatId")
+        return@forEach
+      }
+
+      Log.i("YkisLog", "$methodName: [NEW_WATCHER] Регистрируем слушатель для: $chatId")
+
+      val chatRef = chatsReference.child(chatId)
+      // Используем Query для оптимизации трафика
+      val query = chatRef.orderByChild("read").equalTo(false)
 
       val listener = object : ValueEventListener {
         override fun onDataChange(snapshot: DataSnapshot) {
-          viewModelScope.launch(Dispatchers.Default) {
-            val count = snapshot.children.mapNotNull { child ->
-              child.getValue(MessageEntity::class.java)
-            }.count { it.senderUid != myUid }
+          // Считаем вручную внутри снимка
+          var foreignUnreadCount = 0
 
-            withContext(Dispatchers.Main) {
-              _unreadCounts.update { currentMap ->
-                currentMap + (chatId to count)
-              }
+          Log.v("YkisLog", "$methodName: [EVENT] Данные изменились в ветке: $chatId")
+          Log.v("YkisLog", "$methodName: [SNAPSHOT] Найдено 'read=false' сообщений: ${snapshot.childrenCount}")
+
+          snapshot.children.forEach { child ->
+            val senderUid = child.child("senderUid").value?.toString() ?: ""
+            val msgText = child.child("text").value?.toString()?.take(15) ?: "..."
+
+            if (senderUid != myUid) {
+              foreignUnreadCount++
+              Log.d("YkisLog", "$methodName: [FOUND_UNREAD] Ветка: $chatId | От: $senderUid | Текст: $msgText")
+            } else {
+              Log.v("YkisLog", "$methodName: [MY_MSG_SKIP] Пропускаем свое непрочитанное в $chatId")
             }
+          }
+
+          // Обновляем StateFlow
+          _unreadCounts.update { currentMap ->
+            val newMap = currentMap + (chatId to foreignUnreadCount)
+            Log.i("YkisLog", "$methodName: [MAP_UPDATE] $chatId -> Итого непрочитанных: $foreignUnreadCount")
+            newMap
           }
         }
 
         override fun onCancelled(error: DatabaseError) {
-          Log.e("YkisLog", "$methodName: [ERROR] $chatId: ${error.message}")
+          Log.e("YkisLog", "$methodName: [FIREBASE_ERROR] $chatId: ${error.message}")
         }
       }
 
-      // 3. Запуск и сохранение в карту именно QUERY
+      // Запуск
       query.addValueEventListener(listener)
-      unreadCountListeners[query] = listener
+      unreadCountListeners[chatId] = listener
     }
   }
+
 
 
   // Метод для получения помощи от ИИ
@@ -937,7 +960,12 @@ class ChatViewModel(
 
   fun markMessagesAsRead(chatId: String) {
     val methodName = "ChatViewModel.markMessagesAsRead"
-    val myUid = chatRepo.currentUid ?: return
+    Log.d("YkisLog", "$methodName: [START] Попытка прочтения для $chatId") // ДОБАВИТЬ ЭТОТ ЛОГ
+
+    val myUid = chatRepo.currentUid ?: run {
+      Log.e("YkisLog", "$methodName: [ABORT] UID пустой")
+      return
+    }
 
     if (chatId.isBlank()) {
       Log.e("YkisLog", "$methodName: [ERROR] Пустой chatId")
@@ -1980,58 +2008,50 @@ class ChatViewModel(
     val methodName = "ChatViewModel.onCleared"
     super.onCleared()
 
-    // 1. Очистка трекера поиска чатов (orderByKey.startAt.endAt)
+    // 1. Очистка трекера поиска чатов
     cleanupTracker()
 
-    // 2. Очистка основных слушателей чата (DatabaseReference -> ValueEventListener)
+    // 2. Очистка основных слушателей чата
     if (listeners.isNotEmpty()) {
-      listeners.forEach { (ref, listener) ->
-        ref.removeEventListener(listener)
-      }
+      listeners.forEach { (ref, listener) -> ref.removeEventListener(listener) }
       Log.d("YkisLog", "$methodName: [CLEAN] Основные слушатели удалены (${listeners.size})")
       listeners.clear()
     }
 
-    // 3. Очистка счетчиков непрочитанных (Query -> ValueEventListener)
+    // 3. ФИКС: Очистка счетчиков непрочитанных (String -> ValueEventListener)
     if (unreadCountListeners.isNotEmpty()) {
-      unreadCountListeners.forEach { (query, listener) ->
+      unreadCountListeners.forEach { (chatId, listener) ->
+        // Восстанавливаем Query, который мы слушали (обязательно с теми же фильтрами!)
+        val query = chatsReference.child(chatId).orderByChild("read").equalTo(false)
         query.removeEventListener(listener)
       }
-      Log.d(
-        "YkisLog",
-        "$methodName: [CLEAN] Счетчики бейджей удалены (${unreadCountListeners.size})"
-      )
+      Log.d("YkisLog", "$methodName: [CLEAN] Счетчики бейджей удалены (${unreadCountListeners.size})")
       unreadCountListeners.clear()
     }
 
-    // 4. Очистка слушателей превью последних сообщений (String -> ValueEventListener)
+    // 4. Очистка превью последних сообщений
     if (lastMessageListeners.isNotEmpty()) {
       lastMessageListeners.forEach { (chatId, listener) ->
-        // Используем child(chatId), так как ключом в мапе является строка-путь
         chatsReference.child(chatId).removeEventListener(listener)
       }
-      Log.d(
-        "YkisLog",
-        "$methodName: [CLEAN] Превью последних сообщений удалены (${lastMessageListeners.size})"
-      )
+      Log.d("YkisLog", "$methodName: [CLEAN] Превью последних сообщений удалены (${lastMessageListeners.size})")
       lastMessageListeners.clear()
     }
 
-    // 5. Очистка статуса печати (DatabaseReference -> ValueEventListener)
+    // 5. Очистка статуса печати
     if (typingListeners.isNotEmpty()) {
-      typingListeners.forEach { (ref, listener) ->
-        ref.removeEventListener(listener)
-      }
+      typingListeners.forEach { (ref, listener) -> ref.removeEventListener(listener) }
       Log.d("YkisLog", "$methodName: [CLEAN] Статус печати удален (${typingListeners.size})")
       typingListeners.clear()
     }
 
-    // 6. Очистка фоновых задач и путей
+    // 6. Очистка фоновых задач
     typingJob?.cancel()
     currentChatPath = null
 
     Log.d("YkisLog", "$methodName: [SUCCESS] Все ресурсы и трекеры Firebase освобождены")
   }
+
 
 
 }
