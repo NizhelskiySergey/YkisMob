@@ -14,18 +14,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ykis.mob.ui.navigation.NAV_BAR_DESTINATIONS
+import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.navigation.UserListScreen
+import com.ykis.mob.ui.navigation.getNavDestinations
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 
 @Composable
 fun BottomNavigationBar(
   selectedDestination: String,
   onClick: (String) -> Unit,
-  chatViewModel: ChatViewModel // 1. Добавляем ViewModel в параметры
+  chatViewModel: ChatViewModel,
+  baseUIState: BaseUIState // Добавляем стейт, чтобы знать роль
 ) {
+  // 1. Получаем список дестинаций для текущей роли
+  val navDestinations = getNavDestinations(role = baseUIState.userRole)
+
   // 2. Подписываемся на счетчики
   val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
+
   // Считаем общую сумму непрочитанных
   val totalUnread = remember(unreadCounts) { unreadCounts.values.sum() }
 
@@ -33,19 +39,21 @@ fun BottomNavigationBar(
     modifier = Modifier.fillMaxWidth(),
     containerColor = MaterialTheme.colorScheme.surfaceContainer
   ) {
-    NAV_BAR_DESTINATIONS.forEach { destination ->
+    navDestinations.forEach { destination ->
       val isSelected = selectedDestination.substringBefore("/") == destination.route.substringBefore("/")
 
       NavigationBarItem(
         selected = isSelected,
         onClick = { onClick(destination.route) },
         icon = {
-          // 3. Оборачиваем иконку в BadgedBox
           BadgedBox(
             badge = {
-              // Показываем Badge только для иконки чата и если есть непрочитанные
-              // Убедись, что роут в твоем Enum совпадает с UserListScreen.route
-              if (destination.route == UserListScreen.route && totalUnread > 0) {
+              // 3. УНИВЕРСАЛЬНАЯ ПРОВЕРКА:
+              // Показываем Badge, если роут текущей иконки совпадает с роутом чата для этой роли
+              val isChatRoute = destination.route == "service_selector" ||
+                destination.route == UserListScreen.route
+
+              if (isChatRoute && totalUnread > 0) {
                 Badge(
                   containerColor = MaterialTheme.colorScheme.error,
                   contentColor = MaterialTheme.colorScheme.onError
@@ -61,9 +69,11 @@ fun BottomNavigationBar(
             )
           }
         },
+        label = { Text(stringResource(id = destination.labelId)) },
         alwaysShowLabel = false
       )
     }
   }
 }
+
 

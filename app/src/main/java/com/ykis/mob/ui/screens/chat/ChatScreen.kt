@@ -224,8 +224,8 @@ fun ChatScreenContent(
   val appBarTitle = remember(baseUIState, selectedService, isForwardingMode) {
     if (isForwardingMode) "Переслати повідомлення"
     else if (baseUIState.userRole == UserRole.StandardUser) {
-      if (selectedService.codeName == "OSBB") baseUIState.osbb ?: "ОСББ"
-      else selectedService.name
+      if (selectedService?.name == "OSBB") baseUIState.osbb ?: "ОСББ"
+      else selectedService?.name ?:""
     } else {
       // Для админа заголовок — это адрес жильца
       userEntity.displayName?.substringBefore("|")?.trim() ?: "Чат"

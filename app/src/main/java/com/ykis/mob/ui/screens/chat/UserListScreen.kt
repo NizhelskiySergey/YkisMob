@@ -62,72 +62,69 @@ fun UserListScreen(
   userList: List<UserEntity>,
   baseUIState: BaseUIState,
   onUserClicked: (UserEntity) -> Unit,
-  onServiceClick: (TotalServiceDebt) -> Unit,
   onDrawerClicked: () -> Unit,
   navigationType: NavigationType,
   chatViewModel: ChatViewModel
 ) {
   val methodName = "UserListScreen"
-  val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
   val isForwardingMode by chatViewModel.isForwardingMode.collectAsStateWithLifecycle()
-  val lastMessages by chatViewModel.lastMessages.collectAsStateWithLifecycle()
   val messageToForward by chatViewModel.forwardingMessage.collectAsStateWithLifecycle()
-
-  // Подписка на состояние поиска
   val searchQuery by chatViewModel.searchQuery.collectAsStateWithLifecycle()
 
+  // Получаем выбранную на предыдущем экране службу
+  val selectedService by chatViewModel.selectedService.collectAsStateWithLifecycle()
+
   LaunchedEffect(baseUIState.userRole, baseUIState.addressId) {
-    Log.d("YkisLog", "$methodName: [ENTER] Role: ${baseUIState.userRole} | Address: ${baseUIState.addressId}")
+    Log.d("YkisLog", "$methodName: [ENTER] Role: ${baseUIState.userRole} | Service: ${selectedService?.name}")
   }
 
   Column(modifier = modifier.fillMaxSize()) {
     // 1. ВЕРХНЯЯ ПАНЕЛЬ
     DefaultAppBar(
-      title = stringResource(id = R.string.chat),
-      subtitle = if (baseUIState.userRole == UserRole.StandardUser) baseUIState.address else "",
+      title = if (baseUIState.userRole == UserRole.StandardUser) {
+        selectedService?.name ?: stringResource(id = R.string.chat)
+      } else {
+        stringResource(id = R.string.chat)
+      },
+      subtitle = if (baseUIState.userRole == UserRole.StandardUser) "Ваші адреси" else "",
       onDrawerClick = onDrawerClicked,
-      canNavigateBack = isForwardingMode,
+      canNavigateBack = true, // Теперь всегда можно вернуться к выбору организации
       onBackClick = {
-        Log.d("YkisLog", "$methodName: [CANCEL_FORWARD]")
-        chatViewModel.cancelForwarding()
+        if (isForwardingMode) {
+          chatViewModel.cancelForwarding()
+        } else {
+          // Просто возвращаемся назад в NavGraph на ServiceSelectorScreen
+          chatViewModel.setSelectedService(null)
+          onDrawerClicked() // Или используйте navController.popBackStack() в вызывающем коде
+        }
       },
       navigationType = navigationType
     )
 
-    // 2. ПОИСК (Только для админов и не в режиме пересылки)
+    // 2. ПОИСК (Универсальный)
     if (baseUIState.userRole != UserRole.StandardUser && !isForwardingMode) {
       OutlinedTextField(
-        value = searchQuery,
-        onValueChange = {
-          Log.d("YkisLog", "$methodName: [SEARCH_INPUT] Query: $it")
-          chatViewModel.onSearchQueryChanged(it)
-        },
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(horizontal = 16.dp, vertical = 8.dp),
-        placeholder = { Text("Пошук за адресою чи о/р", fontSize = 14.sp) },
-        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-        trailingIcon = {
-          if (searchQuery.isNotEmpty()) {
-            IconButton(onClick = {
-              Log.d("YkisLog", "$methodName: [SEARCH_CLEAR]")
-              chatViewModel.onSearchQueryChanged("")
-            }) {
-              Icon(Icons.Default.Close, contentDescription = null)
-            }
+      value = searchQuery,
+      onValueChange = { chatViewModel.onSearchQueryChanged(it) },
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 16.dp, vertical = 8.dp),
+      placeholder = { Text("Пошук...", fontSize = 14.sp) },
+      leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+      trailingIcon = {
+        if (searchQuery.isNotEmpty()) {
+          IconButton(onClick = { chatViewModel.onSearchQueryChanged("") }) {
+            Icon(Icons.Default.Close, contentDescription = null)
           }
-        },
-        singleLine = true,
-        shape = RoundedCornerShape(12.dp)
-      )
+        }
+      },
+      singleLine = true,
+      shape = RoundedCornerShape(12.dp)
+    )
     }
 
-    // 3. ИНДИКАТОР РЕЖИМА ПЕРЕСЫЛКИ
-    AnimatedVisibility(
-      visible = isForwardingMode,
-      enter = expandVertically(),
-      exit = shrinkVertically()
-    ) {
+    // 3. ИНДИКАТОР ПЕРЕСЫЛКИ (без изменений)
+    AnimatedVisibility(visible = isForwardingMode) {
       Surface(
         color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = Modifier.fillMaxWidth(),
@@ -137,29 +134,12 @@ fun UserListScreen(
           modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
           verticalAlignment = Alignment.CenterVertically
         ) {
-          Icon(
-            imageVector = Icons.AutoMirrored.Filled.Reply,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.primary
+          Icon(Icons.AutoMirrored.Filled.Reply, null, modifier = Modifier.size(20.dp))
+          Text(
+            text = stringResource(R.string.select_recipient),
+            modifier = Modifier.padding(horizontal = 12.dp).weight(1f),
+            style = MaterialTheme.typography.labelLarge
           )
-          Column(
-            modifier = Modifier.padding(start = 12.dp).weight(1f)
-          ) {
-            Text(
-              text = stringResource(R.string.select_recipient),
-              style = MaterialTheme.typography.labelLarge,
-              color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-              text = if (!messageToForward?.imageUrl.isNullOrEmpty()) "🖼 Фотографія"
-              else messageToForward?.text ?: "",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
-            )
-          }
           TextButton(onClick = { chatViewModel.cancelForwarding() }) {
             Text(stringResource(R.string.cancel))
           }
@@ -167,95 +147,56 @@ fun UserListScreen(
       }
     }
 
-    // 4. КОНТЕНТ
-    if (baseUIState.userRole != UserRole.StandardUser) {
-      // --- РЕЖИМ АДМИНА ---
-      UserList(
-        userList = userList,
-        baseUIState = baseUIState,
-        onUserClick = { user ->
-          if (isForwardingMode) {
-            Log.d("YkisLog", "$methodName: [FORWARD_TO_USER] UID: ${user.uid}")
-            chatViewModel.confirmForward(user)
-          } else {
-            Log.d("YkisLog", "$methodName: [OPEN_USER_CHAT] UID: ${user.uid}")
-            onUserClicked(user)
-          }
-        },
-        chatViewModel = chatViewModel
-      )
-    } else {
-      // --- РЕЖИМ ЖИЛЬЦА ---
-      Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-          modifier = Modifier.width(IntrinsicSize.Max).padding(horizontal = 16.dp),
-          verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-          val residentServices = assembleServiceList(
-            totalDebtState = TotalDebtState(),
-            baseUIState = baseUIState
-          )
-          residentServices.forEach { service ->
-            val chatId = when (service.contentDetail) {
-              ContentDetail.OSBB -> "OSBB_${baseUIState.osmdId ?: baseUIState.osbbId}_${baseUIState.addressId}_${baseUIState.uid}"
-              ContentDetail.WATER_SERVICE -> "WATER_SERVICE_9999_${baseUIState.addressId}_${baseUIState.uid}"
-              ContentDetail.WARM_SERVICE -> "WARM_SERVICE_9998_${baseUIState.addressId}_${baseUIState.uid}"
-              ContentDetail.GARBAGE_SERVICE -> "GARBAGE_SERVICE_9997_${baseUIState.addressId}_${baseUIState.uid}"
-              else -> "${service.contentDetail.name}_${baseUIState.addressId}_${baseUIState.uid}"
-            }
-            val count = unreadCounts[chatId] ?: 0
-            Box(modifier = Modifier.fillMaxWidth()) {
-              Button(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
-                onClick = {
-                  if (isForwardingMode) {
-                    Log.d("YkisLog", "$methodName: [FORWARD_TO_SERVICE] ${service.contentDetail}")
-                    chatViewModel.confirmForwardToService(service.contentDetail, baseUIState)
-                  } else {
-                    Log.d("YkisLog", "$methodName: [OPEN_SERVICE_CHAT] Path: $chatId")
-                    onServiceClick(service)
-                  }
-                }
-              ) {
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.spacedBy(12.dp),
-                  verticalAlignment = Alignment.CenterVertically
-                ) {
-                  Icon(imageVector = service.icon, contentDescription = null, modifier = Modifier.size(24.dp))
-                  Text(
-                    modifier = Modifier.weight(1f),
-                    text = service.name,
-                    textAlign = TextAlign.Start,
-                    style = MaterialTheme.typography.titleMedium
-                  )
-                }
-              }
-              if (count > 0 && !isForwardingMode) {
-                Surface(
-                  modifier = Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp),
-                  shape = CircleShape,
-                  color = MaterialTheme.colorScheme.error,
-                  tonalElevation = 4.dp
-                ) {
-                  Text(
-                    text = if (count > 9) "9+" else count.toString(),
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = MaterialTheme.colorScheme.onError,
-                    fontWeight = FontWeight.Bold
-                  )
-                }
-              }
-            }
-          }
+    // 4. КОНТЕНТ (Унифицированный)
+    val finalUserList = if (baseUIState.userRole == UserRole.StandardUser) {
+      Log.d("YkisLog", "UserListScreen: [MAPPING_START] Трансформация ${baseUIState.apartments.size} квартир для Жильца")
+
+      // Для жильца превращаем его квартиры в сущности пользователей для списка
+      baseUIState.apartments.map { apt ->
+        val mappedUser = UserEntity(
+          uid = baseUIState.uid ?: "",
+          address = apt.address,
+          addressId = apt.addressId,
+          osbbId = apt.osmdId, // ПРОВЕРЬ: это поле должно быть 3 для твоего ОСББ
+          displayName = apt.address,
+          userRole = UserRole.StandardUser,
+          nanim = apt.nanim ?: ""
+        )
+
+        Log.v("YkisLog", "UserListScreen: [MAP_ITEM] Кв: ${apt.address} | ID: ${apt.addressId} | OsbbID: ${apt.osmdId} | MyUID: ${baseUIState.uid?.takeLast(5)}")
+
+        mappedUser
+      }.filter {
+        val matches = it.address.contains(searchQuery, ignoreCase = true)
+        if (searchQuery.isNotEmpty()) {
+          Log.v("YkisLog", "UserListScreen: [FILTER] '${it.address}' -> $matches")
         }
+        matches
       }
+    } else {
+      Log.d("YkisLog", "UserListScreen: [ADMIN_MODE] Используем готовый список из ${userList.size} чел.")
+      userList
     }
+
+    Log.d("YkisLog", "UserListScreen: [MAPPING_FINISH] Итого строк в списке: ${finalUserList.size}")
+
+
+    UserList(
+      userList = finalUserList,
+      baseUIState = baseUIState,
+      onUserClick = { user ->
+        if (isForwardingMode) {
+          chatViewModel.confirmForward(user)
+        } else {
+          Log.d("YkisLog", "$methodName: [OPEN_CHAT] Addr: ${user.address}")
+          onUserClicked(user)
+        }
+      },
+      chatViewModel = chatViewModel
+    )
   }
 }
+
 
 
 

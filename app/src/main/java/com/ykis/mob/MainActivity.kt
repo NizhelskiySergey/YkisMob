@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.room.jarjarred.org.antlr.v4.runtime.misc.MurmurHash.finish
 import com.google.firebase.messaging.FirebaseMessaging
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.chat.ChatViewModel
@@ -52,15 +53,17 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
 
     // 1. Инициализация уведомлений
-    createNotificationChannel() // КРИТИЧНО: создаем канал ДО запроса разрешений
+    createNotificationChannel()
     requestNotificationPermission()
-
     enableEdgeToEdge()
 
-    // 2. Считываем данные из пуша (если приложение было убито)
+    // 2. Считываем данные из пуша для холодного старта
     val startChatId = intent.getStringExtra("chatId")
     if (!startChatId.isNullOrEmpty()) {
-      processChatDeepLink(startChatId) // Вызываем обработку
+      Log.i("YkisLog", "MainActivity: [COLD_START] Обнаружен chatId в пуше: $startChatId")
+      // Мы НЕ вызываем processChatDeepLink здесь напрямую,
+      // так как это может вызвать конфликт до инициализации Compose.
+      // Вместо этого прокидываем его в YkisPamApp через initialChatId.
     }
 
     setContent {
@@ -75,6 +78,7 @@ class MainActivity : ComponentActivity() {
           modifier = Modifier.fillMaxSize(),
           color = MaterialTheme.colorScheme.background
         ) {
+          // Важно: initialChatId обработает навигацию внутри Compose
           YkisPamApp(
             windowSize = windowSize,
             displayFeatures = displayFeatures,
@@ -85,125 +89,99 @@ class MainActivity : ComponentActivity() {
     }
 
     setupDoubleBackExit()
-
-    // 3. Регистрация токена для MySQL базы (чтобы сервер знал куда слать)
     addFcmToken()
   }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
-    setIntent(intent)
+    setIntent(intent) // Перезаписываем интент для корректного считывания
 
     val chatId = intent.getStringExtra("chatId")
     if (!chatId.isNullOrEmpty()) {
-      Log.d("YkisLog", "MainActivity: [NEW_INTENT] Получен chatId: $chatId")
+      Log.i("YkisLog", "MainActivity: [NEW_INTENT] Получен клик по пушу (фон): $chatId")
 
-      // 1. Извлекаем ID квартиры из строки пути (OSBB_3_1336_UID -> берем 1336)
-      val parts = chatId.split("_")
-      if (parts.size >= 3) {
-        val addressIdFromPush = parts[parts.size - 2].toIntOrNull() ?: 0
-
-        if (addressIdFromPush != 0) {
-          // Получаем ViewModel-и через Koin (убедись, что они доступны в MainActivity)
-          val apartmentViewModel: ApartmentViewModel by inject()
-          val chatViewModel: ChatViewModel by inject()
-
-          Log.d("YkisLog", "MainActivity: [PUSH_REDIRECT] Переключение на квартиру: $addressIdFromPush")
-
-          // 2. КРИТИЧЕСКИЙ ШАГ: Меняем активную квартиру
-          apartmentViewModel.setAddressId(addressIdFromPush)
-
-          // 3. Устанавливаем "сигнал" для навигации в Compose
-          // Мы передаем chatId во ViewModel, а RootNavGraph (или YkisPamApp)
-          // увидит это через LaunchedEffect и сделает navController.navigate
-          chatViewModel.setPendingPushChatId(chatId)
-        }
-      }
+      // Обработка переключения квартиры и сигнала для навигации
+      processChatDeepLink(chatId)
     }
   }
 
+  private fun processChatDeepLink(chatId: String?) {
+    if (chatId.isNullOrBlank()) return
+
+    Log.d("YkisLog", "MainActivity: [PROCESS_DEEP_LINK] Начало парсинга: $chatId")
+
+    try {
+      // Парсим адрес из строки (например: WATER_SERVICE_9999_1336_UID)
+      val parts = chatId.split("_")
+      if (parts.size >= 3) {
+        // Извлекаем addressId (предпоследний элемент)
+        val addressId = parts[parts.size - 2].toIntOrNull() ?: 0
+
+        if (addressId != 0) {
+          // Получаем ViewModel через Koin принудительно
+          val apartmentViewModel: ApartmentViewModel by inject()
+          val chatViewModel: ChatViewModel by inject()
+
+          Log.d("YkisLog", "MainActivity: [REDIRECT] Переключаем квартиру на ID: $addressId")
+          apartmentViewModel.setAddressId(addressId)
+
+          Log.d("YkisLog", "MainActivity: [REDIRECT] Установка сигнала навигации для ChatId: $chatId")
+          chatViewModel.setPendingPushChatId(chatId)
+        } else {
+          Log.w("YkisLog", "MainActivity: [PARSING_ERROR] Не удалось вычислить addressId из $chatId")
+        }
+      }
+    } catch (e: Exception) {
+      Log.e("YkisLog", "MainActivity: [FATAL_DEEP_LINK] Ошибка: ${e.message}")
+    }
+  }
 
   private fun createNotificationChannel() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       val channelId = "chat_messages"
       val name = "Повідомлення чату"
-      val importance = NotificationManager.IMPORTANCE_HIGH
-      val channel = NotificationChannel(channelId, name, importance).apply {
+      val channel = NotificationChannel(channelId, name, NotificationManager.IMPORTANCE_HIGH).apply {
         description = "Сповіщення про нові повідомлення в системі"
-        // Включаем вибрацию и звук для HIGH важности
         enableLights(true)
         lightColor = android.graphics.Color.RED
         enableVibration(true)
       }
-      val notificationManager = getSystemService(NotificationManager::class.java)
-      notificationManager.createNotificationChannel(channel)
-      Log.d("YkisLog", "MainActivity: [NOTIF] Канал 'chat_messages' создан")
+      getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+      Log.d("YkisLog", "MainActivity: [NOTIF] Канал 'chat_messages' готов")
     }
   }
 
   private fun requestNotificationPermission() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-      val hasPermission = ContextCompat.checkSelfPermission(
-        this,
-        Manifest.permission.POST_NOTIFICATIONS
-      ) == PackageManager.PERMISSION_GRANTED
-
-      if (!hasPermission) {
-        Log.d("YkisLog", "MainActivity: [NOTIF] Запрос разрешения на уведомления")
-        ActivityCompat.requestPermissions(
-          this,
-          arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-          101
-        )
+      val status = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+      if (status != PackageManager.PERMISSION_GRANTED) {
+        Log.d("YkisLog", "MainActivity: [NOTIF] Запрос прав на уведомления")
+        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
       }
     }
   }
 
   private fun addFcmToken() {
     FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-      if (!task.isSuccessful) {
-        Log.w("YkisLog", "MainActivity: [FCM] Ошибка получения токена", task.exception)
-        return@addOnCompleteListener
-      }
-      val token = task.result
-      Log.d("YkisLog", "MainActivity: [FCM] Актуальный токен: $token")
-      // Здесь отправь token в свою ViewModel -> Repository -> API (MySQL)
-    }
-  }
-  private fun processChatDeepLink(chatId: String?) {
-    if (chatId.isNullOrBlank()) return
-
-    Log.d("YkisLog", "MainActivity: [DEEP_LINK] Обработка пути: $chatId")
-
-    // Парсим адрес из строки (второе число с конца: OSBB_3_1336_UID)
-    val parts = chatId.split("_")
-    if (parts.size >= 3) {
-      val addressId = parts[parts.size - 2].toIntOrNull() ?: 0
-      if (addressId != 0) {
-        // КРИТИЧНО: Переключаем квартиру во ViewModel
-        // Тебе нужно получить доступ к apartmentViewModel (через Koin или inject)
-        val apartmentViewModel: ApartmentViewModel by inject()
-        apartmentViewModel.setAddressId(addressId)
-        Log.d("YkisLog", "MainActivity: [DEEP_LINK] Квартира переключена на $addressId")
+      if (task.isSuccessful) {
+        Log.d("YkisLog", "MainActivity: [FCM] Токен: ${task.result}")
       }
     }
   }
 
   private fun setupDoubleBackExit() {
     onBackPressedDispatcher.addCallback(this) {
-      if (backPressedOnce) {
-        finish()
-        return@addCallback
-      }
+      if (backPressedOnce) { finish(); return@addCallback }
       Toast.makeText(applicationContext, getString(R.string.exit_app), Toast.LENGTH_SHORT).show()
       backPressedOnce = true
       pressBackExitJob?.cancel()
-      pressBackExitJob = lifecycleScope.launch {
-        delay(2000)
-        backPressedOnce = false
-      }
+      pressBackExitJob = lifecycleScope.launch { delay(2000); backPressedOnce = false }
     }
   }
 }
+
+
+
+
 
 

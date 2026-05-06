@@ -8,48 +8,36 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddHome
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Domain
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ykis.mob.R
-import com.ykis.mob.core.ext.truncate
 import com.ykis.mob.domain.UserRole
-import com.ykis.mob.domain.apartment.ApartmentEntity
-import com.ykis.mob.domain.apartment.RaionEntity
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.navigation.AddApartmentScreen
-import com.ykis.mob.ui.navigation.NAV_RAIL_DESTINATIONS
-import com.ykis.mob.ui.navigation.RaionDropdownSelector
 import com.ykis.mob.ui.navigation.UserListScreen
+import com.ykis.mob.ui.navigation.getNavDestinations
 import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.appartment.ListMode
 import com.ykis.mob.ui.screens.chat.ChatViewModel
@@ -292,43 +280,48 @@ fun ApartmentNavigationRail(
       ) {
         HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
 
-        NAV_RAIL_DESTINATIONS.forEach { destination ->
-          // Условие видимости
+        // 1. Получаем динамический список дестинаций на основе роли
+        val navDestinations = getNavDestinations(role = baseUIState.userRole)
+
+        navDestinations.forEach { destination ->
+          // Условие видимости: всегда видимые (настройки) или если есть квартиры/выбран адрес
           val shouldShow = destination.alwaysVisible || !isApartmentsEmpty
 
           if (shouldShow) {
-            val isSelected =
-              selectedDestination.substringBefore("/") == destination.route.substringBefore("/")
+            val isSelected = selectedDestination.substringBefore("/") == destination.route.substringBefore("/")
 
             NavigationRailItem(
               selected = isSelected,
               onClick = {
-                // ЛОГ КЛИКА: это покажет, доходит ли нажатие до системы
-                Log.d(
-                  "YkisLog",
-                  "Rail: [CLICK] Target: ${destination.route} | Current: $selectedDestination | isSelected: $isSelected"
-                )
+                Log.d("YkisLog", "Rail: [CLICK] Target: ${destination.route} | Role: ${baseUIState.userRole}")
 
-                // Вызываем навигацию
+                // Если жилец нажимает на чат, сбрасываем выбор службы для чистого входа
+                if (destination.route == "service_selector") {
+                  chatViewModel.setSelectedService(null)
+                }
+
                 navigateToDestination(destination.route)
               },
               icon = {
                 BadgedBox(
                   badge = {
-                    val isChat =
-                      destination.route == "UserListScreen" || destination.route.contains(
-                        "chat",
-                        true
-                      )
-                    if (isChat && totalUnread > 0) {
-                      Badge { Text(totalUnread.toString()) }
+                    // 2. УНИВЕРСАЛЬНАЯ ПРОВЕРКА БЕЙДЖА
+                    val isChatRoute = destination.route == "service_selector" ||
+                      destination.route == UserListScreen.route
+
+                    if (isChatRoute && totalUnread > 0) {
+                      Badge(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                      ) {
+                        Text(text = if (totalUnread > 9) "9+" else totalUnread.toString())
+                      }
                     }
                   }
                 ) {
-                  // Меняем иконку на закрашенную при выборе для наглядности
                   Icon(
                     imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
-                    contentDescription = null
+                    contentDescription = stringResource(destination.labelId)
                   )
                 }
               },
@@ -337,12 +330,10 @@ fun ApartmentNavigationRail(
               } else null,
               alwaysShowLabel = false
             )
-          } else {
-            // Лог для скрытых элементов (поможет понять, почему кнопка исчезла, если вдруг исчезнет)
-            // Log.v("YkisLog", "Rail: [HIDDEN] ${destination.route} (isApartmentsEmpty: $isApartmentsEmpty)")
           }
         }
       }
+
     }
 
 

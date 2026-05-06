@@ -43,14 +43,22 @@ fun UserList(
   val latestMessages by chatViewModel.lastMessages.collectAsStateWithLifecycle()
   val unreadCounts by chatViewModel.unreadCounts.collectAsStateWithLifecycle()
 
-  // 1. Оптимизированный расчет списка
-  val userWithMessages = remember<List<UserWithLatestMessage>>(userList, latestMessages, unreadCounts) {
+  // Получаем префикс службы, выбранный жильцом на предыдущем экране
+  val selectedPrefix by chatViewModel.selectedServicePrefix.collectAsStateWithLifecycle()
+
+  val userWithMessages = remember<List<UserWithLatestMessage>>(userList, latestMessages, unreadCounts, selectedPrefix) {
     val methodName = "UserList.Mapping"
-    Log.d("YkisLog", "$methodName: [START] Пересчет для ${userList.size} строк")
+    Log.d("YkisLog", "$methodName: [START] Роль: ${baseUIState.userRole} | Prefix: $selectedPrefix")
 
     userList.map { user ->
-      // ГАРАНТИРУЕМ точное совпадение ключей с ViewModel (trackUserIdentifiersWithRole)
+      // ГЕНЕРАЦИЯ КЛЮЧА
       val chatId = when (baseUIState.userRole) {
+        UserRole.StandardUser -> {
+          // КЛЮЧ ДЛЯ ЖИЛЬЦА: Берем префикс выбранной службы (OSBB, WATER и т.д.)
+          val prefix = selectedPrefix ?: "UNKNOWN"
+          "${prefix}_${user.osbbId ?: 0}_${user.addressId}_${user.uid}"
+        }
+        // КЛЮЧИ ДЛЯ АДМИНОВ (Оставляем как было)
         UserRole.VodokanalUser -> "WATER_SERVICE_9999_${user.addressId}_${user.uid}"
         UserRole.YtkeUser      -> "WARM_SERVICE_9998_${user.addressId}_${user.uid}"
         UserRole.TboUser       -> "GARBAGE_SERVICE_9997_${user.addressId}_${user.uid}"
@@ -61,18 +69,13 @@ fun UserList(
       val lastMsg = latestMessages[chatId]
       val count = unreadCounts[chatId] ?: 0
 
-      // Если сообщения еще нет в кэше, создаем временный объект, чтобы не было пустоты
-      val safeMsg = lastMsg ?: MessageEntity(text = "", timestamp = 0L)
+      Log.v("YkisLog", "$methodName: [MAP_CHECK] Кв: ${user.addressId} | Ключ: $chatId | Count: $count")
 
-      // Важно: если в сообщении пришел адрес (senderAddress), приоритет ему
+      val safeMsg = lastMsg ?: MessageEntity(text = "", timestamp = 0L)
       val stableDisplayName = if (!safeMsg.senderAddress.isNullOrBlank()) {
         safeMsg.senderAddress
       } else {
         user.displayName ?: "Користувач (о/р ${user.addressId})"
-      }
-
-      if (lastMsg != null) {
-        Log.v("YkisLog", "$methodName: [MATCH_OK] Ключ: $chatId | Текст: ${lastMsg.text?.take(10)}")
       }
 
       UserWithLatestMessage(
@@ -82,12 +85,12 @@ fun UserList(
         chatId = chatId
       )
     }.sortedWith(
-      // Сначала те, где есть непрочитанные, потом самые свежие по времени
       compareByDescending<UserWithLatestMessage> { it.unreadCount > 0 }
         .thenByDescending { it.latestMessage.timestamp }
     )
   }
 
+  // ... Отрисовка LazyColumn (без изменений) ...
   LazyColumn(
     modifier = modifier.fillMaxSize(),
     contentPadding = PaddingValues(vertical = 8.dp)
@@ -102,28 +105,24 @@ fun UserList(
 
     items(
       items = userWithMessages,
-      key = { it.chatId } // Ключ позволяет Compose анимировать перемещение строк
+      key = { it.chatId }
     ) { item ->
       Box(
         modifier = Modifier
           .fillMaxWidth()
-          .animateItem() // Добавляет плавность при перестановке (новые чаты летят вверх)
+          .animateItem()
           .padding(horizontal = 8.dp, vertical = 2.dp)
       ) {
         UserListItem(
           it = item.user,
           onUserClick = onUserClick,
-          // Передаем null, если сообщения реально нет (для отображения "Нет сообщений")
           lastMessage = if (item.latestMessage.timestamp > 0L) item.latestMessage else null,
           currentUid = baseUIState.uid.toString()
         )
 
-        // БЕЙДЖ (Красный индикатор)
         if (item.unreadCount > 0) {
           Surface(
-            modifier = Modifier
-              .align(Alignment.CenterEnd)
-              .padding(end = 16.dp),
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.error,
             tonalElevation = 6.dp
@@ -141,6 +140,7 @@ fun UserList(
     }
   }
 }
+
 
 
 

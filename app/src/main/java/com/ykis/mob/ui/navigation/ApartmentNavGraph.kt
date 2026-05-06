@@ -56,6 +56,7 @@ import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
 import com.ykis.mob.ui.screens.appartment.InfoApartmentScreen
 import com.ykis.mob.ui.screens.chat.ChatScreenStateful
 import com.ykis.mob.ui.screens.chat.ChatViewModel
+import com.ykis.mob.ui.screens.chat.ServiceSelectorScreen
 import com.ykis.mob.ui.screens.chat.UserListScreen
 import com.ykis.mob.ui.screens.meter.MainMeterScreen
 import com.ykis.mob.ui.screens.meter.MeterViewModel
@@ -233,10 +234,11 @@ fun MainApartmentScreen(
           if (showBottomBar) {
             BottomNavigationBar(
               selectedDestination = selectedDestination,
-              chatViewModel = chatViewModel,
               onClick = { dest ->
                 navController.navigateWithPopUp(dest, firstDestination)
-              }
+              },
+              chatViewModel = chatViewModel,
+              baseUIState = baseUIState,
             )
           }
         }
@@ -325,10 +327,9 @@ fun ApartmentNavGraph(
         startDestination = firstDestination
       ) {
         composable(UserListScreen.route) {
-          // 1. Мониторинг веток для админа (с учетом системных ID служб)
+          // 1. МОНИТОРИНГ: Только для админов (подгрузка списка жильцов/заявок)
           LaunchedEffect(baseUIState.userRole, baseUIState.osbbId) {
             val role = baseUIState.userRole
-            // Запускаем трекер ТОЛЬКО если это не жилец
             if (role != UserRole.StandardUser) {
               val effectiveOsbbId = when (role) {
                 UserRole.VodokanalUser -> 9999
@@ -336,7 +337,7 @@ fun ApartmentNavGraph(
                 UserRole.TboUser -> 9997
                 else -> baseUIState.osbbId ?: 0
               }
-              Log.d("YkisLog", "NavGraph: [TRACKING_START] Role: $role, ID: $effectiveOsbbId")
+              Log.d("YkisLog", "NavGraph: [ADMIN_TRACK] Role: $role, OrgID: $effectiveOsbbId")
               chatViewModel.trackUserIdentifiersWithRole(role, effectiveOsbbId)
             }
           }
@@ -348,46 +349,47 @@ fun ApartmentNavGraph(
             navigationType = navigationType,
             onDrawerClicked = onDrawerClicked,
 
-            // КЛИК АДМИНА: Открываем чат и ПРИНУДИТЕЛЬНО меняем адрес в Rail/Инфо
-            onUserClicked = { resident ->
+            // УНИВЕРСАЛЬНЫЙ КЛИК:
+            // Для админа это выбор ЖИЛЬЦА, для жильца — выбор своей КВАРТИРЫ
+            onUserClicked = { selectedItem ->
               val role = baseUIState.userRole
-              val sysId = when (role) {
-                UserRole.VodokanalUser -> 9999
-                UserRole.YtkeUser -> 9998
-                UserRole.TboUser -> 9997
-                else -> baseUIState.osbbId ?: 0
+
+              if (role == UserRole.StandardUser) {
+                // ЛОГИКА ЖИЛЬЦА: Клик по своей квартире в списке
+                Log.d("YkisLog", "NavGraph: [RESIDENT_ACTION] Выбрана квартира: ${selectedItem.address}")
+
+                // 1. Синхронизируем глобальный адрес (чтобы счетчики/инфо обновились)
+                apartmentViewModel.setAddressId(selectedItem.addressId)
+
+                // 2. Инициализируем загрузку чата
+                chatViewModel.readFromDatabase(
+                  role = role,
+                  senderUid = baseUIState.uid ?: "",
+                  osbbId = selectedItem.osbbId ?: baseUIState.osbbId ?: 0,
+                  addressId = selectedItem.addressId
+                )
+              } else {
+                // ЛОГИКА АДМИНА: Клик по жильцу
+                val sysId = when (role) {
+                  UserRole.VodokanalUser -> 9999
+                  UserRole.YtkeUser -> 9998
+                  UserRole.TboUser -> 9997
+                  else -> baseUIState.osbbId ?: 0
+                }
+                Log.d("YkisLog", "NavGraph: [ADMIN_ACTION] Клик по жильцу: ${selectedItem.displayName}")
+                chatViewModel.openChatWithUser(selectedItem, role, sysId)
               }
 
-              Log.d(
-                "YkisLog",
-                "NavGraph: [ADMIN_ACTION] Клик по жильцу: ${resident.displayName}, о/р: ${resident.addressId}"
-              )
-
-              chatViewModel.openChatWithUser(
-                user = resident,
-                currentRole = role,
-                currentOsbbId = sysId
-              )
+              // ОБЩИЙ ПЕРЕХОД: в экран сообщений
               rootNavController.navigate(ChatScreenDest.route)
             },
 
-            // КЛИК ЖИЛЬЦА: Пишем в конкретную службу из своей квартиры
-            onServiceClick = { service ->
-              Log.d(
-                "YkisLog",
-                "NavGraph: [USER_ACTION] Чат со службой: ${service.contentDetail.name}"
-              )
-              chatViewModel.setSelectedService(service)
-              chatViewModel.readFromDatabase(
-                role = baseUIState.userRole,
-                senderUid = baseUIState.uid ?: "",
-                osbbId = baseUIState.osbbId ?: 0,
-                addressId = baseUIState.addressId
-              )
-              rootNavController.navigate(ChatScreenDest.route)
-            }
+            // Этот коллбек для жильца в UserListScreen больше не используется,
+            // так как выбор службы теперь происходит на ServiceSelectorScreen
+//            onServiceClick = { }
           )
         }
+
 
         composable(AddApartmentScreen.route) {
           AddApartmentScreenContent(
@@ -450,6 +452,32 @@ fun ApartmentNavGraph(
               navigationType = navigationType
             )
           }
+        }
+// Внутри NavHost
+        composable("service_selector") {
+          ServiceSelectorScreen(
+            baseUIState = baseUIState,
+            chatViewModel = chatViewModel,
+            navigationType = navigationType,
+            onDrawerClicked = onDrawerClicked,
+            // В ApartmentNavGraph внутри ServiceSelectorScreen
+            onServiceClick = { service ->
+              chatViewModel.setSelectedService(service)
+
+              // Генерируем список ключей для всех квартир жильца под выбранную службу
+              val chatKeys = baseUIState.apartments.map { apt ->
+                val prefix = service.contentDetail.name
+                val osbbId = apt.osmdId ?: 0
+                "${prefix}_${osbbId}_${apt.addressId}_${baseUIState.uid}"
+              }
+
+              // КРИТИЧНО: Запускаем прослушку превью сообщений
+              chatViewModel.subscribeToLastMessages(chatKeys)
+
+              navController.navigate(UserListScreen.route)
+            }
+
+          )
         }
 
         composable(ChatScreenDest.route) {
