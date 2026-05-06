@@ -332,7 +332,12 @@ class ChatViewModel(
   // Флаг для UI: показываем ли мы кнопку "Выбрать" в списке пользователей
   val isForwardingMode =
     _forwardingMessage.map { it != null }.stateIn(viewModelScope, SharingStarted.Lazily, false)
+  private val _pendingPushChatId = MutableStateFlow<String?>(null)
+  val pendingPushChatId = _pendingPushChatId.asStateFlow()
 
+  fun setPendingPushChatId(id: String?) {
+    _pendingPushChatId.value = id
+  }
   fun onSearchQueryChanged(query: String) {
     _searchQuery.value = query
   }
@@ -960,25 +965,19 @@ class ChatViewModel(
 
   fun markMessagesAsRead(chatId: String) {
     val methodName = "ChatViewModel.markMessagesAsRead"
-    Log.d("YkisLog", "$methodName: [START] Попытка прочтения для $chatId") // ДОБАВИТЬ ЭТОТ ЛОГ
-
     val myUid = chatRepo.currentUid ?: run {
       Log.e("YkisLog", "$methodName: [ABORT] UID пустой")
       return
     }
 
-    if (chatId.isBlank()) {
-      Log.e("YkisLog", "$methodName: [ERROR] Пустой chatId")
-      return
-    }
+    if (chatId.isBlank()) return
 
     viewModelScope.launch(Dispatchers.IO) {
       try {
-        Log.d("YkisLog", "$methodName: [START] Проверка ветки $chatId")
+        Log.d("YkisLog", "$methodName: [START] Проверка ветки $chatId | Я: $myUid")
 
         val ref = chatsReference.child(chatId)
-
-        // 1. Получаем последние 50 сообщений одним запросом
+        // Берем последние сообщения
         val snapshot = ref.limitToLast(50).get().await()
 
         if (!snapshot.exists()) {
@@ -987,39 +986,45 @@ class ChatViewModel(
         }
 
         val updates = mutableMapOf<String, Any>()
-        var incomingCount = 0
+        var foundUnread = 0
 
-        // 2. Ищем сообщения, которые прислали НАМ (senderUid != myUid) и которые еще не прочитаны
         snapshot.children.forEach { child ->
-          val msg = child.getValue(MessageEntity::class.java)
+          // Работаем напрямую со снимком, чтобы исключить ошибки модели
+          val senderUid = child.child("senderUid").value?.toString() ?: ""
+          val isRead = child.child("read").value as? Boolean ?: false
           val msgKey = child.key
 
-          if (msg != null && msgKey != null) {
-            if (msg.senderUid != myUid && !msg.read) {
-              updates["$msgKey/read"] = true
-              incomingCount++
+          if (msgKey != null) {
+            // ЛОГИРУЕМ КАЖДОЕ НЕПРОЧИТАННОЕ ДЛЯ АНАЛИЗА
+            if (!isRead) {
+              Log.v("YkisLog", "$methodName: [MSG_SCAN] Ключ: $msgKey | От: $senderUid | Я: $myUid")
+
+              // Если отправитель — НЕ я, значит это ВХОДЯЩЕЕ, которое я должен прочитать
+              if (senderUid != myUid && senderUid.isNotBlank()) {
+                updates["$msgKey/read"] = true
+                foundUnread++
+              }
             }
           }
         }
 
-        // 3. Если есть что обновлять — пишем в базу
         if (updates.isNotEmpty()) {
-          Log.d("YkisLog", "$methodName: [PROCESS] Читаем $incomingCount сообщ.")
+          Log.d("YkisLog", "$methodName: [PROCESS] Обновляем статус для $foundUnread сообщений")
           ref.updateChildren(updates).await()
 
           withContext(Dispatchers.Main) {
-            // Мгновенно обнуляем бейдж в UI
             _unreadCounts.update { it + (chatId to 0) }
-            Log.d("YkisLog", "$methodName: [SUCCESS] Счетчик обнулен")
+            Log.d("YkisLog", "$methodName: [SUCCESS] База и бейдж обновлены")
           }
         } else {
-          Log.d("YkisLog", "$methodName: [SKIP] Новых сообщений нет")
+          Log.d("YkisLog", "$methodName: [SKIP] Входящих непрочитанных не найдено")
         }
       } catch (e: Exception) {
-        Log.e("YkisLog", "$methodName: [FATAL] ${e.message}")
+        Log.e("YkisLog", "$methodName: [FATAL] Ошибка: ${e.message}")
       }
     }
   }
+
 
 
   // ChatViewModel.kt
@@ -1349,49 +1354,60 @@ class ChatViewModel(
     val methodName = "ChatViewModel.readFromDatabase"
     val myUid = chatRepo.currentUid ?: ""
 
-    // 1. ГЕНЕРАЦИЯ ПУТИ
-    val effectiveOsbbId = if (role == UserRole.VodokanalUser) 9999
-    else if (role == UserRole.YtkeUser) 9998
-    else if (role == UserRole.TboUser) 9997
-    else osbbId
+    val effectiveOsbbId = when (role) {
+      UserRole.VodokanalUser -> 9999
+      UserRole.YtkeUser -> 9998
+      UserRole.TboUser -> 9997
+      else -> osbbId
+    }
 
     val targetPath = getChatPath(role, effectiveOsbbId, addressId, if (role != UserRole.StandardUser) senderUid else null)
     val currentRef = chatsReference.child(targetPath)
 
-    // 2. ЖЕСТКИЙ СБРОС (чтобы не было пустых экранов при перезаходе)
-    // Если мы заходим в тот же чат, но сообщений в State нет - игнорируем SKIP
     if (currentChatPath == targetPath && listeners.containsKey(currentRef) && _firebaseTest.value.isNotEmpty()) {
-      Log.d("YkisLog", "$methodName: [SKIP] Чат уже полностью загружен")
+      Log.d("YkisLog", "$methodName: [SKIP] Чат уже активен")
       return
     }
 
     Log.d("YkisLog", "$methodName: [FORCE_INIT] Открываем: $targetPath")
 
     currentChatPath = targetPath
-    _firebaseTest.value = emptyList() // Очищаем экран немедленно
+    _firebaseTest.value = emptyList()
 
-    // 3. ЧИСТИМ СТАРЫЕ СЛУШАТЕЛИ (только чатовые)
     listeners.forEach { (ref, listener) -> ref.removeEventListener(listener) }
     listeners.clear()
 
     val listener = object : ValueEventListener {
       override fun onDataChange(snapshot: DataSnapshot) {
-        // Если пока шел ответ, путь сменился - выходим
         if (currentChatPath != targetPath) return
 
-        val rawMessages = snapshot.children.mapNotNull { it.getValue(MessageEntity::class.java) }
+        viewModelScope.launch(Dispatchers.Default) {
+          val rawMessages = snapshot.children.mapNotNull { it.getValue(MessageEntity::class.java) }
 
-        // Фильтруем и сортируем прямо в Main (для 2-50 сообщений это мгновенно и надежнее)
-        val filtered = rawMessages.filter { msg ->
-          msg.deletedFor == null || !msg.deletedFor.contains(myUid)
-        }.sortedBy { it.timestamp }
+          val filtered = rawMessages.filter { msg ->
+            msg.deletedFor == null || !msg.deletedFor.contains(myUid)
+          }.sortedBy { it.timestamp }
 
-        _firebaseTest.value = filtered
-        Log.d("YkisLog", "$methodName: [SUCCESS] UI_READY. Сообщений: ${filtered.size}")
+          // --- ЛОГ ДЛЯ ПРОВЕРКИ СТАТУСА ПРОЧТЕНИЯ ---
+          val lastMsg = filtered.lastOrNull()
+          if (lastMsg != null) {
+            Log.v("YkisLog", "$methodName: [DATA_CHANGE] Посл. сообщ: '${lastMsg.text?.take(10)}...', Read: ${lastMsg.read}, От: ${lastMsg.senderUid}")
+          }
 
-        // Auto-read
-        filtered.lastOrNull()?.let { last ->
-          if (last.senderUid != myUid && !last.read) markMessagesAsRead(targetPath)
+          withContext(Dispatchers.Main) {
+            // Принудительно обновляем список.
+            // Если UI не видит изменений, попробуй: .toList() для создания новой ссылки на список
+            _firebaseTest.value = filtered.toList()
+            Log.d("YkisLog", "$methodName: [SUCCESS] UI_READY. Сообщений: ${filtered.size}")
+
+            // Auto-read (если мы получатели)
+            lastMsg?.let { last ->
+              if (last.senderUid != myUid && !last.read) {
+                Log.d("YkisLog", "$methodName: [AUTO_READ] Обнаружено новое входящее")
+                markMessagesAsRead(targetPath)
+              }
+            }
+          }
         }
       }
 
@@ -1403,10 +1419,10 @@ class ChatViewModel(
     currentRef.addValueEventListener(listener)
     listeners[currentRef] = listener
 
-    // Запускаем сопутствующие службы
     markMessagesAsRead(targetPath)
     observeTypingStatus(targetPath)
   }
+
 
 
 

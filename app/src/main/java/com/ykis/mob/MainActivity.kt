@@ -37,6 +37,9 @@ import org.koin.compose.viewmodel.koinViewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import com.google.firebase.messaging.FirebaseMessaging
+import com.ykis.mob.ui.screens.appartment.ApartmentViewModel
+import com.ykis.mob.ui.screens.chat.ChatViewModel
+import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
 
@@ -57,7 +60,7 @@ class MainActivity : ComponentActivity() {
     // 2. Считываем данные из пуша (если приложение было убито)
     val startChatId = intent.getStringExtra("chatId")
     if (!startChatId.isNullOrEmpty()) {
-      Log.d("YkisLog", "MainActivity: [START] Открываем чат из пуша: $startChatId")
+      processChatDeepLink(startChatId) // Вызываем обработку
     }
 
     setContent {
@@ -89,13 +92,36 @@ class MainActivity : ComponentActivity() {
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
-    setIntent(intent) // Важно для корректного получения extra данных позже
+    setIntent(intent)
+
     val chatId = intent.getStringExtra("chatId")
     if (!chatId.isNullOrEmpty()) {
-      Log.d("YkisLog", "MainActivity: [NEW_INTENT] Переход в чат: $chatId")
-      // Здесь должна быть логика триггера навигации в YkisPamApp
+      Log.d("YkisLog", "MainActivity: [NEW_INTENT] Получен chatId: $chatId")
+
+      // 1. Извлекаем ID квартиры из строки пути (OSBB_3_1336_UID -> берем 1336)
+      val parts = chatId.split("_")
+      if (parts.size >= 3) {
+        val addressIdFromPush = parts[parts.size - 2].toIntOrNull() ?: 0
+
+        if (addressIdFromPush != 0) {
+          // Получаем ViewModel-и через Koin (убедись, что они доступны в MainActivity)
+          val apartmentViewModel: ApartmentViewModel by inject()
+          val chatViewModel: ChatViewModel by inject()
+
+          Log.d("YkisLog", "MainActivity: [PUSH_REDIRECT] Переключение на квартиру: $addressIdFromPush")
+
+          // 2. КРИТИЧЕСКИЙ ШАГ: Меняем активную квартиру
+          apartmentViewModel.setAddressId(addressIdFromPush)
+
+          // 3. Устанавливаем "сигнал" для навигации в Compose
+          // Мы передаем chatId во ViewModel, а RootNavGraph (или YkisPamApp)
+          // увидит это через LaunchedEffect и сделает navController.navigate
+          chatViewModel.setPendingPushChatId(chatId)
+        }
+      }
     }
   }
+
 
   private fun createNotificationChannel() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -142,6 +168,24 @@ class MainActivity : ComponentActivity() {
       val token = task.result
       Log.d("YkisLog", "MainActivity: [FCM] Актуальный токен: $token")
       // Здесь отправь token в свою ViewModel -> Repository -> API (MySQL)
+    }
+  }
+  private fun processChatDeepLink(chatId: String?) {
+    if (chatId.isNullOrBlank()) return
+
+    Log.d("YkisLog", "MainActivity: [DEEP_LINK] Обработка пути: $chatId")
+
+    // Парсим адрес из строки (второе число с конца: OSBB_3_1336_UID)
+    val parts = chatId.split("_")
+    if (parts.size >= 3) {
+      val addressId = parts[parts.size - 2].toIntOrNull() ?: 0
+      if (addressId != 0) {
+        // КРИТИЧНО: Переключаем квартиру во ViewModel
+        // Тебе нужно получить доступ к apartmentViewModel (через Koin или inject)
+        val apartmentViewModel: ApartmentViewModel by inject()
+        apartmentViewModel.setAddressId(addressId)
+        Log.d("YkisLog", "MainActivity: [DEEP_LINK] Квартира переключена на $addressId")
+      }
     }
   }
 

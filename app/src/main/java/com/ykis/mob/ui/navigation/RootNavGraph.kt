@@ -12,6 +12,7 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,7 +91,22 @@ fun RootNavGraph(
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
   val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
   val isSettingsLoading by newSettingsViewModel.loading.collectAsStateWithLifecycle()
+  val pendingChatId by chatViewModel.pendingPushChatId.collectAsState()
   val currentFirebaseUid = firebaseService.uid
+
+
+  LaunchedEffect(pendingChatId) {
+    pendingChatId?.let { id ->
+      Log.d("YkisLog", "Compose: [NAV_PUSH] Выполняем переход в чат: $id")
+      // Твоя команда навигации, например:
+      // navController.navigate("chat_screen/$id")
+
+      // Обязательно сбрасываем маячок, чтобы не переходить повторно при повороте экрана
+      chatViewModel.setPendingPushChatId(null)
+    }
+  }
+
+
   // 1. ПЕРВИЧНАЯ ПРОВЕРКА СОГЛАСИЯ ПРИ ЗАПУСКЕ
   LaunchedEffect(Unit) {
     val methodName = "RootNavGraph.LaunchedEffect1"
