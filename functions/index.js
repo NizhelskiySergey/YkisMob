@@ -8,24 +8,21 @@ exports.sendChatNotification = functions.database
     const message = snapshot.val();
     const chatId = context.params.chatId;
 
-    console.log(`[EVENT] Обработка чата: ${chatId}`);
+    console.log(`[EVENT] Новое сообщение в: ${chatId}`);
 
     const parts = chatId.split("_");
-    const residentUid = parts[parts.length - 1];
+    const residentUid = parts[parts.length - 1]; // UID жильца всегда в конце
     const serviceId = parts.map((p) => parseInt(p)).find((n) => !isNaN(n));
 
-    let targetTokens = [];
+    let recipients = []; // Список объектов {uid, tokens}
     let finalTitle = "";
 
     // 1. ОПРЕДЕЛЯЕМ ПОЛУЧАТЕЛЕЙ И ЗАГОЛОВОК
     if (message.senderUid === residentUid) {
       // --- ПИШЕТ ЖИЛЕЦ (Админу) ---
-      // Заголовок для админа: "Адрес | Имя" (например: "Миру 26/20 | Коваль О.")
       const address = message.senderAddress || "";
       const name = message.senderDisplayedName || "Мешканець";
       finalTitle = address ? `${address} | ${name}` : name;
-
-      console.log(`Resident ${residentUid} -> Org ${serviceId}`);
 
       const adminsSnapshot = await admin.firestore()
         .collection("users")
@@ -33,30 +30,43 @@ exports.sendChatNotification = functions.database
         .get();
 
       adminsSnapshot.forEach((doc) => {
-        const tokens = doc.data().fcmTokens;
-        if (tokens) targetTokens.push(...tokens);
+        recipients.push({ uid: doc.id, tokens: doc.data().fcmTokens || [] });
       });
     } else {
       // --- ПИШЕТ АДМИН (Жильцу) ---
-      // Заголовок для жильца: Название службы (например: "КП Водоканал")
       finalTitle = message.senderDisplayedName || "Відповідь адміністратора";
-
-      console.log(`Admin -> Resident ${residentUid}`);
-
       const userDoc = await admin.firestore().collection("users").doc(residentUid).get();
       if (userDoc.exists) {
-        targetTokens = userDoc.data().fcmTokens || [];
+        recipients.push({ uid: residentUid, tokens: userDoc.data().fcmTokens || [] });
+      }
+    }
+
+    if (recipients.length === 0) return null;
+
+    // 2. ФИЛЬТРАЦИЯ ПО PRESENCE (Система тишины)
+    let targetTokens = [];
+    for (const recipient of recipients) {
+      const presenceSnapshot = await admin.database()
+        .ref(`presence/${chatId}/${recipient.uid}`)
+        .get();
+
+      // Если в базе presence/ID_ЧАТА/UID стоит true — пользователь в чате, пуш не нужен
+      if (presenceSnapshot.exists() && presenceSnapshot.val() === true) {
+        console.log(`[PRESENCE] UID ${recipient.uid} сейчас в чате. Пуш отменен.`);
+      } else {
+        targetTokens.push(...recipient.tokens);
       }
     }
 
     if (targetTokens.length === 0) {
-      console.log("No tokens found.");
+      console.log("[CANCEL] Все получатели онлайн в чате. Отправка не требуется.");
       return null;
     }
 
+    // Удаляем дубликаты токенов
     const uniqueTokens = [...new Set(targetTokens)];
 
-    // 2. ФОРМИРУЕМ ПАКЕТ (с фиксом бейджей и данных)
+    // 3. ФОРМИРУЕМ И ОТПРАВЛЯЕМ ПАКЕТ
     const multicastMessage = {
       tokens: uniqueTokens,
       notification: {
@@ -66,23 +76,19 @@ exports.sendChatNotification = functions.database
       android: {
         priority: "high",
         notification: {
-          channelId: "chat_messages", // Должен совпадать с MainActivity
-          notificationCount: 1,       // Бейдж для Android 11
+          channelId: "chat_messages",
+          notificationCount: 1,
           sound: "default",
         },
       },
-      data: {
-        chatId: chatId, // Для навигации при клике
-      },
+      data: { chatId: chatId },
     };
 
     try {
-      // Используем актуальный метод отправки
       const response = await admin.messaging().sendEachForMulticast(multicastMessage);
-      console.log(`Success! Sent ${response.successCount} pushes to ${uniqueTokens.length} devices.`);
+      console.log(`[PUSH] Успешно: ${response.successCount}. Пропущено по Presence: ${recipients.length - (response.successCount > 0 ? 1 : 0)}`);
     } catch (error) {
       console.error("FCM Error:", error);
     }
     return null;
   });
-

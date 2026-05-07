@@ -230,7 +230,7 @@ class ChatViewModel(
     _lastMessages,
     _searchQuery // 4-й поток для мгновенной фильтрации
   ) { keys, profiles, lastMsgs, query ->
-    Log.d("YkisLog", "ChatViewModel: [RECOMBINE] Ветки: ${keys.size} | Поиск: '$query'")
+    Log.d("YkisLog", "ChatViewModel.userList: [RECOMBINE] Ветки: ${keys.size} | Поиск: '$query'")
 
     // 1. Сборка полного списка объектов
     val fullList = keys.mapNotNull { key ->
@@ -246,7 +246,7 @@ class ChatViewModel(
 
       // Приоритет имени: 1. Адрес из сообщения, 2. Имя из профиля, 3. Заглушка
       val finalDisplayName = when {
-        !lastMsg?.senderAddress.isNullOrBlank() -> lastMsg?.senderAddress!!
+        !lastMsg?.senderAddress.isNullOrBlank() -> lastMsg.senderAddress
         profile != null -> profile.displayName ?: "Жилець (о/р $addrIdFromKey)"
         else -> "Користувач (о/р $addrIdFromKey)"
       }
@@ -1365,8 +1365,6 @@ class ChatViewModel(
       }
     }
   }
-
-
   /**
    * Подписывается на изменения в ветке чата в Realtime Database.
    * Фильтрует путь к данным в зависимости от роли (Жилец/Админ) и ID предприятия.
@@ -1374,26 +1372,55 @@ class ChatViewModel(
   // Во ViewModel добавь это поле (вне функций)
 
   // В ChatViewModel.kt
+  private var presenceRef: DatabaseReference? = null
+
+  fun setPresence(chatId: String, isOnline: Boolean) {
+    val methodName = "ChatVM.setPresence"
+    val myUid = chatRepo.currentUid ?: run {
+      Log.e("YkisLog", "$methodName Presence: [ERROR] UID пуст. Не могу поставить статус $isOnline")
+      return
+    }
+
+    val ref = FirebaseDatabase.getInstance().getReference("presence/$chatId/$myUid")
+
+    if (isOnline) {
+      Log.i("YkisLog", "$methodName Presence: [ON] Установка 'true' для ветки: $chatId")
+      ref.setValue(true).addOnFailureListener {
+        Log.e("YkisLog", "$methodName Presence: [FAIL] Ошибка записи в базу: ${it.message}")
+      }
+      ref.onDisconnect().removeValue()
+    } else {
+      Log.i("YkisLog", "$methodName Presence: [OFF] Удаление метки из ветки: $chatId")
+      ref.removeValue()
+    }
+  }
+
 
   fun readFromDatabase(role: UserRole, senderUid: String, osbbId: Int, addressId: Int) {
     val methodName = "ChatVM.readFromDatabase"
 
     viewModelScope.launch {
-      // 1. ОЖИДАНИЕ АВТОРИЗАЦИИ (Критично для холодного старта)
+      Log.d("YkisLog", "$methodName: [1. START] Запуск корутины. Ждем UID...")
+
+      // --- ШАГ 1: МОНИТОРИНГ ОЖИДАНИЯ UID ---
       var activeUid = chatRepo.currentUid
       var attempts = 0
-      while (activeUid == null && attempts < 20) { // Ждем до 2 секунд
+      while (activeUid == null && attempts < 20) {
+        attempts++
+        if (attempts % 5 == 0) { // Логируем каждые 0.5 сек
+          Log.w("YkisLog", "$methodName: [WAITING] Попытка $attempts... UID все еще NULL")
+        }
         delay(100)
         activeUid = chatRepo.currentUid
-        attempts++
       }
 
       if (activeUid == null) {
-        Log.e("YkisLog", "$methodName: [ABORT] Не удалось получить UID после ожидания")
+        Log.e("YkisLog", "$methodName: [ABORT] Не дождались UID за 2 секунды. Проверь Firebase Auth!")
         return@launch
       }
+      Log.i("YkisLog", "$methodName: [2. AUTH_OK] UID получен: ${activeUid.takeLast(5)}")
 
-      // 2. Сборка параметров
+      // --- ШАГ 2: СБОРКА ПАРАМЕТРОВ ---
       val effectiveOsbbId = when (role) {
         UserRole.VodokanalUser -> 9999
         UserRole.YtkeUser -> 9998
@@ -1401,61 +1428,50 @@ class ChatViewModel(
         else -> osbbId
       }
 
-      val targetPath = getChatPath(
-        role,
-        effectiveOsbbId,
-        addressId,
-        if (role != UserRole.StandardUser) senderUid else null
-      )
+      val targetPath = getChatPath(role, effectiveOsbbId, addressId, if (role != UserRole.StandardUser) senderUid else null)
       val currentRef = chatsReference.child(targetPath)
 
-      // 3. Защита от дубликатов
-      if (currentChatPath == targetPath && listeners.containsKey(currentRef) && _firebaseTest.value.isNotEmpty()) {
-        Log.d("YkisLog", "$methodName: [SKIP] Чат уже активен: $targetPath")
+      if (currentChatPath == targetPath && listeners.containsKey(currentRef)) {
+        Log.d("YkisLog", "$methodName: [SKIP] Чат уже активен. Сбрасываем только Presence.")
+        setPresence(targetPath, true) // На всякий случай обновляем статус "онлайн"
         return@launch
       }
 
-      Log.d("YkisLog", "$methodName: [FORCE_INIT] Открываем: $targetPath | UID: ${activeUid.takeLast(5)}")
+      Log.d("YkisLog", "$methodName: [3. FORCE_INIT] Настройка пути: $targetPath")
       currentChatPath = targetPath
       _firebaseTest.value = emptyList()
 
-      // 4. Очистка старых слушателей
-      listeners.forEach { (ref, listener) -> ref.removeEventListener(listener) }
-      listeners.clear()
+      // --- ШАГ 3: ЧИСТКА ---
+      if (listeners.isNotEmpty()) {
+        Log.v("YkisLog", "$methodName: [CLEANUP] Удаляем старые слушатели (${listeners.size})")
+        listeners.forEach { (ref, listener) -> ref.removeEventListener(listener) }
+        listeners.clear()
+      }
 
-      // 5. Установка слушателя
+      // --- ШАГ 4: СЛУШАТЕЛЬ ---
       val listener = object : ValueEventListener {
         override fun onDataChange(snapshot: DataSnapshot) {
           if (currentChatPath != targetPath) return
 
-          // Обработка данных
           viewModelScope.launch(Dispatchers.Main) {
-            val currentActiveUid = chatRepo.currentUid ?: ""
-            Log.d("YkisLog", "DEBUG_DATA: Снапшот в $targetPath | Детей: ${snapshot.childrenCount} | Я: ${currentActiveUid.takeLast(5)}")
+            Log.d("YkisLog", "$methodName: Пришли данные для $targetPath | Детей: ${snapshot.childrenCount}")
 
-            if (!snapshot.exists()) {
-              Log.w("YkisLog", "$methodName: [EMPTY] Ветка пуста")
-              _firebaseTest.value = emptyList()
-              return@launch
-            }
-
-            // Парсинг в Default, обновление в Main
-            val filtered = withContext(Dispatchers.Default) {
+            val rawMessages = withContext(Dispatchers.Default) {
               snapshot.children.mapNotNull { it.getValue(MessageEntity::class.java) }
-                .filter { msg ->
-                  // Если UID все еще грузится (крайний случай), показываем всё
-                  if (currentActiveUid.isBlank()) true
-                  else msg.deletedFor == null || !msg.deletedFor.contains(currentActiveUid)
-                }
-                .sortedBy { it.timestamp }
             }
+
+            val filtered = rawMessages.filter { msg ->
+              chatRepo.currentUid?.let { uid ->
+                msg.deletedFor == null || !msg.deletedFor.contains(uid)
+              } ?: true
+            }.sortedBy { it.timestamp }
 
             _firebaseTest.value = filtered.toList()
-            Log.d("YkisLog", "$methodName: [RENDER] Сообщений в UI: ${filtered.size}")
+            Log.d("YkisLog", "$methodName: [SUCCESS] UI обновлен. Сообщений: ${filtered.size}")
 
-            // Авто-прочтение
+            // Auto-read
             filtered.lastOrNull()?.let { last ->
-              if (last.senderUid != currentActiveUid && !last.read) {
+              if (last.senderUid != chatRepo.currentUid && !last.read) {
                 markMessagesAsRead(targetPath)
               }
             }
@@ -1463,29 +1479,51 @@ class ChatViewModel(
         }
 
         override fun onCancelled(error: DatabaseError) {
-          Log.e("YkisLog", "$methodName: [CANCEL] ${error.message}")
+          Log.e("YkisLog", "$methodName: [ERROR] Firebase: ${error.message}")
         }
       }
 
       currentRef.addValueEventListener(listener)
       listeners[currentRef] = listener
+
+      // --- ШАГ 5: PRESENCE ---
+      setPresence(targetPath, true)
       observeTypingStatus(targetPath)
     }
   }
 
-
-
-
   fun clearCurrentChatPath() {
-    val chatId = currentChatPath // запоминаем текущий
-    currentChatPath = null
-    _isPartnerTyping.value = false // Сбрасываем флаг для UI
+    val methodName = "ChatVM.clearCurrentChatPath"
+    val chatId = currentChatPath // Запоминаем путь перед очисткой
 
-    // Убираем себя из списка печатающих при выходе
-    if (chatId != null) {
-      setTypingStatus(false)
+    if (chatId == null) {
+      Log.d("YkisLog", "$methodName: [SKIP] Путь уже пуст, чистка не требуется")
+      return
     }
+
+    Log.d("YkisLog", "$methodName: [START] Выход из чата: $chatId")
+
+    // 1. Сбрасываем локальные флаги UI
+    currentChatPath = null
+    _isPartnerTyping.value = false
+
+    // 2. Убираем статус "печатает..." в Firebase
+    setTypingStatus(false)
+
+    // 3. КРИТИЧНО ДЛЯ ПУШЕЙ: Убираем статус присутствия (Presence)
+    // Теперь сервер будет знать, что мы вышли, и при новом сообщении пришлет Push
+    setPresence(chatId, false)
+
+    // 4. Чистим слушатели (чтобы не потреблять трафик в фоне)
+    if (listeners.isNotEmpty()) {
+      Log.d("YkisLog", "$methodName: [CLEANUP] Удаление слушателей сообщений для: $chatId")
+      listeners.forEach { (ref, listener) -> ref.removeEventListener(listener) }
+      listeners.clear()
+    }
+
+    Log.i("YkisLog", "$methodName: [SUCCESS] Контекст чата полностью очищен")
   }
+
 
 
   fun deleteChatThreads(uid: String, osbbId: Int, addressId: Int) {
@@ -2015,7 +2053,7 @@ class ChatViewModel(
 
     Log.d(
       "YkisLog",
-      "ChatPath: [RESULT] $path | Role: $role | Final_SysID: $sysId | Final_AddrID: $addressId"
+      "$methodName: [RESULT] $path | Role: $role | Final_SysID: $sysId | Final_AddrID: $addressId"
     )
 
     return path
