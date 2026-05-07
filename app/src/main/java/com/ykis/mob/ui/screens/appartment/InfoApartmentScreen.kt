@@ -22,6 +22,7 @@ import androidx.window.layout.DisplayFeature
 import com.ykis.mob.R
 import com.ykis.mob.core.composable.DialogCancelButton
 import com.ykis.mob.core.composable.DialogConfirmButton
+import com.ykis.mob.domain.UserRole
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.YkisPamAppState
 import com.ykis.mob.ui.components.appbars.DefaultAppBar
@@ -104,15 +105,19 @@ fun InfoApartmentScreen(
         onDrawerClick = onDrawerClicked,
         navigationType = navigationType,
         actionButton = {
-          IconButton(onClick = { showWarningDialog = true }) {
-            Icon(
-              imageVector = Icons.Default.Delete,
-              contentDescription = stringResource(id = R.string.delete_appartment),
-              tint = MaterialTheme.colorScheme.error
-            )
+          // Проверяем роль: кнопка удаления видна только Жильцу
+          if (baseUIState.userRole == UserRole.StandardUser) {
+            IconButton(onClick = { showWarningDialog = true }) {
+              Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = stringResource(id = R.string.delete_appartment),
+                tint = MaterialTheme.colorScheme.error
+              )
+            }
           }
         }
       )
+
     }
   ) { innerPadding ->
     Column(
