@@ -1,8 +1,6 @@
 package com.ykis.mob.ui.screens.chat
 
 import MessageListItem
-import android.R.attr.mimeType
-import android.R.attr.onClick
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -14,16 +12,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,20 +50,18 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
-import com.ykis.mob.R
 import com.ykis.mob.domain.UserRole
 import com.ykis.mob.ui.BaseUIState
 import com.ykis.mob.ui.components.appbars.DefaultAppBar
 import com.ykis.mob.ui.navigation.CameraScreenDest
-import com.ykis.mob.ui.navigation.ContentDetail
 import com.ykis.mob.ui.navigation.ImageDetailScreenDest
 import com.ykis.mob.ui.navigation.NavigationType
 import com.ykis.mob.ui.navigation.SendImageScreenDest
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -86,46 +79,42 @@ sealed class ChatItem {
 
 @Composable
 fun ChatScreenStateful(
-  chatViewModel: ChatViewModel,
+  chatViewModel: ChatViewModel, // Без koinViewModel(), получаем из навигатора
   baseUIState: BaseUIState,
   navController: NavHostController,
   navigationType: NavigationType
 ) {
   val selectedUser by chatViewModel.selectedUser.collectAsStateWithLifecycle()
-  val selectedService by chatViewModel.selectedService.collectAsStateWithLifecycle()
 
-  // Логика определения chatUid.
-  // Извлекаем конкретное значение UID, чтобы remember реагировал на смену пользователя
-  val targetUid = selectedUser.uid ?: ""
-
-  val chatUid = remember(baseUIState.userRole, targetUid, baseUIState.uid) {
-    Log.d("YkisLog", "RootNavGraph.chatUid: [CALC] Role: ${baseUIState.userRole} | TargetUID: $targetUid")
-    if (baseUIState.userRole == UserRole.StandardUser) {
-      baseUIState.uid.toString()
+  // Вычисляем UID здесь - это гарантирует, что при смене selectedUser (для Админа)
+  // chatUid пересчитается и дернет LaunchedEffect в ChatScreenContent
+  val chatUid = remember(baseUIState.userRole, selectedUser, baseUIState.uid) {
+    val uid = if (baseUIState.userRole == UserRole.StandardUser) {
+      baseUIState.uid?.toString() ?: ""
     } else {
-      targetUid // Для админа ТБО это будет qf2p7ogvjn...
+      selectedUser?.uid ?: ""
     }
+    Log.d("YkisLog", "ChatScreenStateful: [RE-CALC] UID: ${uid.takeLast(5)}")
+    uid
   }
 
-
-
-  // ВЫЗОВ В СТРОГОМ СООТВЕТСТВИИ С КОНСТРУКТОРОМ ChatScreenContent
   ChatScreenContent(
-    modifier = Modifier,                         // 0. Modifier (если он первый в функции)
-    userEntity = selectedUser ?: UserEntity(),   // 1. userEntity
-    chatViewModel = chatViewModel,               // 2. chatViewModel
+    userEntity = selectedUser ?: UserEntity(),
+    chatViewModel = chatViewModel,
     baseUIState = baseUIState,
-    navigationType = navigationType,// 3. baseUIState
-    navigateBack = { navController.popBackStack() }, // 4. navigateBack
-    navigateToSendImageScreen = { navController.navigate(SendImageScreenDest.route) }, // 5
-    chatUid = chatUid,                           // 6. chatUid
-    navigateToCameraScreen = { navController.navigate(CameraScreenDest.route) }, // 7
-    navigateToImageDetailScreen = { message ->   // 8
+    navigationType = navigationType,
+    chatUid = chatUid, // Передаем вычисленный здесь UID
+    navigateBack = { navController.navigateUp() },
+    navigateToSendImageScreen = { navController.navigate(SendImageScreenDest.route) },
+    navigateToCameraScreen = { navController.navigate(CameraScreenDest.route) },
+    navigateToImageDetailScreen = { message ->
       chatViewModel.setSelectedMessage(message)
       navController.navigate(ImageDetailScreenDest.route)
     }
   )
 }
+
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreenContent(
@@ -156,6 +145,7 @@ fun ChatScreenContent(
   val focusManager = LocalFocusManager.current
   val keyboardController = LocalSoftwareKeyboardController.current
   val listState = rememberLazyListState()
+  val screenScope = rememberCoroutineScope() // Scope, привязанный к жизни этого экрана
 
   val myUid = baseUIState.uid.toString()
 
@@ -170,56 +160,77 @@ fun ChatScreenContent(
     }
   }
 
-  val chatItems = remember(messageList) {
-    messageList
-      .filter { msg -> !msg.deletedFor.contains(myUid) }
-      .groupBy { formatDate(it.timestamp) }
+  val chatItems = remember(messageList, myUid) {
+    Log.d("YkisLog", "ChatScreenContent.UI_FILTER: На входе ${messageList.size} сообщений. Мой UID: $myUid")
+
+    val filtered = messageList.filter { msg ->
+      val deletedList = msg.deletedFor ?: emptyList()
+      val isDeletedByMe = deletedList.contains(myUid)
+
+      if (isDeletedByMe) {
+        Log.v("YkisLog", "ChatScreenContent.UI_FILTER: Сообщение ${msg.timestamp} скрыто")
+      }
+      !isDeletedByMe
+    }
+
+    Log.d("YkisLog", "ChatScreenContent.UI_FILTER: После фильтра осталось ${filtered.size}")
+
+    filtered.groupBy { formatDate(it.timestamp) }
       .flatMap { (date, messages) ->
         listOf(ChatItem.DateHeader(date)) + messages.map { ChatItem.MessageItem(it) }
       }
   }
 
   // --- 2. ЭФФЕКТЫ ---
+
+  // КРИТИЧЕСКИЙ ФИКС: Запуск загрузки данных при входе на экран.
+  // Теперь это защищено Scope-ом экрана и не умрет при переходе.
+  // 1. Достаем живой Scope экрана (в начале ChatScreenContent)
+
+// 2. Исправленный LaunchedEffect
+  // Включаем userEntity.uid в список ключей (для Админа это критично!)
+  // Внутри ChatScreenContent.kt
+  LaunchedEffect(baseUIState.addressId, baseUIState.userRole, chatUid, userEntity.uid) {
+    val role = baseUIState.userRole
+    // Для админа берем адрес из объекта пользователя, для жильца - из стейта
+    val addrId = if (role == UserRole.StandardUser) baseUIState.addressId else userEntity.addressId ?: 0
+    val targetUid = if (role == UserRole.StandardUser) chatUid else userEntity.uid ?: ""
+
+    if (role != UserRole.Unknown && addrId > 0 && targetUid.isNotBlank()) {
+      Log.i("YkisLog", "ChatScreen: [READY_TO_LOAD] Role: $role | Addr: $addrId | Target: $targetUid")
+
+      // Вызываем наш "силовой" метод с GlobalScope, который мы написали ранее
+      chatViewModel.readFromDatabase(
+        role = role,
+        senderUid = targetUid,
+        osbbId = currentChatOsbbId,
+        addressId = addrId
+      )
+    } else {
+      Log.w("YkisLog", "ChatScreen: [WAIT_SYNC] Недостаточно данных для старта. " +
+        "Role: $role, Addr: $addrId, UID: $targetUid")
+    }
+  }
+
+
+
+
   DisposableEffect(Unit) {
     onDispose {
-
-      // 1. Сначала говорим базе, что мы закончили печатать
       chatViewModel.setTypingStatus(false)
-      Log.d("YkisLog", "Chat: [DISPOSE] Выход из чата закончили печатать")
-      // 2. И только потом чистим пути
-
+      Log.d("YkisLog", "ChatScreenContent.Chat: [DISPOSE] Выход из чата")
       chatViewModel.clearCurrentChatPath()
-      Log.d("YkisLog", "Chat: [DISPOSE] Очистка пути чата")
     }
   }
-
-  // КРИТИЧЕСКИЙ ФИКС: Эта загрузка должна срабатывать ТОЛЬКО для жильца.
-  // Админ уже вызвал readFromDatabase в методе openChatWithUser при клике в списке.
-  LaunchedEffect(chatUid, baseUIState.addressId) {
-    val role = baseUIState.userRole
-
-    if (role == UserRole.StandardUser) {
-      if (chatUid.isNotEmpty() && baseUIState.addressId > 0) {
-        Log.d("YkisLog", "Chat: [INIT_RESIDENT] Загрузка сообщений для о/р: ${baseUIState.addressId}")
-        chatViewModel.readFromDatabase(
-          role = role,
-          senderUid = chatUid,
-          osbbId = currentChatOsbbId,
-          addressId = baseUIState.addressId
-        )
-      }
-    } else {
-      // Для админа просто подтверждаем в логах, что мы на экране
-      Log.d("YkisLog", "Chat: [INIT_ADMIN] Экран открыт для ${userEntity.displayName}")
-    }
-  }
-
 
   LaunchedEffect(chatItems.size) {
     if (chatItems.isNotEmpty()) {
+      // Добавляем небольшую задержку для плавности прокрутки после отрисовки
+      delay(100)
       listState.animateScrollToItem(chatItems.size - 1)
     }
   }
+
   // --- ЛОГИКА ЗАГОЛОВКА ---
   val appBarTitle = remember(baseUIState, selectedService, isForwardingMode) {
     if (isForwardingMode) "Переслати повідомлення"
@@ -227,7 +238,6 @@ fun ChatScreenContent(
       if (selectedService?.name == "OSBB") baseUIState.osbb ?: "ОСББ"
       else selectedService?.name ?:""
     } else {
-      // Для админа заголовок — это адрес жильца
       userEntity.displayName?.substringBefore("|")?.trim() ?: "Чат"
     }
   }
@@ -235,13 +245,11 @@ fun ChatScreenContent(
   val appBarSubtitle = remember(baseUIState, userEntity, isPartnerTyping) {
     if (isPartnerTyping) "друкує..."
     else if (baseUIState.userRole == UserRole.StandardUser) {
-      baseUIState.address // Адрес как подзаголовок для жильца
+      baseUIState.address
     } else {
-      // Имя жильца как подзаголовок для админа
       userEntity.displayName?.substringAfter("|")?.trim()
     }
   }
-
 
   // --- 3. UI СТРУКТУРА ---
   Scaffold(
@@ -352,34 +360,70 @@ fun ChatScreenContent(
     LazyColumn(
       modifier = Modifier
         .fillMaxSize()
-        .padding(innerPadding), // Scaffold сам даст отступ сверху и снизу
+        // 1. Используем только верхний отступ из Scaffold, чтобы не перекрывать TopBar
+        .padding(top = innerPadding.calculateTopPadding())
+        // 2. Автоматически поднимаем список, когда открывается клавиатура
+        .imePadding(),
       state = listState,
-      contentPadding = PaddingValues(8.dp, 8.dp, 8.dp, 8.dp),
+      // 3. Главный фикс "невидимки": bottom = 100.dp позволяет прокрутить
+      // последнее сообщение выше кнопок и текстового поля
+      contentPadding = PaddingValues(
+        start = 8.dp,
+        end = 8.dp,
+        top = 8.dp,
+        bottom = 100.dp
+      ),
       verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+      // Используем прямой обход списка для корректной работы stickyHeader и item
       chatItems.forEach { chatItem ->
         when (chatItem) {
-          is ChatItem.DateHeader -> stickyHeader { DateChip(date = chatItem.date) }
-          is ChatItem.MessageItem -> item(key = "${chatItem.message.id}_${chatItem.message.timestamp}") {
-            MessageListItem(
-              uid = myUid,
-              isUserAdmin = baseUIState.userRole != UserRole.StandardUser,
-              messageEntity = chatItem.message,
-              onLongClick = { chatViewModel.showDeleteConfirmation(chatItem.message) },
-              onClick = {
-                Log.d("YkisLog", "Chat: [IMAGE_CLICK] Открытие детального просмотра")
-                keyboardController?.hide()
-                navigateToImageDetailScreen(chatItem.message)
-              },
-              onFileClick = { fileUrl ->
-                Log.d("YkisLog", "Chat: [FILE_OPEN] URL: $fileUrl")
-                try { uriHandler.openUri(fileUrl) } catch (e: Exception) { Log.e("YkisLog", "Uri error: ${e.message}") }
+          is ChatItem.DateHeader -> {
+            stickyHeader(key = "date_${chatItem.date}") {
+              DateChip(date = chatItem.date)
+            }
+          }
+          is ChatItem.MessageItem -> {
+            // 1. Формируем ключи и данные для лога
+            val msgId = chatItem.message.id
+            val msgTime = chatItem.message.timestamp
+            val isRead = chatItem.message.read // Поле статуса прочтения
+            val uniqueKey = "msg_${msgId}_$msgTime"
+
+            // 2. ЛОГИРУЕМ КАЖДЫЙ ЭЛЕМЕНТ ПРИ ОТРИСОВКЕ
+            // Добавлено поле Read для отслеживания статуса в UI
+            Log.v("YkisLog", "UI_ITEM_DRAW: ID=$msgId | Read=$isRead | Text=${chatItem.message.text?.take(15)}...")
+
+            item(key = uniqueKey) {
+              MessageListItem(
+                uid = myUid,
+                isUserAdmin = baseUIState.userRole != UserRole.StandardUser,
+                messageEntity = chatItem.message,
+                onLongClick = { chatViewModel.showDeleteConfirmation(chatItem.message) },
+                onClick = {
+                  keyboardController?.hide()
+                  navigateToImageDetailScreen(chatItem.message)
+                },
+                onFileClick = { fileUrl ->
+                  try {
+                    uriHandler.openUri(fileUrl)
+                  } catch (e: Exception) {
+                    Log.e("YkisLog", "Uri error")
+                  }
+                }
+              )
+
+              // ЛОГ ФИНАЛЬНОГО ЭЛЕМЕНТА
+              // Добавлено поле Read в финальный лог
+              if (chatItems.indexOf(chatItem) == chatItems.size - 1) {
+                Log.d("YkisLog", "UI_VISIBLE_FINAL: [!!!] Последний: ID=$msgId, Read=$isRead, Text=${chatItem.message.text}")
               }
-            )
+            }
           }
         }
       }
     }
+
   }
 
 

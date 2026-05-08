@@ -79,6 +79,7 @@ enum class ContentDetail {
   STANDARD_USER,
   BTI,            // БТИ
   FAMILY,         // Состав семьи
+  UNKNOWN,           // ОСМД / ОСББ
   OSBB,           // ОСМД / ОСББ
   WATER_SERVICE,  // Водоканал
   WARM_SERVICE,   // Теплосеть

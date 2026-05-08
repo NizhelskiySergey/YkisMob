@@ -37,6 +37,7 @@ play-services-auth = "21.5.1"
 crashlytics = "3.0.7"
 room-runtime = "2.8.4"
 glance-appwidget = "1.1.1"
+shortcutbadger = "1.1.22"
 splashscreen="1.2.0"
 google-services = "4.4.4"
 material-design = "1.4.0"
@@ -128,6 +129,7 @@ play-services-auth = { group = "com.google.android.gms", name = "play-services-a
 androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance-appwidget" }
 androidx-splashscreen={group = "androidx.core" , name = "core-splashscreen" , version.ref ="splashscreen"}
 androidx-room-external-antlr = { group = "androidx.room", name = "room-external-antlr", version.ref = "roomExternalAntlr" }
+shortcutbadger = { module = "me.leolin:ShortcutBadger", version.ref = "shortcutbadger" }
 
 
 [plugins]

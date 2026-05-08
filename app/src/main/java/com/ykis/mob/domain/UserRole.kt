@@ -6,6 +6,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable // Обязательно добавь аннотацию
 enum class UserRole(val codeName: ContentDetail) {
+  @SerialName("UNKNOWN")
+  Unknown(ContentDetail.UNKNOWN),
+
   @SerialName("STANDARD_USER")
   StandardUser(ContentDetail.STANDARD_USER),
 

@@ -3,6 +3,7 @@ package com.ykis.mob
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -43,37 +44,27 @@ import com.ykis.mob.ui.screens.chat.ChatViewModel
 import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
-
   private var pressBackExitJob: Job? = null
   private var backPressedOnce = false
-
   @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
   override fun onCreate(savedInstanceState: Bundle?) {
     installSplashScreen()
     super.onCreate(savedInstanceState)
-
     // 1. Инициализация уведомлений
     createNotificationChannel()
     requestNotificationPermission()
     enableEdgeToEdge()
-
     // 2. Считываем данные из пуша для холодного старта
     val startChatId = intent.getStringExtra("chatId")
     if (!startChatId.isNullOrEmpty()) {
       Log.i("YkisLog", "MainActivity: [COLD_START] Обнаружен chatId в пуше: $startChatId")
-      // Мы НЕ вызываем processChatDeepLink здесь напрямую,
-      // так как это может вызвать конфликт до инициализации Compose.
-      // Вместо этого прокидываем его в YkisPamApp через initialChatId.
     }
-
     setContent {
       val settingsViewModel: NewSettingsViewModel = koinViewModel()
       val currentTheme by settingsViewModel.theme.collectAsState()
-
       YkisPAMTheme(appTheme = currentTheme ?: "system") {
         val windowSize = calculateWindowSizeClass(this)
         val displayFeatures = calculateDisplayFeatures(this)
-
         Surface(
           modifier = Modifier.fillMaxSize(),
           color = MaterialTheme.colorScheme.background
@@ -87,36 +78,43 @@ class MainActivity : ComponentActivity() {
         }
       }
     }
-
     setupDoubleBackExit()
     addFcmToken()
-  }
+    // 1. Принудительно чистим шторку уведомлений при открытии приложения
+    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    notificationManager.cancelAll()
+    Log.d("YkisLog", "MainActivity: [CLEANUP] Шторка уведомлений очищена при старте")
 
+    // 2. Синхронизируем бейдж на иконке (через Koin достаем ChatViewModel)
+    try {
+      val chatViewModel: ChatViewModel by inject()
+      // Нам нужно вызвать метод обновления.
+      // Но так как данные из Firebase могут еще не прийти (холодный старт),
+      // иконка обновится сама чуть позже через subscribeToUnreadCount во ViewModel.
+      // Здесь мы просто убеждаемся, что Badger готов.
+    } catch (e: Exception) {
+      Log.e("YkisLog", "MainActivity: [ERROR] Ошибка инициализации Badger: ${e.message}")
+    }
+  }
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent) // Перезаписываем интент для корректного считывания
-
     val chatId = intent.getStringExtra("chatId")
     if (!chatId.isNullOrEmpty()) {
       Log.i("YkisLog", "MainActivity: [NEW_INTENT] Получен клик по пушу (фон): $chatId")
-
       // Обработка переключения квартиры и сигнала для навигации
       processChatDeepLink(chatId)
     }
   }
-
   private fun processChatDeepLink(chatId: String?) {
     if (chatId.isNullOrBlank()) return
-
     Log.d("YkisLog", "MainActivity: [PROCESS_DEEP_LINK] Начало парсинга: $chatId")
-
     try {
       // Парсим адрес из строки (например: WATER_SERVICE_9999_1336_UID)
       val parts = chatId.split("_")
       if (parts.size >= 3) {
         // Извлекаем addressId (предпоследний элемент)
         val addressId = parts[parts.size - 2].toIntOrNull() ?: 0
-
         if (addressId != 0) {
           // Получаем ViewModel через Koin принудительно
           val apartmentViewModel: ApartmentViewModel by inject()
@@ -134,8 +132,9 @@ class MainActivity : ComponentActivity() {
     } catch (e: Exception) {
       Log.e("YkisLog", "MainActivity: [FATAL_DEEP_LINK] Ошибка: ${e.message}")
     }
+    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    notificationManager.cancelAll()
   }
-
   private fun createNotificationChannel() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       val channelId = "chat_messages"
@@ -150,7 +149,6 @@ class MainActivity : ComponentActivity() {
       Log.d("YkisLog", "MainActivity: [NOTIF] Канал 'chat_messages' готов")
     }
   }
-
   private fun requestNotificationPermission() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       val status = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -160,7 +158,6 @@ class MainActivity : ComponentActivity() {
       }
     }
   }
-
   private fun addFcmToken() {
     FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
       if (task.isSuccessful) {
@@ -168,7 +165,6 @@ class MainActivity : ComponentActivity() {
       }
     }
   }
-
   private fun setupDoubleBackExit() {
     onBackPressedDispatcher.addCallback(this) {
       if (backPressedOnce) { finish(); return@addCallback }

@@ -38,6 +38,7 @@ import com.ykis.mob.ui.screens.auth.sign_up.SignUpViewModel
 import com.ykis.mob.ui.screens.auth.sign_up.TermsAndConditionScreen
 import com.ykis.mob.ui.screens.chat.CameraScreen
 import com.ykis.mob.ui.screens.chat.ChatScreenContent
+import com.ykis.mob.ui.screens.chat.ChatScreenStateful
 import com.ykis.mob.ui.screens.chat.ChatViewModel
 import com.ykis.mob.ui.screens.chat.ImageDetailScreen
 import com.ykis.mob.ui.screens.chat.SendImageScreen
@@ -46,6 +47,7 @@ import com.ykis.mob.ui.screens.meter.MeterViewModel
 import com.ykis.mob.ui.screens.service.ServiceViewModel
 import com.ykis.mob.ui.screens.service.payment.choice.WebView
 import com.ykis.mob.ui.screens.settings.NewSettingsViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -75,38 +77,56 @@ fun RootNavGraph(
   val appState = rememberAppState()
   val scope = rememberCoroutineScope()
   var isMainScreen by rememberSaveable { mutableStateOf(false) }
-
   // Инъекция репозитория
 // Достаем текст (он уже должен быть загружен в init приложения или через fetchAndActivate)
   val termsText = remember { firebaseService.agreementText }
   // Инициализируем false, чтобы LaunchedEffect сработал на проверку
   var isAgreed by remember { mutableStateOf(false) }
-
   // Состояние бокового меню (Rail)
   var isRailExpanded by rememberSaveable {
     mutableStateOf(navigationType != NavigationType.BOTTOM_NAVIGATION)
   }
-
   val selectedUser by chatViewModel.selectedUser.collectAsStateWithLifecycle()
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
   val selectedImageUri by chatViewModel.selectedImageUri.collectAsStateWithLifecycle()
   val isSettingsLoading by newSettingsViewModel.loading.collectAsStateWithLifecycle()
   val pendingChatId by chatViewModel.pendingPushChatId.collectAsState()
   val currentFirebaseUid = firebaseService.uid
-
-
   LaunchedEffect(pendingChatId) {
     pendingChatId?.let { id ->
       Log.d("YkisLog", "Compose: [NAV_PUSH] Выполняем переход в чат: $id")
       // Твоя команда навигации, например:
       // navController.navigate("chat_screen/$id")
-
       // Обязательно сбрасываем маячок, чтобы не переходить повторно при повороте экрана
       chatViewModel.setPendingPushChatId(null)
     }
   }
-
-
+// 0. ОБРАБОТКА ХОЛОДНОГО СТАРТА (initialChatId)
+  LaunchedEffect(baseUIState.userRole, initialChatId) {
+    // 1. Ждем, когда приложение загрузит профиль админа
+    if (baseUIState.userRole != UserRole.Unknown && !initialChatId.isNullOrEmpty()) {
+      Log.d("YkisLog", "RootNavGraph: [PUSH_ACTION] Анализ пути: $initialChatId")
+      val parts = initialChatId.split("_")
+      if (parts.size >= 3) {
+        val addrId = parts[parts.size - 2].toIntOrNull() ?: 0
+        val targetUid = parts.last() // UID жильца
+        if (addrId != 0) {
+          // 2. Переключаем глобальный адрес
+          apartmentViewModel.setAddressId(addrId)
+          // 3. КРИТИЧНО ДЛЯ АДМИНА: «Выбираем» жильца в списке
+          // Нам нужно, чтобы chatViewModel нашла этого юзера в загруженном списке
+          // и установила его как активного собеседника
+          chatViewModel.selectUserByUid(targetUid)
+          // 4. ПЕРЕХОД
+          delay(400) // Даем UI-потоку "продышаться"
+          navController.navigate(ChatScreenDest.route) {
+            launchSingleTop = true
+          }
+          Log.i("YkisLog", "RootNavGraph: [PUSH_SUCCESS] Авто-вход в чат $addrId выполнен")
+        }
+      }
+    }
+  }
   // 1. ПЕРВИЧНАЯ ПРОВЕРКА СОГЛАСИЯ ПРИ ЗАПУСКЕ
   LaunchedEffect(Unit) {
     val methodName = "RootNavGraph.LaunchedEffect1"
@@ -114,10 +134,7 @@ fun RootNavGraph(
     Log.d("YkisLog", "$methodName: Чтение из кэша is_agreed = $agreedFromCache")
     isAgreed = agreedFromCache
   }
-
-
   // --- [ЗОЛОТОЙ ФОНД] ЛОГИКИ ПЕРЕХОДОВ ---
-  // ОСТАВЛЯЕМ ТОЛЬКО ЭТОТ ЭФФЕКТ
   LaunchedEffect(isAgreed, currentFirebaseUid) {
     val methodName = "RootNavGraph.LaunchedEffect2"
     val currentRoute = navController.currentDestination?.route
@@ -129,7 +146,6 @@ fun RootNavGraph(
       }
       return@LaunchedEffect
     }
-
     // 2. Если согласие ЕСТЬ, проверяем UID
     if (currentFirebaseUid.isNullOrBlank()) {
       // UID пустой -> Значит пользователь НЕ залогинен. Только AUTH!
@@ -150,9 +166,6 @@ fun RootNavGraph(
       }
     }
   }
-
-
-
   // Универсальное вычисление chatUid
   val chatUid = remember(baseUIState.userRole, baseUIState.apartment, selectedUser, baseUIState.uid) {
     val methodName = "RootNavGraph.chatUid"
@@ -166,13 +179,11 @@ fun RootNavGraph(
       UserRole.VodokanalUser, UserRole.YtkeUser, UserRole.TboUser -> {
         apartment.uid ?: ""
       }
-
       // --- ДЛЯ АДМИНА ОСББ ---
       // Он пишет конкретному человеку, выбранному из списка жильцов
       UserRole.OsbbUser -> {
         selectedUser?.uid ?: ""
       }
-
       // --- ДЛЯ ЖИТЕЛЯ ---
       UserRole.StandardUser -> {
         myUid ?: ""
@@ -180,7 +191,6 @@ fun RootNavGraph(
 
       else -> ""
     }
-
     // ПОДРОБНЫЙ ЛОГ ДЛЯ ТЕБЯ
     Log.d("YkisLog", "$methodName: [CALC] " +
       "Role: $userRole | " +
@@ -188,7 +198,6 @@ fun RootNavGraph(
       "ApartmentUID: ${apartment.uid} | " +
       "SelectedUserUID: ${selectedUser?.uid} | " +
       "RESULT_CHAT_UID: $resultUid")
-
     resultUid
   }
 
@@ -219,10 +228,7 @@ fun RootNavGraph(
         enterTransition = { EnterTransition.None },
         exitTransition = { ExitTransition.None }
       ) {
-        // Внутри RootNavGraph в блоке NavHost
-        // Внутри RootNavGraph -> NavHost
-
-        composable(route = Graph.TERMS_CONDITION) {
+           composable(route = Graph.TERMS_CONDITION) {
           TermsAndConditionScreen(
             termsText = termsText,
             firebaseService = firebaseService,
@@ -239,14 +245,11 @@ fun RootNavGraph(
             }
           )
         }
-
-
         // --- ГРАФ АВТОРИЗАЦИИ ---
         authNavGraph(
           navController = navController,
           signUpViewModel = signUpViewModel
         )
-
         // --- ГЛАВНЫЙ ЭКРАН ---
         composable(route = Graph.APARTMENT) {
           MainApartmentScreen(
@@ -267,8 +270,6 @@ fun RootNavGraph(
             navigateToWebView = { uri -> navController.navigateToWebView(uri) },
           )
         }
-
-
         // --- ВСТРОЕННЫЙ БРАУЗЕР ---
         composable(
           route = WebViewScreenDest.routeWithArgs,
@@ -277,26 +278,15 @@ fun RootNavGraph(
           val uri = navBackStackEntry.arguments?.getString(WebViewScreenDest.link)
           WebView(uri = uri.toString())
         }
-
         // --- ЭКРАН ЧАТА ---
         composable(ChatScreenDest.route) {
-          ChatScreenContent(
-            modifier = Modifier,
-            userEntity = selectedUser ?: UserEntity(),
-            chatViewModel = chatViewModel,
+          ChatScreenStateful(
+            chatViewModel = chatViewModel, // Тот самый koinViewModel() из начала RootNavGraph
             baseUIState = baseUIState,
-            navigationType = navigationType,
-            navigateBack = { navController.navigateUp() },
-            navigateToSendImageScreen = { navController.navigate(SendImageScreenDest.route) },
-            chatUid = chatUid,
-            navigateToCameraScreen = { navController.navigate(CameraScreenDest.route) },
-            navigateToImageDetailScreen = { message ->
-              chatViewModel.setSelectedMessage(message)
-              navController.navigate(ImageDetailScreenDest.route)
-            }
+            navController = navController,
+            navigationType = navigationType
           )
         }
-
         // --- ОТПРАВКА ФОТО ---
         composable(SendImageScreenDest.route) {
           val messageText by chatViewModel.messageText.collectAsStateWithLifecycle()

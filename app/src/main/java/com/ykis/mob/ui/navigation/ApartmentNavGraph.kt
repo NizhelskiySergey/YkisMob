@@ -159,17 +159,12 @@ fun MainApartmentScreen(
       }
     }
   }
-
-
-
-
   // Инициализация профиля
   LaunchedEffect(currentFirebaseUid) {
     if (baseUIState.uid == null) {
       apartmentViewModel.observeUserProfile()
     }
   }
-
   // 4. ГРАФ НАВИГАЦИИ (MovableContent для плавности переходов)
   val movableApartmentNavGraph =
     remember(baseUIState, contentType, navigationType, firstDestination, isDataReady) {
@@ -203,7 +198,6 @@ fun MainApartmentScreen(
         }
       }
     }
-
   // 5. UI СТРУКТУРА (Телефон vs Планшет)
   if (navigationType == NavigationType.BOTTOM_NAVIGATION) {
     ModalNavigationDrawer(
@@ -349,48 +343,37 @@ fun ApartmentNavGraph(
             navigationType = navigationType,
             onDrawerClicked = onDrawerClicked,
 
-            // УНИВЕРСАЛЬНЫЙ КЛИК:
-            // Для админа это выбор ЖИЛЬЦА, для жильца — выбор своей КВАРТИРЫ
             onUserClicked = { selectedItem ->
               val role = baseUIState.userRole
 
               if (role == UserRole.StandardUser) {
-                // ЛОГИКА ЖИЛЬЦА: Клик по своей квартире в списке
+                // ЛОГИКА ЖИЛЬЦА
                 Log.d("YkisLog", "NavGraph: [RESIDENT_ACTION] Выбрана квартира: ${selectedItem.address}")
 
-                // 1. Синхронизируем глобальный адрес (чтобы счетчики/инфо обновились)
+                // 1. Синхронизируем адрес (для счетчиков)
                 apartmentViewModel.setAddressId(selectedItem.addressId)
 
-                // 2. Инициализируем загрузку чата
-                chatViewModel.readFromDatabase(
-                  role = role,
-                  senderUid = baseUIState.uid ?: "",
-                  osbbId = selectedItem.osbbId ?: baseUIState.osbbId ?: 0,
-                  addressId = selectedItem.addressId
-                )
+                // Загрузка во вьюмодели запустится сама через LaunchedEffect на экране чата
               } else {
-                // ЛОГИКА АДМИНА: Клик по жильцу
+                // ЛОГИКА АДМИНА
                 val sysId = when (role) {
                   UserRole.VodokanalUser -> 9999
                   UserRole.YtkeUser -> 9998
                   UserRole.TboUser -> 9997
                   else -> baseUIState.osbbId ?: 0
                 }
-                Log.d("YkisLog", "NavGraph: [ADMIN_ACTION] Клик по жильцу: ${selectedItem.displayName}")
+                Log.d("YkisLog", "NavGraph: [ADMIN_ACTION] Клик по жильцу: ${selectedItem.displayName} | AddrId: ${selectedItem.addressId}")
+
+                // КРИТИЧЕСКИЙ ВОЗВРАТ: Устанавливаем пользователя во вьюмодель,
+                // чтобы ChatScreenStateful увидел UID и AddressId
                 chatViewModel.openChatWithUser(selectedItem, role, sysId)
               }
 
-              // ОБЩИЙ ПЕРЕХОД: в экран сообщений
+              // ОБЩИЙ ПЕРЕХОД
               rootNavController.navigate(ChatScreenDest.route)
-            },
-
-            // Этот коллбек для жильца в UserListScreen больше не используется,
-            // так как выбор службы теперь происходит на ServiceSelectorScreen
-//            onServiceClick = { }
+            }
           )
         }
-
-
         composable(AddApartmentScreen.route) {
           AddApartmentScreenContent(
             viewModel = apartmentViewModel,
@@ -400,7 +383,6 @@ fun ApartmentNavGraph(
             closeContentDetail = { closeContentDetail() }
           )
         }
-
         composable(SettingsScreenDest.route) {
           SettingsScreenStateful(
             navigationType = navigationType,
