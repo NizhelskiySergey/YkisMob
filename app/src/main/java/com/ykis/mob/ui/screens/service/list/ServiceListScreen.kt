@@ -48,7 +48,7 @@ fun assembleServiceList(
     serviceList.add(
       TotalServiceDebt(
         // ГАРАНТИРУЕМ ТЕКСТ: если имя ОСББ пустое, пишем "Мой ОСББ" или берем из ресурсов
-        name = baseUIState.osbb.ifBlank { stringResource(R.string.my_osbb) },
+        name =  stringResource(R.string.my_osbb) ,
         color = MaterialTheme.colorScheme.extendedColor.sectorColor4.color,
         debt = totalDebtState.totalDebt.dolg4 ?: 0.0,
         icon = Icons.Default.CorporateFare,

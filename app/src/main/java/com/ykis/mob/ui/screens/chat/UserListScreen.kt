@@ -80,26 +80,50 @@ fun UserListScreen(
 
   Column(modifier = modifier.fillMaxSize()) {
     // 1. ВЕРХНЯЯ ПАНЕЛЬ
-    DefaultAppBar(
-      title = if (baseUIState.userRole == UserRole.StandardUser) {
-        selectedService?.name ?: stringResource(id = R.string.chat)
-      } else {
-        stringResource(id = R.string.chat)
-      },
-      subtitle = if (baseUIState.userRole == UserRole.StandardUser) "Ваші адреси" else "",
-      onDrawerClick = onDrawerClicked,
-      canNavigateBack = true, // Теперь всегда можно вернуться к выбору организации
-      onBackClick = {
-        if (isForwardingMode) {
-          chatViewModel.cancelForwarding()
+    // Вставляем расчет заголовка с логированием прямо перед вызовом DefaultAppBar
+
+    // Внутри ChatScreenContent.kt
+    val appBarTitle = remember(baseUIState.userRole, selectedService) {
+      val role = baseUIState.userRole
+      val serviceName = selectedService?.name ?: ""
+
+      val result = if (role == UserRole.StandardUser) {
+        // Если это жилец и он пришел из раздела ОСББ (проверяем по префиксу или по факту роли)
+        // Если имя сервиса содержит "ОСББ" или мы знаем, что это не горслужба
+        if (serviceName.contains("ОСББ", ignoreCase = true) || selectedService?.name == "") {
+          "ОСББ чати"
         } else {
-          // Просто возвращаемся назад в NavGraph на ServiceSelectorScreen
-          chatViewModel.setSelectedService(null)
-          onDrawerClicked() // Или используйте navController.popBackStack() в вызывающем коде
+          serviceName // Для Водоканала, ТБО и т.д. останется их имя
         }
+      } else {
+        "список доступних чатів"
+      }
+
+      Log.d("YkisLog", "UserListScreen.AppBar: [FIXED_TITLE] Result: $result | Original: $serviceName")
+      result
+    }
+
+
+
+    DefaultAppBar(
+      title = appBarTitle,
+      subtitle = if (baseUIState.userRole == UserRole.StandardUser) {
+        Log.d("YkisLog", "UserListScreen.AppBar: [SUBTITLE] Ваші адреси (Жилец)")
+        "Ваші адреси"
+      } else {
+        ""
+      },
+      onDrawerClick = onDrawerClicked,
+      canNavigateBack = true,
+      onBackClick = {
+        Log.d("YkisLog", "UserListScreen.AppBar: [BACK_CLICK] Сброс сервиса и выход")
+        chatViewModel.setSelectedService(null)
+        onDrawerClicked()
       },
       navigationType = navigationType
     )
+
+
 
     // 2. ПОИСК (Универсальный)
     if (baseUIState.userRole != UserRole.StandardUser && !isForwardingMode) {

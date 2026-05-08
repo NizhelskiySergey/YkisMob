@@ -231,25 +231,44 @@ fun ChatScreenContent(
     }
   }
 
-  // --- ЛОГИКА ЗАГОЛОВКА ---
-  val appBarTitle = remember(baseUIState, selectedService, isForwardingMode) {
-    if (isForwardingMode) "Переслати повідомлення"
-    else if (baseUIState.userRole == UserRole.StandardUser) {
-      if (selectedService?.name == "OSBB") baseUIState.osbb ?: "ОСББ"
-      else selectedService?.name ?:""
+
+  // --- ЛОГИКА ЗАГОЛОВКА (TITLE) ---
+  // --- ЛОГИКА ЗАГОЛОВКА (TITLE) ---
+  val appBarTitle = remember(baseUIState.osbb, selectedService, isForwardingMode, baseUIState.userRole, userEntity) {
+    if (isForwardingMode) {
+      "Переслати повідомлення"
+    } else if (baseUIState.userRole == UserRole.StandardUser) {
+      val serviceName = selectedService?.name ?: ""
+      if (serviceName.contains("ОСББ", ignoreCase = true)) {
+        baseUIState.osbb ?: "ОСББ"
+      } else {
+        serviceName
+      }
     } else {
+      // АДМИН: Основной заголовок — это АДРЕС (берем часть ДО черты '|')
       userEntity.displayName?.substringBefore("|")?.trim() ?: "Чат"
     }
   }
 
-  val appBarSubtitle = remember(baseUIState, userEntity, isPartnerTyping) {
-    if (isPartnerTyping) "друкує..."
-    else if (baseUIState.userRole == UserRole.StandardUser) {
-      baseUIState.address
+// --- ЛОГИКА ПОДЗАГОЛОВКА (SUBTITLE) ---
+  val appBarSubtitle = remember(baseUIState.address, userEntity, isPartnerTyping, baseUIState.userRole) {
+    if (isPartnerTyping) {
+      "друкує..."
+    } else if (baseUIState.userRole == UserRole.StandardUser) {
+      baseUIState.address ?: ""
     } else {
-      userEntity.displayName?.substringAfter("|")?.trim()
+      // АДМИН: Подзаголовок — это ЛИЦЕВОЙ СЧЕТ (о/р)
+      // Если поле accountNumber пустое, выводим ФИО (часть ПОСЛЕ черты '|')
+      val accountNum = userEntity.addressId
+      if (accountNum !=0) {
+        "о/р: $accountNum"
+      } else {
+        userEntity.displayName?.substringAfter("|")?.trim() ?: ""
+      }
     }
   }
+
+
 
   // --- 3. UI СТРУКТУРА ---
   Scaffold(
