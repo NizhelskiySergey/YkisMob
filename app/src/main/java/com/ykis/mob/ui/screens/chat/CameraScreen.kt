@@ -18,9 +18,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -57,7 +59,7 @@ fun CameraScreen(
   val outputDirectory = context.filesDir
   var previewView: PreviewView? by remember { mutableStateOf(null) }
   var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
-
+  var isCapturing by remember { mutableStateOf(false) }
   val cameraPermissionLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.RequestPermission(),
     onResult = { isGranted ->
@@ -87,9 +89,7 @@ fun CameraScreen(
   }
 
   Box(
-    modifier = Modifier
-      .fillMaxSize()
-      .navigationBarsPadding(), // ГАРАНТИРУЕТ, что контент будет выше системных кнопок/полоски
+    modifier = Modifier.fillMaxSize().navigationBarsPadding(),
     contentAlignment = Alignment.BottomCenter
   ) {
     AndroidView(
@@ -101,22 +101,25 @@ fun CameraScreen(
       },
       modifier = Modifier.fillMaxSize()
     )
+
+    // Кнопка назад (блокируем, если снимаем)
     IconButton(
-      modifier = Modifier
-        .padding(8.dp)
-        .align(Alignment.TopStart),
-      onClick = { navController.navigateUp() }
+      modifier = Modifier.padding(8.dp).align(Alignment.TopStart),
+      onClick = { if (!isCapturing) navController.navigateUp() },
+      enabled = !isCapturing
     ) {
       Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
     }
+
+    // Кнопка затвора
     Button(
+      enabled = !isCapturing, // БЛОКИРУЕМ ПОВТОРНЫЙ КЛИК (как наш якорь 800 < 877)
       onClick = {
+        isCapturing = true // Включаем режим ожидания
+
         val photoFile = File(
           outputDirectory,
-          SimpleDateFormat(
-            "yyyy-MM-dd-HH-mm-ss-SSS",
-            Locale.US
-          ).format(System.currentTimeMillis()) + ".jpg"
+          SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US).format(System.currentTimeMillis()) + ".jpg"
         )
 
         val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
@@ -126,22 +129,31 @@ fun CameraScreen(
           ContextCompat.getMainExecutor(context),
           object : ImageCapture.OnImageSavedCallback {
             override fun onError(exc: ImageCaptureException) {
-              Log.e("CameraScreen", "Photo capture failed: ${exc.message}", exc)
-              Toast.makeText(context, "Невдалося зробити фото: ${exc.message}", Toast.LENGTH_SHORT)
-                .show()
+              isCapturing = false
+              Log.e("YkisLog", "CameraScreen: Capture failed: ${exc.message}")
+              Toast.makeText(context, "Помилка камери", Toast.LENGTH_SHORT).show()
             }
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-              val savedUri = Uri.fromFile(photoFile)
-              setImageUri(savedUri)
-              navController.navigate(SendImageScreenDest.route)
+              // КРИТИЧЕСКИЙ ФИКС: Запускаем навигацию с минимальной задержкой
+              // чтобы дать камере корректно закрыть файловый дескриптор
+              android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                val savedUri = Uri.fromFile(photoFile)
+                setImageUri(savedUri)
+                isCapturing = false
+                navController.navigate(SendImageScreenDest.route)
+              }, 300) // 300мс достаточно для финализации JPEG
             }
           }
         )
       },
-      modifier = Modifier.padding(16.dp)
+      modifier = Modifier.padding(32.dp) // Чуть больше отступ для удобства
     ) {
-      Text("Зробити фото")
+      if (isCapturing) {
+        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+      } else {
+        Text("Зробити фото")
+      }
     }
   }
 }
