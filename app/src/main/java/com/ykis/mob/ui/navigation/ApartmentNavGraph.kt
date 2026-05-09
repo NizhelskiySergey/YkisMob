@@ -94,63 +94,48 @@ fun MainApartmentScreen(
   val navBackStackEntry by navController.currentBackStackEntryAsState()
   val selectedDestination = navBackStackEntry?.destination?.route ?: InfoApartmentScreenDest.route
   val baseUIState by apartmentViewModel.uiState.collectAsStateWithLifecycle()
-
   val railWidth by animateDpAsState(
     targetValue = if (isRailExpanded) 280.dp else 80.dp,
     animationSpec = tween(400),
     label = "RailWidth"
   )
   val currentFirebaseUid = firebaseService.uid
-
   // 1. КОНТРОЛЬ ГОТОВНОСТИ ДАННЫХ
   val isDataReady = remember(baseUIState.uid, currentFirebaseUid, baseUIState.mainLoading,baseUIState.isApartmentsLoaded) {
     baseUIState.uid == currentFirebaseUid && !baseUIState.mainLoading
   }
-
   // 2. ВЫЧИСЛЕНИЕ СТАРТОВОГО МАРШРУТА
   val firstDestination = remember(baseUIState.userRole, baseUIState.addressId, isDataReady) {
     if (!isDataReady) return@remember "loading_buffer"
-
     val hasApartments = baseUIState.apartments.isNotEmpty()
     val isAddressSelected = baseUIState.addressId != 0 // ПРОВЕРКА: выбран ли адрес?
-
     when (baseUIState.userRole) {
       // ДЛЯ СЛУЖБ: Если адрес выбран (из поиска/списка) — на Info, иначе — на список чатов
       UserRole.VodokanalUser, UserRole.YtkeUser, UserRole.TboUser -> {
         if (isAddressSelected) InfoApartmentScreenDest.route else UserListScreen.route
       }
-
       // ДЛЯ ОСББ: Аналогично — если есть данные, идем в карточку
       UserRole.OsbbUser -> {
         if (isAddressSelected || hasApartments) InfoApartmentScreenDest.route else UserListScreen.route
       }
-
       // ДЛЯ ЖИТЕЛЯ: Если нет квартир — на добавление, если есть — на Info
       UserRole.StandardUser -> {
         if (!hasApartments) AddApartmentScreen.route else InfoApartmentScreenDest.route
       }
-
       else -> InfoApartmentScreenDest.route
     }
   }
-
-
   // 3. ФУНКЦИЯ ФИНАЛЬНОГО ВЫБОРА КВАРТИРЫ (Золотой фонд)
   val finalizeApartmentSelection: (Int) -> Unit = { id ->
     Log.d("YkisLog", "Main: [FINAL_SELECT] ID: $id")
-
     serviceViewModel.resetState()
     apartmentViewModel.setAddressId(id)
-
     // 1. Сначала полностью обнуляем стек
     cleanNavigateTo(navController, Graph.APARTMENT)
-
     coroutineScope.launch {
       if (drawerState.isOpen) drawerState.close()
-
       // 2. Даем навигатору "вздохнуть" после чистки стека
       delay(200)
-
       // 3. Переходим на Инфо БЕЗ попыток что-либо восстановить
       navController.navigate(InfoApartmentScreenDest.route) {
         popUpTo(navController.graph.startDestinationId) { inclusive = true }
